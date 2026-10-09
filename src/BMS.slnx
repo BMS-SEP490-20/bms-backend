@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="BMS.Api/BMS.Api.csproj" />
+  <Project Path="BMS.Application/BMS.Application.csproj" />
+  <Project Path="BMS.Core/BMS.Core.csproj" />
+  <Project Path="BMS.Infrastructure/BMS.Infrastructure.csproj" />
+</Solution>
