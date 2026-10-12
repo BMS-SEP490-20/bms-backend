@@ -49,6 +49,12 @@ public class MongoDbContext
         _database?.GetCollection<User>("users");
 
     /// <summary>
+    /// Collection persisting RBAC security roles and permission matrix ("roles").
+    /// </summary>
+    public IMongoCollection<RoleEntity>? Roles =>
+        _database?.GetCollection<RoleEntity>("roles");
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
