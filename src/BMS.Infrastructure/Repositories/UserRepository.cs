@@ -92,11 +92,19 @@ public class UserRepository : IUserRepository
         {
             try
             {
+                var roleParsed = Enum.TryParse<UserRole>(roleId, true, out var parsedRole);
+                var roleFilters = new List<FilterDefinition<User>>
+                {
+                    Builders<User>.Filter.Eq(u => u.RoleId, roleId)
+                };
+
+                if (roleParsed)
+                {
+                    roleFilters.Add(Builders<User>.Filter.Eq(u => u.Role, parsedRole));
+                }
+
                 var filter = Builders<User>.Filter.And(
-                    Builders<User>.Filter.Or(
-                        Builders<User>.Filter.Eq(u => u.RoleId, roleId),
-                        Builders<User>.Filter.Eq(u => u.Role, roleId)
-                    ),
+                    Builders<User>.Filter.Or(roleFilters),
                     Builders<User>.Filter.Eq(u => u.IsDeleted, false)
                 );
                 return await _context.Users.CountDocumentsAsync(filter, cancellationToken: ct);
@@ -109,7 +117,7 @@ public class UserRepository : IUserRepository
 
         return _memoryUsers.Values.Count(u =>
             !u.IsDeleted &&
-            (u.RoleId == roleId || u.Role.Equals(roleId, StringComparison.OrdinalIgnoreCase)));
+            (u.RoleId == roleId || u.Role.ToString().Equals(roleId, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>

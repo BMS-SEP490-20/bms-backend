@@ -80,7 +80,7 @@ public class UserService : IUserService
             Gender = "Male",
             Address = "123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh",
             BloodType = "O+",
-            Role = "Patient",
+            Role = UserRole.Patient,
             IsActive = true,
             AvatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop",
             CreatedAt = DateTime.UtcNow.AddMonths(-3)
@@ -109,7 +109,7 @@ public class UserService : IUserService
             Gender = user.Gender ?? "Male",
             Address = user.Address ?? "TP. Hồ Chí Minh, Việt Nam",
             BloodType = user.BloodType ?? "O+",
-            Role = user.Role,
+            Role = user.Role.ToString(),
             IsActive = user.IsActive,
             AvatarUrl = user.AvatarUrl,
             CreatedAt = user.CreatedAt.ToString("dd/MM/yyyy")

@@ -4,15 +4,27 @@ using MongoDB.Bson.Serialization.Attributes;
 namespace BMS.Core.Entities;
 
 /// <summary>
+/// System roles supported across the BMS platform.
+/// </summary>
+public enum UserRole
+{
+    Patient = 1,
+    Receptionist = 2,
+    Doctor = 3,
+    LaboratoryUser = 4,
+    Manager = 5,
+    Administrator = 6
+}
+
+/// <summary>
 /// Domain entity representing a clinical user or patient in the BMS platform.
-/// Maps to MongoDB collection "users".
+/// Supports both in-memory store and MongoDB collection "users".
 /// Conforms to: Production Engineering Standards & GDPR PII Security.
 /// </summary>
 public class User
 {
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; } = string.Empty;
+    public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("username")]
     public string Username { get; set; } = string.Empty;
@@ -21,7 +33,7 @@ public class User
     public string Email { get; set; } = string.Empty;
 
     [BsonElement("phoneNumber")]
-    public string PhoneNumber { get; set; } = string.Empty;
+    public string? PhoneNumber { get; set; }
 
     [BsonElement("fullName")]
     public string FullName { get; set; } = string.Empty;
@@ -45,7 +57,8 @@ public class User
     public string? BloodType { get; set; }
 
     [BsonElement("role")]
-    public string Role { get; set; } = "Patient";
+    [BsonRepresentation(BsonType.String)]
+    public UserRole Role { get; set; } = UserRole.Patient;
 
     [BsonElement("roleId")]
     public string? RoleId { get; set; }
@@ -62,6 +75,21 @@ public class User
     [BsonElement("isDeleted")]
     public bool IsDeleted { get; set; } = false;
 
+    [BsonElement("emailConfirmed")]
+    public bool EmailConfirmed { get; set; } = false;
+
+    [BsonElement("verificationOtp")]
+    public string? VerificationOtp { get; set; }
+
+    [BsonElement("otpExpiresAt")]
+    public DateTime? OtpExpiresAt { get; set; }
+
+    [BsonElement("passwordResetOtp")]
+    public string? PasswordResetOtp { get; set; }
+
+    [BsonElement("passwordResetExpiresAt")]
+    public DateTime? PasswordResetExpiresAt { get; set; }
+
     [BsonElement("avatarUrl")]
     public string? AvatarUrl { get; set; }
 
@@ -69,5 +97,5 @@ public class User
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     [BsonElement("updatedAt")]
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
 }
