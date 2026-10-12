@@ -28,6 +28,15 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                 }
                 break;
 
+            case AppException app:
+                problem = new ProblemDetails
+                {
+                    Status = app.StatusCode,
+                    Title = app.Message,
+                    Extensions = { ["code"] = app.Code }
+                };
+                break;
+
             case UnauthorizedAccessException:
                 problem = new ProblemDetails { Status = 401, Title = "Chưa xác thực.", Extensions = { ["code"] = "UNAUTHORIZED" } };
                 break;

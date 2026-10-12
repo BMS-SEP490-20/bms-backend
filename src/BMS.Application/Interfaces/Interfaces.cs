@@ -16,6 +16,10 @@ public interface IUserRepository
 {
     Task<User?> FindByLoginAsync(string usernameOrEmail, CancellationToken ct = default);
     Task<User?> FindByIdAsync(string id, CancellationToken ct = default);
+    Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
+
+    /// <summary>Đặt mật khẩu mới (hash), reset đếm đăng nhập sai và mở khoá tài khoản.</summary>
+    Task UpdatePasswordAsync(string id, string newPasswordHash, CancellationToken ct = default);
 
     /// <summary>Tăng đếm đăng nhập sai (atomic) và trả về giá trị mới.</summary>
     Task<int> IncrementFailedLoginAsync(string id, CancellationToken ct = default);

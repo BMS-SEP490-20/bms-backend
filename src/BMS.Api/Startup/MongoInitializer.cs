@@ -3,6 +3,7 @@ using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Infrastructure.Mongo;
 using BMS.Infrastructure.Repositories;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace BMS.Api.Startup;
@@ -59,6 +60,37 @@ public sealed partial class MongoInitializer(
             // TTL: tự xoá token hết hạn sau 7 ngày (giữ lại để phát hiện reuse)
             new CreateIndexModel<RefreshToken>(Builders<RefreshToken>.IndexKeys.Ascending(t => t.ExpiresAt),
                 new CreateIndexOptions { Name = "ttl_expires", ExpireAfter = TimeSpan.FromDays(7) })
+        ], ct);
+
+        // Token đặt lại mật khẩu: tra theo hash, TTL tự xoá sau khi hết hạn 1 ngày
+        var resets = db.GetCollection<PasswordResetToken>(names.PasswordResetTokens);
+        await resets.Indexes.CreateManyAsync(
+        [
+            new CreateIndexModel<PasswordResetToken>(Builders<PasswordResetToken>.IndexKeys.Ascending(t => t.TokenHash),
+                new CreateIndexOptions { Name = "ux_reset_token_hash", Unique = true }),
+            new CreateIndexModel<PasswordResetToken>(Builders<PasswordResetToken>.IndexKeys.Ascending(t => t.UserId),
+                new CreateIndexOptions { Name = "ix_reset_user" }),
+            new CreateIndexModel<PasswordResetToken>(Builders<PasswordResetToken>.IndexKeys.Ascending(t => t.ExpiresAt),
+                new CreateIndexOptions { Name = "ttl_reset_expires", ExpireAfter = TimeSpan.FromDays(1) })
+        ], ct);
+
+        // Gói dịch vụ (collection tự được tạo khi tạo index nếu chưa có)
+        var packages = db.GetCollection<ServicePackage>(names.ServicePackages);
+        await packages.Indexes.CreateManyAsync(
+        [
+            // Mã gói duy nhất trong các gói CHƯA xoá -> xoá mềm xong vẫn dùng lại được mã
+            new CreateIndexModel<ServicePackage>(Builders<ServicePackage>.IndexKeys.Ascending(p => p.Code),
+                new CreateIndexOptions<ServicePackage>
+                {
+                    Name = "ux_package_code_active",
+                    Unique = true,
+                    PartialFilterExpression = new BsonDocument("IsDeleted", false)
+                }),
+            new CreateIndexModel<ServicePackage>(
+                Builders<ServicePackage>.IndexKeys.Ascending(p => p.IsDeleted).Ascending(p => p.IsActive).Ascending(p => p.Name),
+                new CreateIndexOptions { Name = "ix_package_list" }),
+            new CreateIndexModel<ServicePackage>(Builders<ServicePackage>.IndexKeys.Ascending(p => p.Price),
+                new CreateIndexOptions { Name = "ix_package_price" })
         ], ct);
     }
 

@@ -31,3 +31,75 @@ Content-Type: application/json
 ### Logout mọi thiết bị
 POST {{host}}/api/auth/logout-all
 Authorization: Bearer {{access}}
+
+### ===================== Quên mật khẩu =====================
+
+### Gửi email đặt lại mật khẩu (luôn trả 200). Ở Development chưa cấu hình SMTP thì link nằm trong log của server.
+POST {{host}}/api/auth/forgot-password
+Content-Type: application/json
+
+{ "email": "admin@example.com" }
+
+### Đặt mật khẩu mới (token lấy từ link ?token=... trong email)
+POST {{host}}/api/auth/reset-password
+Content-Type: application/json
+
+{ "token": "PASTE_TOKEN_HERE", "newPassword": "NewPass@123", "confirmPassword": "NewPass@123" }
+
+### ===================== Service Packages =====================
+
+### Danh sách (phân trang)
+GET {{host}}/api/service-packages?page=1&pageSize=10&sortBy=name&sortDir=asc
+Authorization: Bearer {{access}}
+
+### Tìm kiếm
+GET {{host}}/api/service-packages/search?keyword=máu&minPrice=0&maxPrice=1000000
+Authorization: Bearer {{access}}
+
+### Tạo gói (cần permission MANAGE_SERVICE_PACKAGE hoặc ALL)
+# @name createPackage
+POST {{host}}/api/service-packages
+Authorization: Bearer {{access}}
+Content-Type: application/json
+
+{
+  "code": "GOI-TQ-01",
+  "name": "Gói khám tổng quát cơ bản",
+  "description": "Xét nghiệm máu và nước tiểu cơ bản",
+  "price": 850000,
+  "discountPrice": 750000,
+  "isActive": true,
+  "tests": [
+    { "code": "CBC", "name": "Tổng phân tích tế bào máu" },
+    { "code": "GLU", "name": "Đường huyết lúc đói" }
+  ]
+}
+
+###
+@packageId = {{createPackage.response.body.id}}
+
+### Chi tiết
+GET {{host}}/api/service-packages/{{packageId}}
+Authorization: Bearer {{access}}
+
+### Cập nhật
+PUT {{host}}/api/service-packages/{{packageId}}
+Authorization: Bearer {{access}}
+Content-Type: application/json
+
+{
+  "name": "Gói khám tổng quát cơ bản (cập nhật)",
+  "description": "Thêm xét nghiệm mỡ máu",
+  "price": 950000,
+  "discountPrice": null,
+  "isActive": true,
+  "tests": [
+    { "code": "CBC", "name": "Tổng phân tích tế bào máu" },
+    { "code": "GLU", "name": "Đường huyết lúc đói" },
+    { "code": "LIP", "name": "Mỡ máu" }
+  ]
+}
+
+### Xoá (xoá mềm)
+DELETE {{host}}/api/service-packages/{{packageId}}
+Authorization: Bearer {{access}}

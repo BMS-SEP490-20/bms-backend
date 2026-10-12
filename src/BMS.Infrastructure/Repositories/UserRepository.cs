@@ -62,4 +62,18 @@ public sealed class UserRepository : IUserRepository
 
         return _users.UpdateOneAsync(Builders<User>.Filter.Eq(u => u.Id, id), update, cancellationToken: ct);
     }
+
+    public async Task<User?> FindByEmailAsync(string email, CancellationToken ct = default)
+        => await _users.Find(Builders<User>.Filter.Eq(u => u.Email, email),
+                new FindOptions { Collation = CaseInsensitive })
+            .FirstOrDefaultAsync(ct);
+
+    public Task UpdatePasswordAsync(string id, string newPasswordHash, CancellationToken ct = default)
+        => _users.UpdateOneAsync(
+            Builders<User>.Filter.Eq(u => u.Id, id),
+            Builders<User>.Update
+                .Set(u => u.Password, newPasswordHash)
+                .Set(u => u.FailedLoginCount, 0)
+                .Unset(u => u.LockoutEnd),
+            cancellationToken: ct);
 }

@@ -6,6 +6,7 @@ using BMS.Api.Startup;
 using BMS.Application.Interfaces;
 using BMS.Application.Options;
 using BMS.Application.Services;
+using BMS.Infrastructure.Email;
 using BMS.Infrastructure.Mongo;
 using BMS.Infrastructure.Repositories;
 using BMS.Infrastructure.Security;
@@ -32,7 +33,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(new MongoCollections(
             Users: config["MongoDB:UsersCollectionName"] ?? "accounts",
             Roles: config["MongoDB:RolesCollectionName"] ?? "roles",
-            RefreshTokens: config["MongoDB:RefreshTokensCollectionName"] ?? "refresh_tokens"));
+            RefreshTokens: config["MongoDB:RefreshTokensCollectionName"] ?? "refresh_tokens",
+            ServicePackages: config["MongoDB:ServicePackagesCollectionName"] ?? "service_packages",
+            PasswordResetTokens: config["MongoDB:PasswordResetTokensCollectionName"] ?? "password_reset_tokens"));
 
         services.AddHostedService<MongoInitializer>();
         return services;
@@ -87,6 +90,36 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Quên mật khẩu / đặt lại mật khẩu qua email.</summary>
+    public static IServiceCollection AddPasswordRecovery(
+        this IServiceCollection services, IConfiguration config, IHostEnvironment env)
+    {
+        services.AddOptions<PasswordResetOptions>().Bind(config.GetSection(PasswordResetOptions.SectionName))
+            .Validate(o => Uri.TryCreate(o.ResetPasswordUrl, UriKind.Absolute, out _),
+                "PasswordReset:ResetPasswordUrl phải là URL tuyệt đối.")
+            .Validate(o => o.TokenMinutes is >= 5 and <= 1440, "PasswordReset:TokenMinutes phải từ 5 đến 1440.")
+            .ValidateOnStart();
+        services.AddOptions<EmailOptions>().Bind(config.GetSection(EmailOptions.SectionName));
+
+        // Chưa cấu hình SMTP: ở Development in link ra log để test, ở môi trường khác thì báo lỗi khi gửi
+        if (string.IsNullOrWhiteSpace(config[$"{EmailOptions.SectionName}:Host"]) && env.IsDevelopment())
+            services.AddSingleton<IEmailSender, DevLoggingEmailSender>();
+        else
+            services.AddSingleton<IEmailSender, SmtpEmailSender>();
+
+        services.AddSingleton<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
+        return services;
+    }
+
+    /// <summary>CRUD + tìm kiếm gói dịch vụ.</summary>
+    public static IServiceCollection AddServicePackages(this IServiceCollection services)
+    {
+        services.AddSingleton<IServicePackageRepository, ServicePackageRepository>();
+        services.AddScoped<IServicePackageService, ServicePackageService>();
+        return services;
+    }
+
     public static IServiceCollection AddApiHardening(this IServiceCollection services, IConfiguration config)
     {
         services.AddProblemDetails();
@@ -114,6 +147,15 @@ public static class ServiceCollectionExtensions
                 _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = config.GetValue("RateLimiting:LoginPermitPerMinute", 10),
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                }));
+            // Quên mật khẩu: chặt hơn vì mỗi request có thể gửi 1 email
+            o.AddPolicy("forgot-password", ctx => RateLimitPartition.GetFixedWindowLimiter(
+                ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = config.GetValue("RateLimiting:ForgotPasswordPermitPerMinute", 5),
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0
                 }));
