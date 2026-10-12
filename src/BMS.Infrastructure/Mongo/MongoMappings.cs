@@ -12,7 +12,8 @@ public sealed record MongoCollections(
     string Roles,
     string RefreshTokens,
     string ServicePackages = "service_packages",
-    string PasswordResetTokens = "password_reset_tokens");
+    string PasswordResetTokens = "password_reset_tokens",
+    string TestCriteria = "test_criteria");
 
 public static class MongoMappings
 {
@@ -76,7 +77,7 @@ public static class MongoMappings
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
             });
-
+            
             BsonClassMap.RegisterClassMap<ServicePackage>(cm =>
             {
                 cm.AutoMap();
@@ -92,8 +93,19 @@ public static class MongoMappings
                 cm.MapMember(x => x.UpdatedAt).SetSerializer(UtcNullable);
                 cm.MapMember(x => x.DeletedAt).SetSerializer(UtcNullable);
             });
-
+            BsonClassMap.RegisterClassMap<TestCriterion>(cm =>
+            {
+                cm.AutoMap();
+                cm.SetIgnoreExtraElements(true);
+                cm.MapIdMember(x => x.Id); // _id: string, vd "CRT-RBC"
+                cm.MapMember(x => x.Code).SetElementName("code");
+                cm.MapMember(x => x.Name).SetElementName("name");
+                cm.MapMember(x => x.Unit).SetElementName("unit");
+                cm.MapMember(x => x.Category).SetElementName("category");
+            });
             _registered = true;
         }
+
     }
+
 }
