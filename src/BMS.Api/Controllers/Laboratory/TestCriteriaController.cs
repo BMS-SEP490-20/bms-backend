@@ -27,7 +27,7 @@ public class TestCriteriaController : ControllerBase
     }
 
     /// <summary>
-    /// Tra cứu danh mục chỉ số xét nghiệm có phân trang server-side và bộ lọc chuyên khoa (UC18).
+    /// Retrieves paginated list of clinical laboratory test criteria with server-side pagination and category filters (UC18).
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<TestCriterionResponseDto>>), StatusCodes.Status200OK)]
@@ -38,7 +38,7 @@ public class TestCriteriaController : ControllerBase
     }
 
     /// <summary>
-    /// Tra cứu chi tiết một chỉ số xét nghiệm theo mã định danh duy nhất (UC18).
+    /// Retrieves full clinical test criterion details by its unique identifier (UC18).
     /// </summary>
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<TestCriterionResponseDto>), StatusCodes.Status200OK)]
@@ -55,7 +55,7 @@ public class TestCriteriaController : ControllerBase
     }
 
     /// <summary>
-    /// Tạo mới một chỉ số xét nghiệm y tế với dải tham chiếu và ngưỡng Panic (UC18).
+    /// Creates a new clinical test parameter / criterion with reference ranges and panic thresholds (UC18).
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<TestCriterionResponseDto>), StatusCodes.Status201Created)]
@@ -84,7 +84,7 @@ public class TestCriteriaController : ControllerBase
     }
 
     /// <summary>
-    /// Cập nhật dải tham chiếu, đơn vị đo, và thông tin chuyên môn của chỉ số xét nghiệm (UC18).
+    /// Updates reference ranges, units, and clinical metadata for an existing test criterion (UC18).
     /// </summary>
     [HttpPut("{id}")]
     [ProducesResponseType(typeof(ApiResponse<TestCriterionResponseDto>), StatusCodes.Status200OK)]
@@ -113,8 +113,8 @@ public class TestCriteriaController : ControllerBase
     }
 
     /// <summary>
-    /// Khóa / Vô hiệu hóa an toàn chỉ số xét nghiệm theo tiêu chuẩn ISO 15189 (UC18).
-    /// Tuyệt đối không xóa cứng để bảo vệ tính toàn vẹn hồ sơ bệnh án cũ.
+    /// Safely deactivates a test criterion conforming to ISO 15189:2022 (UC18).
+    /// Strictly prevents hard deletion to preserve historical patient medical records.
     /// </summary>
     [HttpDelete("{id}")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
