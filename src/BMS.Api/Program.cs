@@ -1,5 +1,7 @@
+using BMS.Application;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
+using BMS.Infrastructure;
 using BMS.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,15 +11,19 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-// Register In-Memory Context as Singleton for state persistence during dev
+// Register Clean Architecture layers for MongoDB & Identity / Lab Criteria
+builder.Services.AddApplicationServices();
+builder.Services.AddInfrastructureServices();
+
+// Register In-Memory Context as Singleton for dev state persistence
 builder.Services.AddSingleton<BmsDbContext>();
 
-// Register Application Services
+// Register Application Services from main
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
-// Enable CORS for frontend applications (React on 3000, Vite on 5173, Mobile apps)
+// Configure CORS for frontend applications (React on 3000, Vite on 5173, Mobile apps)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
