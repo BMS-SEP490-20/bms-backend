@@ -3,33 +3,33 @@ using BMS.Core.Entities;
 namespace BMS.Core.Interfaces;
 
 /// <summary>
-/// Giao diện Repository quản lý dữ liệu mã xác thực OTP trong MongoDB.
-/// Đảm bảo nguyên lý Dependency Inversion trong Clean Architecture.
+/// Repository interface for OTP token persistence and query operations in MongoDB.
+/// Preserves the Dependency Inversion Principle within Clean Architecture.
 /// </summary>
 public interface IOtpRepository
 {
     /// <summary>
-    /// Lưu bản ghi mã OTP mới vào cơ sở dữ liệu.
+    /// Persists a newly generated OTP entity into the data store.
     /// </summary>
     Task CreateAsync(OtpTokenEntity entity, CancellationToken ct = default);
 
     /// <summary>
-    /// Lấy bản ghi OTP mới nhất chưa sử dụng và chưa hết hạn của người nhận theo mục đích.
+    /// Retrieves the most recent active and unexpired OTP entity for a recipient and purpose.
     /// </summary>
     Task<OtpTokenEntity?> GetLatestActiveByRecipientAsync(string recipient, string purpose, CancellationToken ct = default);
 
     /// <summary>
-    /// Cập nhật trạng thái của bản ghi OTP (tăng số lần thử, đánh dấu đã sử dụng).
+    /// Updates mutable fields of an OTP entity (e.g., attempt counts, used status).
     /// </summary>
     Task UpdateAsync(OtpTokenEntity entity, CancellationToken ct = default);
 
     /// <summary>
-    /// Vô hiệu hóa (hủy bỏ) tất cả các mã OTP còn hiệu lực trước đó của người nhận để đảm bảo mỗi thời điểm chỉ có 1 mã hợp lệ.
+    /// Invalidates all existing unconsumed OTP tokens for the specified recipient and purpose.
     /// </summary>
     Task InvalidatePreviousOtpsAsync(string recipient, string purpose, CancellationToken ct = default);
 
     /// <summary>
-    /// Đếm số lần yêu cầu gửi OTP trong khoảng thời gian nhất định (Rate Limiting).
+    /// Counts the number of OTP requests made within a given sliding time window for Rate Limiting.
     /// </summary>
     Task<int> CountRecentRequestsAsync(string recipient, TimeSpan window, CancellationToken ct = default);
 }

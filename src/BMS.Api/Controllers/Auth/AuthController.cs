@@ -5,9 +5,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace BMS.Api.Controllers.Auth;
 
 /// <summary>
-/// Controller xử lý xác thực danh tính người dùng và quản lý mã OTP (UC03).
-/// Tiếp nhận yêu cầu phát sinh mã xác thực và đối chiếu mã xác thực 2FA.
-/// Tuân thủ: RESTful API Guidelines, OWASP Authentication Standards & RFC 7807 Problem Details.
+/// API Controller managing identity verification and One-Time Password workflows (UC03).
+/// Handles cryptographic code issuance and multi-factor authentication (2FA) verification.
+/// Conforms to: RESTful API Design, OWASP ASVS & RFC 7807 Problem Details.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -26,13 +26,13 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Gửi mã xác thực OTP 6 số qua Email hoặc SMS phục vụ Đăng ký hoặc Quên mật khẩu (I1-011).
+    /// Generates and dispatches a 6-digit OTP code via Email or SMS for Registration or Password Recovery (I1-011).
     /// </summary>
-    /// <param name="request">Thông tin người nhận và mục đích gửi mã.</param>
+    /// <param name="request">Recipient destination and business purpose.</param>
     /// <param name="ct">CancellationToken.</param>
-    /// <response code="200">Gửi mã thành công, trả về thời gian hiệu lực và thời gian chờ gửi lại.</response>
-    /// <response code="400">Dữ liệu yêu cầu không hợp lệ hoặc không đúng định dạng.</response>
-    /// <response code="429">Vượt quá giới hạn tần suất gửi mã (tối đa 3 lần trong 5 phút).</response>
+    /// <response code="200">OTP code dispatched successfully with validity duration and cooldown window.</response>
+    /// <response code="400">Invalid request payload or malformed destination.</response>
+    /// <response code="429">Rate limit threshold exceeded (limit: 3 requests per 5 minutes).</response>
     [HttpPost("otp/send")]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status400BadRequest)]
@@ -46,30 +46,30 @@ public class AuthController : ControllerBase
             return BadRequest(new SendOtpResponseDto
             {
                 Success = false,
-                Message = "Thông tin yêu cầu gửi OTP không hợp lệ."
+                Message = "Invalid OTP dispatch request payload."
             });
         }
 
-        // Trích xuất địa chỉ IP người gửi để phòng chống SMS Flooding / Brute Force
+        // Extract client IP address to protect against automated SMS flooding and brute force
         var clientIp = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
             ?? HttpContext.Connection.RemoteIpAddress?.ToString()
             ?? "Unknown-IP";
 
         _logger.LogInformation(
-            "[BMS Auth API] Tiếp nhận yêu cầu gửi OTP tới {Destination} (Mục đích: {Purpose}) từ IP {ClientIp}",
+            "[BMS Auth API] Processing OTP dispatch to {Destination} (Purpose: {Purpose}) from IP {ClientIp}",
             request.Destination,
             request.Purpose,
             clientIp);
 
         var result = await _otpService.SendOtpAsync(request, clientIp, ct);
 
-        // Trường hợp vi phạm Rate Limit
+        // Handle Rate Limit rejections
         if (result.IsRateLimited)
         {
             return StatusCode(StatusCodes.Status429TooManyRequests, result);
         }
 
-        // Trường hợp thất bại do lỗi kênh truyền thông hoặc dữ liệu
+        // Handle operational or carrier delivery rejections
         if (!result.Success)
         {
             return BadRequest(result);
@@ -79,12 +79,12 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Xác thực mã OTP 6 chữ số do người dùng nhập vào.
+    /// Verifies a 6-digit OTP code submitted by the user.
     /// </summary>
-    /// <param name="request">Thông tin mã OTP và người nhận.</param>
+    /// <param name="request">Recipient destination, OTP code, and purpose.</param>
     /// <param name="ct">CancellationToken.</param>
-    /// <response code="200">Xác thực thành công, trả về Verification Token.</response>
-    /// <response code="400">Mã OTP không chính xác, đã hết hạn hoặc bị khóa do nhập sai quá 5 lần.</response>
+    /// <response code="200">OTP verified successfully; returns one-time Verification Token.</response>
+    /// <response code="400">Incorrect OTP, expired code, or locked after 5 failed attempts.</response>
     [HttpPost("otp/verify")]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status400BadRequest)]
@@ -97,12 +97,12 @@ public class AuthController : ControllerBase
             return BadRequest(new VerifyOtpResponseDto
             {
                 Success = false,
-                Message = "Mã xác thực phải đúng định dạng 6 chữ số."
+                Message = "Verification code must consist of exactly 6 numeric digits."
             });
         }
 
         _logger.LogInformation(
-            "[BMS Auth API] Tiếp nhận yêu cầu xác thực OTP cho {Destination} (Mục đích: {Purpose})",
+            "[BMS Auth API] Processing OTP verification for {Destination} (Purpose: {Purpose})",
             request.Destination,
             request.Purpose);
 
