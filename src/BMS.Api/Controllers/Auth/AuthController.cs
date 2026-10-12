@@ -10,7 +10,6 @@ namespace BMS.Api.Controllers.Auth;
 /// Conforms to: RESTful API Design, OWASP ASVS & RFC 7807 Problem Details.
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
 [Route("api/auth")]
 [Route("api/v1/auth")]
 [Produces("application/json")]
