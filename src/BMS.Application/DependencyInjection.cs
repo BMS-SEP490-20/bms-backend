@@ -10,6 +10,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IRoleService, RoleService>();
 
         return services;
     }
