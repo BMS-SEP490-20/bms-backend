@@ -1,6 +1,33 @@
-@BMS.Api_HostAddress = http://localhost:5283
+@host = http://localhost:5283
 
-GET {{BMS.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Login (username hoặc email)
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "usernameOrEmail": "admin_bms", "password": "Admin@123" }
 
 ###
+@access = {{login.response.body.accessToken}}
+@refresh = {{login.response.body.refreshToken}}
+
+### Thông tin user hiện tại
+GET {{host}}/api/auth/me
+Authorization: Bearer {{access}}
+
+### Refresh (token cũ bị thu hồi, dùng lại sẽ huỷ cả phiên)
+POST {{host}}/api/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{refresh}}" }
+
+### Logout
+POST {{host}}/api/auth/logout
+Authorization: Bearer {{access}}
+Content-Type: application/json
+
+{ "refreshToken": "{{refresh}}" }
+
+### Logout mọi thiết bị
+POST {{host}}/api/auth/logout-all
+Authorization: Bearer {{access}}
