@@ -55,6 +55,12 @@ public class MongoDbContext
         _database?.GetCollection<RoleEntity>("roles");
 
     /// <summary>
+    /// Collection persisting laboratory test criteria master data ("test_criteria").
+    /// </summary>
+    public IMongoCollection<TestCriterionEntity>? TestCriteria =>
+        _database?.GetCollection<TestCriterionEntity>("test_criteria");
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
