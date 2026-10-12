@@ -13,6 +13,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<BmsDbContext>();
 
 // Register Application Services
+builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Enable CORS for frontend applications (React on 3000, Vite on 5173, Mobile apps)
