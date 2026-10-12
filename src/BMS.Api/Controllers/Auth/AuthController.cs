@@ -1,12 +1,14 @@
+using BMS.Application.DTOs;
 using BMS.Application.DTOs.Auth;
 using BMS.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Auth;
 
 /// <summary>
-/// API Controller managing identity verification and One-Time Password workflows (UC03).
-/// Handles cryptographic code issuance and multi-factor authentication (2FA) verification.
+/// API Controller managing identity verification, authentication, and One-Time Password workflows (UC02, UC03, UC04, UC05).
+/// Handles user registration, credentials authentication, cryptographic OTP dispatch, and 2FA verification.
 /// Conforms to: RESTful API Design, OWASP ASVS & RFC 7807 Problem Details.
 /// </summary>
 [ApiController]
@@ -15,23 +17,86 @@ namespace BMS.Api.Controllers.Auth;
 [Produces("application/json")]
 public class AuthController : ControllerBase
 {
+    private readonly IAuthService _authService;
     private readonly IOtpService _otpService;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IOtpService otpService, ILogger<AuthController> logger)
+    public AuthController(
+        IAuthService authService,
+        IOtpService otpService,
+        ILogger<AuthController> logger)
     {
+        _authService = authService;
         _otpService = otpService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Generates and dispatches a 6-digit OTP code via Email or SMS for Registration or Password Recovery (I1-011).
+    /// UC02 - Đăng ký tài khoản bệnh nhân (Register Account)
     /// </summary>
-    /// <param name="request">Recipient destination and business purpose.</param>
-    /// <param name="ct">CancellationToken.</param>
-    /// <response code="200">OTP code dispatched successfully with validity duration and cooldown window.</response>
-    /// <response code="400">Invalid request payload or malformed destination.</response>
-    /// <response code="429">Rate limit threshold exceeded (limit: 3 requests per 5 minutes).</response>
+    [HttpPost("register")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new { success = false, message = "Dữ liệu không hợp lệ.", errors = ModelState });
+        }
+
+        var result = await _authService.RegisterAsync(request);
+        if (!result.Success)
+        {
+            return Conflict(result);
+        }
+
+        return StatusCode(201, result);
+    }
+
+    /// <summary>
+    /// UC05 - Đăng nhập hệ thống (System Login)
+    /// </summary>
+    [HttpPost("login")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new { success = false, message = "Vui lòng nhập tên đăng nhập và mật khẩu." });
+        }
+
+        var result = await _authService.LoginAsync(request);
+        if (!result.Success)
+        {
+            return Unauthorized(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// UC04 - Xác thực mã OTP email để kích hoạt tài khoản
+    /// </summary>
+    [HttpPost("verify-otp")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyAccountOtp([FromBody] VerifyOtpDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new { success = false, message = "Dữ liệu OTP không hợp lệ." });
+        }
+
+        var result = await _authService.VerifyOtpAsync(request);
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Generates and dispatches a 6-digit OTP code via Email or SMS for Registration or Password Recovery (I1-011 / UC03).
+    /// </summary>
     [HttpPost("otp/send")]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status400BadRequest)]
@@ -49,7 +114,6 @@ public class AuthController : ControllerBase
             });
         }
 
-        // Extract client IP address to protect against automated SMS flooding and brute force
         var clientIp = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
             ?? HttpContext.Connection.RemoteIpAddress?.ToString()
             ?? "Unknown-IP";
@@ -62,13 +126,11 @@ public class AuthController : ControllerBase
 
         var result = await _otpService.SendOtpAsync(request, clientIp, ct);
 
-        // Handle Rate Limit rejections
         if (result.IsRateLimited)
         {
             return StatusCode(StatusCodes.Status429TooManyRequests, result);
         }
 
-        // Handle operational or carrier delivery rejections
         if (!result.Success)
         {
             return BadRequest(result);
@@ -78,12 +140,8 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Verifies a 6-digit OTP code submitted by the user.
+    /// Verifies a 6-digit OTP code submitted by the user (I1-011 / UC03).
     /// </summary>
-    /// <param name="request">Recipient destination, OTP code, and purpose.</param>
-    /// <param name="ct">CancellationToken.</param>
-    /// <response code="200">OTP verified successfully; returns one-time Verification Token.</response>
-    /// <response code="400">Incorrect OTP, expired code, or locked after 5 failed attempts.</response>
     [HttpPost("otp/verify")]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status400BadRequest)]
@@ -113,5 +171,21 @@ public class AuthController : ControllerBase
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy thông tin tài khoản hiện tại từ header hoặc param (Fallback demo)
+    /// </summary>
+    [HttpGet("me")]
+    public async Task<IActionResult> GetCurrentUser([FromQuery] string? userId)
+    {
+        var id = userId ?? "USR-PAT-01";
+        var user = await _authService.GetUserByIdAsync(id);
+        if (user == null)
+        {
+            return NotFound(new { success = false, message = "Không tìm thấy người dùng." });
+        }
+
+        return Ok(new { success = true, data = user });
     }
 }
