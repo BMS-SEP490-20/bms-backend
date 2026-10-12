@@ -1,17 +1,8 @@
 namespace BMS.Core.Exceptions;
 
 /// <summary>Lỗi nghiệp vụ xác thực. GlobalExceptionHandler map sang ProblemDetails.</summary>
-public abstract class AuthException : Exception
-{
-    protected AuthException(int statusCode, string code, string message) : base(message)
-    {
-        StatusCode = statusCode;
-        Code = code;
-    }
-
-    public int StatusCode { get; }
-    public string Code { get; }
-}
+public abstract class AuthException(int statusCode, string code, string message)
+    : AppException(statusCode, code, message);
 
 /// <summary>Sai tài khoản HOẶC sai mật khẩu – dùng chung 1 thông báo để chống dò tài khoản.</summary>
 public sealed class InvalidCredentialsException()

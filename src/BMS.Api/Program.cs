@@ -1,3 +1,4 @@
+
 using BMS.Api.Extensions;
 using Microsoft.AspNetCore.HttpOverrides;
 
@@ -7,12 +8,32 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddMongo(builder.Configuration);
 builder.Services.AddAuthModule(builder.Configuration);
+builder.Services.AddPasswordRecovery(builder.Configuration, builder.Environment);
+builder.Services.AddServicePackages();
 builder.Services.AddApiHardening(builder.Configuration);
 
-// Chạy sau reverse proxy / load balancer: lấy IP thật của client cho rate-limit & audit.
-// Production: cấu hình KnownProxies/KnownNetworks cho proxy của công ty.
+// CORS cho React/Vite frontend
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("BmsFrontend", policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:5175",
+                "http://127.0.0.1:5175"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+// Forwarded headers
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
-    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
+{
+    o.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto;
+});
 
 var app = builder.Build();
 
@@ -29,7 +50,10 @@ else
 }
 
 app.UseHttpsRedirection();
-app.UseCors();
+
+// Phải dùng đúng policy đã đăng ký
+app.UseCors("BmsFrontend");
+
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
