@@ -26,7 +26,7 @@ public class EmailService : IEmailService
         {
             SmtpServer = section["SmtpServer"] ?? "smtp.gmail.com",
             Port = int.TryParse(section["Port"], out var port) ? port : 587,
-            SenderEmail = section["SenderEmail"] ?? "trantanphat2004lph@gmail.com",
+            SenderEmail = section["SenderEmail"] ?? "bms.mec.lab@gmail.com",
             SenderName = section["SenderName"] ?? "BMS-Blood Laboratory and Clinic Management System",
             AppPassword = (section["AppPassword"] ?? "").Replace(" ", "").Trim(),
             EnableSsl = !bool.TryParse(section["EnableSsl"], out var ssl) || ssl
