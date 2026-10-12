@@ -13,6 +13,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<BmsDbContext>();
 
 // Register Application Services
+builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
