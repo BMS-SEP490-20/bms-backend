@@ -1,0 +1,103 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\services\\authservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\services\\authservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\middleware\\globalexceptionhandler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\middleware\\globalexceptionhandler.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\options\\authoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\options\\authoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "GlobalExceptionHandler.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Middleware\\GlobalExceptionHandler.cs",
+              "RelativeDocumentMoniker": "BMS.Api\\Middleware\\GlobalExceptionHandler.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Middleware\\GlobalExceptionHandler.cs",
+              "RelativeToolTip": "BMS.Api\\Middleware\\GlobalExceptionHandler.cs",
+              "ViewState": "AgIAACgAAAAAAAAAAAAQwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T06:29:38.012Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "AuthService.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Services\\AuthService.cs",
+              "RelativeDocumentMoniker": "BMS.Application\\Services\\AuthService.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Services\\AuthService.cs",
+              "RelativeToolTip": "BMS.Application\\Services\\AuthService.cs",
+              "ViewState": "AgIAABoAAAAAAAAAAAAawCAAAAAMAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T05:53:20.185Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "AuthOptions.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Options\\AuthOptions.cs",
+              "RelativeDocumentMoniker": "BMS.Application\\Options\\AuthOptions.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Options\\AuthOptions.cs",
+              "RelativeToolTip": "BMS.Application\\Options\\AuthOptions.cs",
+              "ViewState": "AgIAAAIAAAAAAAAAAAAxwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T05:53:05.878Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Program.cs",
+              "RelativeDocumentMoniker": "BMS.Api\\Program.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Program.cs",
+              "RelativeToolTip": "BMS.Api\\Program.cs",
+              "ViewState": "AgIAABAAAAAAAAAAAAAAAB8AAAAYAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T03:10:40.076Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\appsettings.json",
+              "RelativeDocumentMoniker": "BMS.Api\\appsettings.json",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\appsettings.json",
+              "RelativeToolTip": "BMS.Api\\appsettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAfAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-10-12T03:10:15.634Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
