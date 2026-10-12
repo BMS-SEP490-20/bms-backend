@@ -8,15 +8,15 @@ using MongoDB.Driver;
 namespace BMS.Infrastructure.Repositories;
 
 /// <summary>
-/// Triển khai kho dữ liệu OTP tương tác với MongoDB collection "otp_tokens".
-/// Tích hợp cơ chế In-Memory Fallback tự động khi chạy kiểm thử mà chưa có dịch vụ MongoDB cục bộ.
+/// Implements the OTP Repository interacting with MongoDB collection "otp_tokens".
+/// Includes resilient in-memory fallback support so that developers and tests can run reliably offline.
 /// </summary>
 public class OtpRepository : IOtpRepository
 {
     private readonly MongoDbContext _context;
     private readonly ILogger<OtpRepository> _logger;
 
-    // Bộ nhớ đệm ConcurrentDictionary đóng vai trò fallback khi MongoDB chưa sẵn sàng
+    // ConcurrentDictionary acting as in-memory fallback when MongoDB service is unreachable
     private static readonly ConcurrentDictionary<string, OtpTokenEntity> _memoryFallback = new();
 
     public OtpRepository(MongoDbContext context, ILogger<OtpRepository> logger)
@@ -26,7 +26,7 @@ public class OtpRepository : IOtpRepository
     }
 
     /// <summary>
-    /// Lưu thực thể OTP mới vào MongoDB hoặc Fallback cache.
+    /// Persists a new OTP token into MongoDB or memory fallback.
     /// </summary>
     public async Task CreateAsync(OtpTokenEntity entity, CancellationToken ct = default)
     {
@@ -39,7 +39,7 @@ public class OtpRepository : IOtpRepository
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi khi ghi OTP vào MongoDB. Chuyển sang lưu trữ Fallback bộ nhớ tạm.");
+                _logger.LogWarning(ex, "Failed to persist OTP to MongoDB. Falling back to in-memory store.");
             }
         }
 
@@ -51,7 +51,7 @@ public class OtpRepository : IOtpRepository
     }
 
     /// <summary>
-    /// Lấy bản ghi OTP mới nhất chưa sử dụng và chưa hết hạn của người nhận theo mục đích.
+    /// Retrieves the most recent active and unexpired OTP for a given recipient and purpose.
     /// </summary>
     public async Task<OtpTokenEntity?> GetLatestActiveByRecipientAsync(
         string recipient,
@@ -80,11 +80,10 @@ public class OtpRepository : IOtpRepository
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi khi truy vấn OTP từ MongoDB. Tìm kiếm từ Fallback bộ nhớ tạm.");
+                _logger.LogWarning(ex, "Failed to query MongoDB for OTP. Falling back to in-memory store.");
             }
         }
 
-        // Truy vấn từ Memory Fallback
         return _memoryFallback.Values
             .Where(x => x.Recipient == recipient &&
                         x.Purpose == purpose &&
@@ -95,7 +94,7 @@ public class OtpRepository : IOtpRepository
     }
 
     /// <summary>
-    /// Cập nhật trạng thái của bản ghi OTP (số lần thử, đánh dấu đã sử dụng).
+    /// Updates the state of an existing OTP token entity.
     /// </summary>
     public async Task UpdateAsync(OtpTokenEntity entity, CancellationToken ct = default)
     {
@@ -109,7 +108,7 @@ public class OtpRepository : IOtpRepository
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi khi cập nhật OTP trên MongoDB.");
+                _logger.LogWarning(ex, "Failed to update OTP on MongoDB.");
             }
         }
 
@@ -117,7 +116,7 @@ public class OtpRepository : IOtpRepository
     }
 
     /// <summary>
-    /// Vô hiệu hóa tất cả các mã OTP còn hạn trước đó của người nhận để tránh tồn tại nhiều mã cùng lúc.
+    /// Invalidates all previously issued active OTPs for the recipient and purpose.
     /// </summary>
     public async Task InvalidatePreviousOtpsAsync(
         string recipient,
@@ -140,7 +139,7 @@ public class OtpRepository : IOtpRepository
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi khi vô hiệu hóa OTP cũ trên MongoDB.");
+                _logger.LogWarning(ex, "Failed to invalidate previous OTPs on MongoDB.");
             }
         }
 
@@ -151,7 +150,7 @@ public class OtpRepository : IOtpRepository
     }
 
     /// <summary>
-    /// Đếm số lần yêu cầu gửi OTP trong khoảng thời gian xác định (phục vụ Rate Limiting).
+    /// Counts OTP requests within the specified sliding window for Rate Limiting.
     /// </summary>
     public async Task<int> CountRecentRequestsAsync(
         string recipient,
@@ -174,7 +173,7 @@ public class OtpRepository : IOtpRepository
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi khi đếm yêu cầu gần đây trên MongoDB.");
+                _logger.LogWarning(ex, "Failed to count recent requests on MongoDB.");
             }
         }
 

@@ -1,17 +1,17 @@
 namespace BMS.Application.Interfaces;
 
 /// <summary>
-/// Giao diện dịch vụ phát tán thư điện tử (Email) hệ thống BMS.
+/// Service interface for electronic mail delivery in the BMS platform.
 /// </summary>
 public interface IEmailService
 {
     /// <summary>
-    /// Gửi email chứa mã OTP kèm giao diện chuẩn y tế Medical Blue tới người nhận.
+    /// Dispatches an HTML email containing a 6-digit OTP code formatted with Medical Blue aesthetics.
     /// </summary>
-    /// <param name="toEmail">Địa chỉ hộp thư đến.</param>
-    /// <param name="otpCode">Mã OTP 6 số thô (chỉ truyền qua kênh bảo mật TLS lúc gửi).</param>
-    /// <param name="purposeDescription">Mô tả mục đích nghiệp vụ bằng tiếng Việt.</param>
-    /// <param name="expiryMinutes">Số phút hiệu lực (mặc định 5 phút).</param>
+    /// <param name="toEmail">Recipient email address.</param>
+    /// <param name="otpCode">Raw 6-digit OTP code (transmitted only over TLS).</param>
+    /// <param name="purposeDescription">Human-readable purpose description.</param>
+    /// <param name="expiryMinutes">Validity duration in minutes (default: 5).</param>
     /// <param name="ct">CancellationToken.</param>
     Task<bool> SendOtpEmailAsync(
         string toEmail,

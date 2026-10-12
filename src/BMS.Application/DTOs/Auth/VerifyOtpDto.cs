@@ -4,54 +4,54 @@ using BMS.Core.Enums;
 namespace BMS.Application.DTOs.Auth;
 
 /// <summary>
-/// DTO tiếp nhận dữ liệu xác thực mã OTP do người dùng nhập từ giao diện Web/Mobile App.
+/// Data Transfer Object for validating an OTP code submitted by a client.
 /// </summary>
 public class VerifyOtpRequestDto
 {
     /// <summary>
-    /// Địa chỉ Email hoặc Số điện thoại đã nhận mã OTP.
+    /// Recipient email address or telephone number that received the OTP.
     /// </summary>
-    [Required(ErrorMessage = "Địa chỉ liên lạc không được để trống.")]
+    [Required(ErrorMessage = "Recipient destination cannot be empty.")]
     public string Destination { get; set; } = string.Empty;
 
     /// <summary>
-    /// Chuỗi mã xác thực 6 chữ số do người dùng nhập vào.
-    /// Bắt buộc phải là đúng 6 ký tự số từ 0-9.
+    /// 6-digit numeric OTP code entered by the user.
+    /// Strictly constrained to exactly 6 decimal digits.
     /// </summary>
-    [Required(ErrorMessage = "Mã OTP không được để trống.")]
-    [RegularExpression(@"^\d{6}$", ErrorMessage = "Mã OTP phải bao gồm chính xác 6 chữ số.")]
+    [Required(ErrorMessage = "OTP code cannot be empty.")]
+    [RegularExpression(@"^\d{6}$", ErrorMessage = "OTP code must be exactly 6 numeric digits.")]
     public string Otp { get; set; } = string.Empty;
 
     /// <summary>
-    /// Mục đích nghiệp vụ ban đầu khi yêu cầu mã.
+    /// Intended business purpose of the verification.
     /// </summary>
-    [Required(ErrorMessage = "Mục đích xác thực là bắt buộc.")]
+    [Required(ErrorMessage = "Authentication purpose is required.")]
     public OtpPurpose Purpose { get; set; } = OtpPurpose.PasswordReset;
 }
 
 /// <summary>
-/// DTO phản hồi kết quả sau khi kiểm tra mã OTP.
+/// Data Transfer Object returned upon verifying an OTP code.
 /// </summary>
 public class VerifyOtpResponseDto
 {
     /// <summary>
-    /// Kết quả xác thực hợp lệ hay không.
+    /// Indicates whether verification succeeded.
     /// </summary>
     public bool Success { get; set; }
 
     /// <summary>
-    /// Thông báo chi tiết kết quả.
+    /// Detailed result message.
     /// </summary>
     public string Message { get; set; } = string.Empty;
 
     /// <summary>
-    /// Mã token chứng thực một lần (One-Time Verification Token) có ký số an toàn,
-    /// dùng để chuyển giao qua bước Đặt lại mật khẩu hoặc Kích hoạt tài khoản mà không cần truyền lại mã OTP.
+    /// Cryptographically secure one-time verification token passed to subsequent steps
+    /// (e.g. Password Reset or Account Activation) without re-submitting the OTP code.
     /// </summary>
     public string? VerificationToken { get; set; }
 
     /// <summary>
-    /// Số lần nhập sai còn lại trước khi tài khoản/mã bị khóa (nếu xác thực thất bại).
+    /// Number of remaining allowed attempts before permanent invalidation.
     /// </summary>
     public int? RemainingAttempts { get; set; }
 }

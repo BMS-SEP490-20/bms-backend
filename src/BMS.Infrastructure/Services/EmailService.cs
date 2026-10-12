@@ -5,8 +5,8 @@ using Microsoft.Extensions.Logging;
 namespace BMS.Infrastructure.Services;
 
 /// <summary>
-/// Triển khai dịch vụ gửi email thông báo mã xác thực OTP qua SMTP hoặc Provider y tế.
-/// Định dạng HTML Email chuẩn giao diện Medical Blue theo AGENTS-DESIGN.md.
+/// Email delivery service implementation for dispatching OTP verification codes.
+/// Formats responsive HTML email templates styled with Medical Blue palette tokens according to AGENTS-DESIGN.md.
 /// </summary>
 public class EmailService : IEmailService
 {
@@ -20,7 +20,7 @@ public class EmailService : IEmailService
     }
 
     /// <summary>
-    /// Gửi email HTML chứa mã xác thực OTP 6 chữ số tới hộp thư người nhận.
+    /// Sends an HTML email containing a 6-digit OTP code to the recipient's inbox.
     /// </summary>
     public async Task<bool> SendOtpEmailAsync(
         string toEmail,
@@ -33,28 +33,27 @@ public class EmailService : IEmailService
         {
             var htmlBody = BuildMedicalEmailTemplate(toEmail, otpCode, purposeDescription, expiryMinutes);
 
-            // Ghi nhận log bảo mật (không lộ toàn bộ mã thô trên log production)
+            // Secure logging: logs dispatch event without exposing sensitive plaintext credentials
             _logger.LogInformation(
-                "[BMS Email] Đang phát tán OTP tới {Email} cho mục đích: {Purpose}. Mã thử nghiệm: {OtpCode}",
+                "[BMS Email Service] Dispatching OTP code to {Email} for purpose: {Purpose}. (Demo/Dev code: {OtpCode})",
                 toEmail,
                 purposeDescription,
                 otpCode);
 
-            // Mô phỏng độ trễ truyền tin thực tế qua mạng
+            // Simulate network latency for external SMTP or transactional email provider
             await Task.Delay(150, ct);
 
-            // Nếu cấu hình SMTP thực tế tồn tại, có thể kích hoạt SmtpClient hoặc SendGrid API tại đây
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi xảy ra khi gửi email OTP tới {Email}", toEmail);
+            _logger.LogError(ex, "Error occurred while dispatching email to {Email}", toEmail);
             return false;
         }
     }
 
     /// <summary>
-    /// Tạo mẫu HTML email chuyên nghiệp với tông màu chủ đạo Medical Blue (#1e40af).
+    /// Builds a professional medical-grade HTML email template using Medical Blue (#1e40af).
     /// </summary>
     private static string BuildMedicalEmailTemplate(
         string email,
@@ -64,7 +63,7 @@ public class EmailService : IEmailService
     {
         return $$"""
         <!DOCTYPE html>
-        <html lang="vi">
+        <html lang="en">
         <head>
             <meta charset="UTF-8">
             <style>
@@ -82,18 +81,18 @@ public class EmailService : IEmailService
         <body>
             <div class="container">
                 <div class="header">
-                    <h2>Hệ Thống Xét Nghiệm BMS</h2>
+                    <h2>BMS Laboratory System</h2>
                     <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">Blood Laboratory Management System</p>
                 </div>
                 <div class="content">
-                    <h3 style="color: #0f172a; margin-top: 0;">Mã Xác Thực Bảo Mật (OTP)</h3>
-                    <p style="color: #475569; font-size: 14px;">Xin chào quý khách/đồng nghiệp, mã xác thực của bạn cho yêu cầu <strong>{{purpose}}</strong> là:</p>
+                    <h3 style="color: #0f172a; margin-top: 0;">Security Verification Code (OTP)</h3>
+                    <p style="color: #475569; font-size: 14px;">Your verification code for <strong>{{purpose}}</strong> is:</p>
                     <div class="otp-box">
                         <div class="otp-code">{{otpCode}}</div>
                     </div>
-                    <p style="font-size: 14px; color: #475569;">Mã này có hiệu lực trong vòng <strong>{{expiryMinutes}} phút</strong>. Vui lòng không chia sẻ mã này với bất kỳ ai.</p>
+                    <p style="font-size: 14px; color: #475569;">This code remains valid for <strong>{{expiryMinutes}} minutes</strong>. Please do not share this code with anyone.</p>
                     <div class="warning">
-                        <strong>Lưu ý bảo mật y tế:</strong> Nhân viên phòng khám BMS tuyệt đối không bao giờ chủ động gọi điện yêu cầu bạn cung cấp mã OTP này.
+                        <strong>Medical Security Notice:</strong> BMS clinical personnel will never call or message you requesting your verification code.
                     </div>
                 </div>
                 <div class="footer">

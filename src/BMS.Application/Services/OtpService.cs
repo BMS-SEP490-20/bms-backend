@@ -9,11 +9,11 @@ using BMS.Core.Interfaces;
 namespace BMS.Application.Services;
 
 /// <summary>
-/// Service nghiệp vụ xử lý phát sinh, bảo vệ và kiểm chứng mã xác thực OTP (UC03).
-/// Tuân thủ:
+/// Business service handling cryptographic generation, storage, and verification of One-Time Passwords (UC03).
+/// Conforms to:
 /// - RFC 6238 TOTP & NIST SP 800-63B Authentication Standards.
 /// - OWASP Password Storage & Anti-Automation Rate Limiting Guidelines.
-/// - AGENTS-CODE.md chuẩn Comment và Architecture.
+/// - Production Engineering Standards.
 /// </summary>
 public class OtpService : IOtpService
 {
@@ -21,7 +21,7 @@ public class OtpService : IOtpService
     private readonly IEmailService _emailService;
     private readonly ISmsService _smsService;
 
-    // Cấu hình nghiệp vụ cốt lõi
+    // Core business security constraints
     private const int OtpExpiryMinutes = 5;
     private const int ResendCooldownSeconds = 60;
     private const int MaxAllowedRequestsInWindow = 3;
@@ -39,7 +39,7 @@ public class OtpService : IOtpService
     }
 
     /// <summary>
-    /// Sinh và phát tán mã OTP 6 chữ số với cơ chế bảo vệ Rate Limit và Salted Hash.
+    /// Generates and dispatches a 6-digit OTP code protected by rate limiting and salted hashing.
     /// </summary>
     public async Task<SendOtpResponseDto> SendOtpAsync(
         SendOtpRequestDto request,
@@ -49,7 +49,7 @@ public class OtpService : IOtpService
         var recipient = request.Destination.Trim().ToLowerInvariant();
         var purposeStr = request.Purpose.ToString();
 
-        // 1. Kiểm tra giới hạn tần suất (Rate Limiting) chống tấn công Spam viễn thông
+        // 1. Sliding window Rate Limiting: prevent telecom abuse and SMS flooding
         var recentCount = await _otpRepository.CountRecentRequestsAsync(recipient, RateLimitWindow, ct);
         if (recentCount >= MaxAllowedRequestsInWindow)
         {
@@ -57,13 +57,13 @@ public class OtpService : IOtpService
             {
                 Success = false,
                 IsRateLimited = true,
-                Message = "Bạn đã yêu cầu gửi mã quá số lần cho phép (tối đa 3 lần trong 5 phút). Vui lòng thử lại sau.",
+                Message = "Maximum allowed OTP requests exceeded (limit: 3 requests per 5 minutes). Please try again later.",
                 CooldownSeconds = 300,
                 ExpiresInSeconds = 0
             };
         }
 
-        // 2. Kiểm tra Cooldown 60s giữa 2 lần gửi liên tiếp
+        // 2. Enforce 60-second cooldown between consecutive requests
         var latestActive = await _otpRepository.GetLatestActiveByRecipientAsync(recipient, purposeStr, ct);
         if (latestActive != null)
         {
@@ -75,25 +75,25 @@ public class OtpService : IOtpService
                 {
                     Success = false,
                     IsRateLimited = false,
-                    Message = $"Vui lòng đợi {remainingCooldown} giây trước khi yêu cầu gửi lại mã.",
+                    Message = $"Please wait {remainingCooldown} seconds before requesting a new code.",
                     CooldownSeconds = remainingCooldown,
                     ExpiresInSeconds = (int)Math.Max(0, (latestActive.ExpiresAt - DateTime.UtcNow).TotalSeconds)
                 };
             }
         }
 
-        // 3. Sinh mã OTP 6 chữ số ngẫu nhiên bằng CSPRNG (Cryptographically Secure Pseudo-Random Number Generator)
+        // 3. Cryptographically Secure Pseudo-Random Number Generator (CSPRNG)
         var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
 
-        // 4. Sinh Salt ngẫu nhiên 16 bytes và băm SHA-256 mã OTP
+        // 4. Generate 16-byte random salt and compute SHA-256 hash
         var saltBytes = RandomNumberGenerator.GetBytes(16);
         var salt = Convert.ToBase64String(saltBytes);
         var hashedOtp = ComputeHash(otpCode, salt);
 
-        // 5. Hủy hiệu lực toàn bộ mã cũ chưa sử dụng của người nhận cho mục đích này
+        // 5. Invalidate any previous unconsumed active tokens for this recipient and purpose
         await _otpRepository.InvalidatePreviousOtpsAsync(recipient, purposeStr, ct);
 
-        // 6. Lưu thực thể bảo mật vào cơ sở dữ liệu MongoDB
+        // 6. Persist secure token record into MongoDB
         var now = DateTime.UtcNow;
         var entity = new OtpTokenEntity
         {
@@ -110,7 +110,7 @@ public class OtpService : IOtpService
 
         await _otpRepository.CreateAsync(entity, ct);
 
-        // 7. Phát tán thông báo qua Email hoặc SMS
+        // 7. Dispatch notification via Email or SMS
         var purposeDescription = GetPurposeDescription(request.Purpose);
         bool sendSuccess;
 
@@ -132,8 +132,8 @@ public class OtpService : IOtpService
         {
             Success = sendSuccess,
             Message = sendSuccess
-                ? "Mã xác thực OTP đã được gửi thành công. Vui lòng kiểm tra hộp thư/tin nhắn."
-                : "Không thể phát tán mã OTP qua kênh truyền thông. Vui lòng kiểm tra lại địa chỉ.",
+                ? "OTP verification code has been dispatched successfully. Please check your inbox or phone."
+                : "Failed to dispatch OTP code through the selected carrier. Please check your destination info.",
             ExpiresInSeconds = OtpExpiryMinutes * 60,
             CooldownSeconds = ResendCooldownSeconds,
             IsRateLimited = false
@@ -141,7 +141,7 @@ public class OtpService : IOtpService
     }
 
     /// <summary>
-    /// Xác thực mã OTP người dùng nhập vào bằng so sánh an toàn hằng thời gian (Constant-time comparison).
+    /// Verifies the submitted OTP code using constant-time hash comparison to mitigate side-channel timing attacks.
     /// </summary>
     public async Task<VerifyOtpResponseDto> VerifyOtpAsync(
         VerifyOtpRequestDto request,
@@ -150,29 +150,29 @@ public class OtpService : IOtpService
         var recipient = request.Destination.Trim().ToLowerInvariant();
         var purposeStr = request.Purpose.ToString();
 
-        // 1. Tìm bản ghi OTP mới nhất còn hiệu lực
+        // 1. Locate the latest active unexpired token
         var otpRecord = await _otpRepository.GetLatestActiveByRecipientAsync(recipient, purposeStr, ct);
         if (otpRecord == null)
         {
             return new VerifyOtpResponseDto
             {
                 Success = false,
-                Message = "Mã xác thực không tồn tại hoặc đã hết hạn hiệu lực (5 phút). Vui lòng yêu cầu mã mới."
+                Message = "Verification code is invalid or has expired (5-minute lifetime). Please request a new code."
             };
         }
 
-        // 2. Kiểm tra giới hạn số lần nhập sai (Brute Force Protection)
+        // 2. Protect against brute-force guessing attacks (max 5 failed attempts)
         if (otpRecord.AttemptCount >= MaxFailedAttempts)
         {
             return new VerifyOtpResponseDto
             {
                 Success = false,
-                Message = "Mã OTP đã bị khóa do nhập sai quá 5 lần. Vui lòng yêu cầu mã mới.",
+                Message = "This verification code has been locked due to excessive failed attempts. Please request a new code.",
                 RemainingAttempts = 0
             };
         }
 
-        // 3. Tính toán hash từ input và so sánh hằng thời gian
+        // 3. Compute hash and compare using constant-time equality
         var candidateHash = ComputeHash(request.Otp.Trim(), otpRecord.Salt);
         var isMatch = CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(candidateHash),
@@ -180,7 +180,6 @@ public class OtpService : IOtpService
 
         if (!isMatch)
         {
-            // Tăng số lần thử sai
             otpRecord.AttemptCount++;
             await _otpRepository.UpdateAsync(otpRecord, ct);
             var remaining = MaxFailedAttempts - otpRecord.AttemptCount;
@@ -188,29 +187,29 @@ public class OtpService : IOtpService
             return new VerifyOtpResponseDto
             {
                 Success = false,
-                Message = $"Mã OTP không chính xác. Bạn còn {remaining} lần thử lại.",
+                Message = $"Incorrect OTP code. You have {remaining} attempts remaining.",
                 RemainingAttempts = remaining
             };
         }
 
-        // 4. Xác thực thành công: Đánh dấu đã sử dụng để chống Replay Attack
+        // 4. Mark token as consumed to prevent replay attacks
         otpRecord.IsUsed = true;
         await _otpRepository.UpdateAsync(otpRecord, ct);
 
-        // 5. Sinh Verification Token dùng 1 lần (dành cho bước Reset Password hoặc Kích hoạt tài khoản)
+        // 5. Generate a cryptographically secure one-time verification token
         var tokenBytes = RandomNumberGenerator.GetBytes(32);
         var verificationToken = Convert.ToHexString(tokenBytes).ToLowerInvariant();
 
         return new VerifyOtpResponseDto
         {
             Success = true,
-            Message = "Xác thực mã OTP thành công!",
+            Message = "OTP code verified successfully!",
             VerificationToken = verificationToken
         };
     }
 
     /// <summary>
-    /// Băm mã OTP kèm chuỗi muối Salt bằng thuật toán SHA-256.
+    /// Computes the SHA-256 hash digest of an OTP code with its dedicated cryptographic salt.
     /// </summary>
     private static string ComputeHash(string otp, string salt)
     {
@@ -221,10 +220,10 @@ public class OtpService : IOtpService
 
     private static string GetPurposeDescription(OtpPurpose purpose) => purpose switch
     {
-        OtpPurpose.Registration => "Xác thực đăng ký tài khoản BMS mới",
-        OtpPurpose.PasswordReset => "Cấp lại mật khẩu tài khoản BMS",
-        OtpPurpose.Login => "Xác thực đăng nhập 2 yếu tố",
-        OtpPurpose.Transaction => "Xác nhận giao dịch viện phí",
-        _ => "Xác thực danh tính y tế BMS"
+        OtpPurpose.Registration => "BMS Account Registration",
+        OtpPurpose.PasswordReset => "BMS Password Reset",
+        OtpPurpose.Login => "Two-Factor Authentication",
+        OtpPurpose.Transaction => "Clinical Billing Confirmation",
+        _ => "BMS Medical Identity Verification"
     };
 }

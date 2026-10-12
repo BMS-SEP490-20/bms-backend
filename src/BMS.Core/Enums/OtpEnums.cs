@@ -1,44 +1,44 @@
 namespace BMS.Core.Enums;
 
 /// <summary>
-/// Mục đích nghiệp vụ của mã xác thực OTP trong hệ thống BMS.
-/// Tuân thủ: NIST SP 800-63B & OWASP Authentication Guidelines.
+/// Business purpose of the One-Time Password (OTP) in the BMS platform.
+/// Conforms to: NIST SP 800-63B & OWASP Authentication Guidelines.
 /// </summary>
 public enum OtpPurpose
 {
     /// <summary>
-    /// Xác thực đăng ký tài khoản bệnh nhân hoặc nhân viên mới (UC02).
+    /// Verification for patient or staff account registration (UC02).
     /// </summary>
     Registration = 1,
 
     /// <summary>
-    /// Xác thực yêu cầu cấp lại mật khẩu bị quên (UC10).
+    /// Verification for forgotten password recovery workflow (UC10).
     /// </summary>
     PasswordReset = 2,
 
     /// <summary>
-    /// Xác thực đăng nhập 2 yếu tố (2FA).
+    /// Verification for multi-factor authentication (2FA login).
     /// </summary>
     Login = 3,
 
     /// <summary>
-    /// Xác thực xác nhận giao dịch thanh toán viện phí hoặc đổi thông tin nhạy cảm.
+    /// Verification for critical billing or sensitive clinical record modifications.
     /// </summary>
     Transaction = 4
 }
 
 /// <summary>
-/// Kênh truyền thông phát tán mã xác thực OTP tới người dùng.
+/// Telecommunication transmission channel for delivering the OTP code.
 /// </summary>
 public enum OtpChannel
 {
     /// <summary>
-    /// Gửi mã qua dịch vụ thư điện tử (SMTP / SendGrid).
+    /// Dispatch code via Electronic Mail (SMTP / Cloud Mail Provider).
     /// </summary>
     Email = 1,
 
     /// <summary>
-    /// Gửi mã qua tin nhắn SMS Brandname (Twilio / Viettel / VNPT).
+    /// Dispatch code via Short Message Service (SMS Brandname / Telecom Gateway).
     /// </summary>
     Sms = 2
 }

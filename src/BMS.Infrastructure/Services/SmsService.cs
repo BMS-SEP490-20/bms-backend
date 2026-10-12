@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace BMS.Infrastructure.Services;
 
 /// <summary>
-/// Triển khai dịch vụ gửi SMS Brandname viễn thông cho hệ thống BMS.
+/// SMS Gateway delivery service implementation for telecom carrier messaging.
 /// </summary>
 public class SmsService : ISmsService
 {
@@ -19,16 +19,16 @@ public class SmsService : ISmsService
     }
 
     /// <summary>
-    /// Gửi tin nhắn SMS OTP tới số điện thoại người nhận.
+    /// Dispatches an SMS verification message to the specified phone number.
     /// </summary>
     public async Task<bool> SendOtpSmsAsync(string phoneNumber, string otpCode, CancellationToken ct = default)
     {
         try
         {
-            var message = $"[BMS Lab] Ma xac thuc OTP cua ban la {otpCode}. Ma co hieu luc trong 5 phut. Khong chia se ma nay voi bat ky ai.";
+            var message = $"[BMS Lab] Your verification code is {otpCode}. Valid for 5 minutes. Do not share this code.";
 
             _logger.LogInformation(
-                "[BMS SMS Gateway] Đang gửi tin nhắn SMS tới {Phone}: {Message}",
+                "[BMS SMS Gateway] Dispatching SMS message to {Phone}: {Message}",
                 phoneNumber,
                 message);
 
@@ -37,7 +37,7 @@ public class SmsService : ISmsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi phát tán SMS tới {Phone}", phoneNumber);
+            _logger.LogError(ex, "Failed to dispatch SMS to {Phone}", phoneNumber);
             return false;
         }
     }

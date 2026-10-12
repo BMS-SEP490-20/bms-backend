@@ -3,22 +3,22 @@ using BMS.Application.DTOs.Auth;
 namespace BMS.Application.Interfaces;
 
 /// <summary>
-/// Giao diện xử lý nghiệp vụ sinh mã và kiểm tra mã xác thực OTP (UC03).
+/// Business service interface orchestrating OTP generation, rate limiting, and verification (UC03).
 /// </summary>
 public interface IOtpService
 {
     /// <summary>
-    /// Tiếp nhận yêu cầu, kiểm tra Rate Limiting, sinh mã bảo mật CSPRNG, băm và gửi mã qua kênh chỉ định.
+    /// Processes an OTP request, verifies rate limits, generates CSPRNG code, hashes, and dispatches via selected channel.
     /// </summary>
-    /// <param name="request">Thông tin yêu cầu gửi OTP.</param>
-    /// <param name="clientIp">Địa chỉ IP người gọi để áp dụng Rate Limiting bảo vệ chống SMS Flooding.</param>
+    /// <param name="request">OTP generation request parameters.</param>
+    /// <param name="clientIp">Originating IP address for rate limit accounting.</param>
     /// <param name="ct">CancellationToken.</param>
     Task<SendOtpResponseDto> SendOtpAsync(SendOtpRequestDto request, string clientIp, CancellationToken ct = default);
 
     /// <summary>
-    /// Xác thực mã OTP người dùng nhập vào so với chuỗi băm trong cơ sở dữ liệu.
+    /// Verifies a submitted OTP against the salted hash persisted in the data store using constant-time comparison.
     /// </summary>
-    /// <param name="request">Thông tin xác thực OTP.</param>
+    /// <param name="request">OTP verification parameters.</param>
     /// <param name="ct">CancellationToken.</param>
     Task<VerifyOtpResponseDto> VerifyOtpAsync(VerifyOtpRequestDto request, CancellationToken ct = default);
 }

@@ -6,8 +6,8 @@ using MongoDB.Driver;
 namespace BMS.Infrastructure.Data;
 
 /// <summary>
-/// Quản lý kết nối MongoDB và các Collection chuyên biệt trong hệ thống BMS.
-/// Khởi tạo TTL Index cho các token tạm thời nhằm tối ưu hóa bộ nhớ cơ sở dữ liệu.
+/// Manages MongoDB database connections, collections, and index configurations.
+/// Enforces TTL Index creation on ephemeral token collections to automate memory cleanup.
 /// </summary>
 public class MongoDbContext
 {
@@ -28,22 +28,22 @@ public class MongoDbContext
             var client = new MongoClient(connectionString);
             _database = client.GetDatabase(databaseName);
             EnsureIndexes();
-            _logger.LogInformation("Đã kết nối MongoDB thành công: {DatabaseName}", databaseName);
+            _logger.LogInformation("Connected successfully to MongoDB database: {DatabaseName}", databaseName);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Không thể kết nối trực tiếp tới MongoDB. Hệ thống sẽ kích hoạt In-Memory Repository Fallback cho môi trường Dev.");
+            _logger.LogWarning(ex, "Could not establish direct MongoDB connection. In-Memory fallback will handle local development.");
         }
     }
 
     /// <summary>
-    /// Collection lưu trữ mã xác thực OTP ("otp_tokens").
+    /// Collection persisting OTP verification tokens ("otp_tokens").
     /// </summary>
     public IMongoCollection<OtpTokenEntity>? OtpTokens =>
         _database?.GetCollection<OtpTokenEntity>("otp_tokens");
 
     /// <summary>
-    /// Thiết lập các chỉ mục cần thiết (Index), bao gồm TTL Index trên trường ExpiresAt.
+    /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
     {
@@ -51,12 +51,12 @@ public class MongoDbContext
 
         try
         {
-            // 1. TTL Index: MongoDB tự động dọn dẹp các bản ghi khi thời gian chạm mốc ExpiresAt
+            // 1. TTL Index: MongoDB automatically reclaims documents once UTC time reaches ExpiresAt
             var ttlIndexKeys = Builders<OtpTokenEntity>.IndexKeys.Ascending(x => x.ExpiresAt);
             var ttlIndexOptions = new CreateIndexOptions { ExpireAfter = TimeSpan.Zero, Name = "TTL_ExpiresAt" };
             OtpTokens.Indexes.CreateOne(new CreateIndexModel<OtpTokenEntity>(ttlIndexKeys, ttlIndexOptions));
 
-            // 2. Compound Index trên Recipient và Purpose để tối ưu tốc độ truy vấn
+            // 2. Compound Index on Recipient and Purpose for high-throughput lookup performance
             var recipientIndexKeys = Builders<OtpTokenEntity>.IndexKeys
                 .Ascending(x => x.Recipient)
                 .Ascending(x => x.Purpose);
@@ -64,7 +64,7 @@ public class MongoDbContext
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Không thể tạo tự động Indexes cho MongoDB: {Message}", ex.Message);
+            _logger.LogWarning("Unable to automatically register MongoDB indexes: {Message}", ex.Message);
         }
     }
 }
