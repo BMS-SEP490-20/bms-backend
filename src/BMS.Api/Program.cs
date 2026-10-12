@@ -1,18 +1,23 @@
 using BMS.Api;
+using BMS.Api.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
-builder.Services.AddServiceCatalog(builder.Configuration);
+
+// Shared (once)
+builder.Services.AddBmsInfrastructure(builder.Configuration);
 builder.Services.AddBmsSwagger();
 builder.Services.AddBmsCors();
+
+// Features
+builder.Services.AddServiceCatalog();
+builder.Services.AddDoctorSchedule();
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
-{
     app.UseBmsSwagger();
-}
 
 app.UseCors("AllowFrontend");
 app.MapControllers();
