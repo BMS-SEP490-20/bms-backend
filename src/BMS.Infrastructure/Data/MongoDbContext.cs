@@ -43,6 +43,12 @@ public class MongoDbContext
         _database?.GetCollection<OtpTokenEntity>("otp_tokens");
 
     /// <summary>
+    /// Collection persisting clinical user and patient accounts ("users").
+    /// </summary>
+    public IMongoCollection<User>? Users =>
+        _database?.GetCollection<User>("users");
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
