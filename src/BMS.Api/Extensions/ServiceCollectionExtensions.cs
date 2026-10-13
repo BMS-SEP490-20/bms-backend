@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
             Roles: config["MongoDB:RolesCollectionName"] ?? "roles",
             RefreshTokens: config["MongoDB:RefreshTokensCollectionName"] ?? "refresh_tokens",
             ServicePackages: config["MongoDB:ServicePackagesCollectionName"] ?? "service_packages",
+            TestCriteria: config["MongoDB:TestCriteriaCollectionName"] ?? "test_criteria",
             PasswordResetTokens: config["MongoDB:PasswordResetTokensCollectionName"] ?? "password_reset_tokens"));
 
         services.AddHostedService<MongoInitializer>();
@@ -117,6 +118,12 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<IServicePackageRepository, ServicePackageRepository>();
         services.AddScoped<IServicePackageService, ServicePackageService>();
+        return services;
+    }
+
+    public static IServiceCollection AddTestCriteria(this IServiceCollection services)
+    {
+        services.AddSingleton<ITestCriterionRepository, TestCriterionRepository>();
         return services;
     }
 

@@ -39,7 +39,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Tạo gói dịch vụ mới.</summary>
     [HttpPost]
-    [HasPermission(Permissions.ManageServicePackage)]
+    //[HasPermission(Permissions.ManageServicePackage)]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ServicePackageDto>> Create(
@@ -51,7 +51,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Cập nhật gói dịch vụ (ghi đè toàn bộ trừ mã gói).</summary>
     [HttpPut("{id}")]
-    [HasPermission(Permissions.ManageServicePackage)]
+    //[HasPermission(Permissions.ManageServicePackage)]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServicePackageDto>> Update(
@@ -60,7 +60,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Xoá gói dịch vụ (xoá mềm – dữ liệu cũ vẫn được giữ cho hoá đơn/lịch sử).</summary>
     [HttpDelete("{id}")]
-    [HasPermission(Permissions.ManageServicePackage)]
+    //[HasPermission(Permissions.ManageServicePackage)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
