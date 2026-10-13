@@ -1,21 +1,18 @@
+using System.Security.Claims;
 using BMS.Application.DTOs;
 using BMS.Application.DTOs.Auth;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BMS.Api.Controllers.Auth;
 
-/// <summary>
-/// API Controller managing identity verification, authentication, and One-Time Password workflows (UC02, UC03, UC04, UC05).
-/// Handles user registration, credentials authentication, cryptographic OTP dispatch, and 2FA verification.
-/// Conforms to: RESTful API Design, OWASP ASVS & RFC 7807 Problem Details.
-/// </summary>
 [ApiController]
 [Route("api/auth")]
 [Route("api/v1/auth")]
 [Produces("application/json")]
-public class AuthController : ControllerBase
+public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly IOtpService _otpService;
@@ -31,61 +28,125 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// UC02 - Đăng ký tài khoản bệnh nhân (Register Account)
-    /// </summary>
+    // =========================================================
+    // LOGIN - Giữ luồng JWT và refresh token của feature branch
+    // =========================================================
+
+    /// <summary>Đăng nhập bằng username/email và mật khẩu.</summary>
+    [HttpPost("login")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AuthResponse>> Login(
+        [FromBody] LoginRequest request,
+        CancellationToken ct)
+    {
+        var result = await _authService.LoginAsync(
+            request,
+            GetClient(),
+            ct);
+
+        return Ok(result);
+    }
+
+    // =========================================================
+    // REFRESH TOKEN
+    // =========================================================
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AuthResponse>> Refresh(
+        [FromBody] RefreshTokenRequest request,
+        CancellationToken ct)
+    {
+        var result = await _authService.RefreshAsync(
+            request.RefreshToken,
+            GetClient(),
+            ct);
+
+        return Ok(result);
+    }
+
+    // =========================================================
+    // LOGOUT
+    // =========================================================
+
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(
+        [FromBody] LogoutRequest? request,
+        CancellationToken ct)
+    {
+        await _authService.LogoutAsync(
+            CurrentUserId,
+            request?.RefreshToken,
+            ct);
+
+        return NoContent();
+    }
+
+    [HttpPost("logout-all")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> LogoutAll(CancellationToken ct)
+    {
+        await _authService.LogoutAllAsync(CurrentUserId, ct);
+
+        return NoContent();
+    }
+
+    // =========================================================
+    // REGISTER
+    // =========================================================
+
     [HttpPost("register")]
     [AllowAnonymous]
-    public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
+    public async Task<IActionResult> Register(
+        [FromBody] RegisterRequestDto request)
     {
         if (!ModelState.IsValid)
         {
-            return BadRequest(new { success = false, message = "Dữ liệu không hợp lệ.", errors = ModelState });
+            return BadRequest(new
+            {
+                success = false,
+                message = "Dữ liệu không hợp lệ.",
+                errors = ModelState
+            });
         }
 
         var result = await _authService.RegisterAsync(request);
+
         if (!result.Success)
         {
             return Conflict(result);
         }
 
-        return StatusCode(201, result);
+        return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    /// <summary>
-    /// UC05 - Đăng nhập hệ thống (System Login)
-    /// </summary>
-    [HttpPost("login")]
-    [AllowAnonymous]
-    public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
-    {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(new { success = false, message = "Vui lòng nhập tên đăng nhập và mật khẩu." });
-        }
+    // =========================================================
+    // VERIFY ACCOUNT OTP - Giữ API cũ của main
+    // =========================================================
 
-        var result = await _authService.LoginAsync(request);
-        if (!result.Success)
-        {
-            return Unauthorized(result);
-        }
-
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// UC04 - Xác thực mã OTP email để kích hoạt tài khoản
-    /// </summary>
     [HttpPost("verify-otp")]
     [AllowAnonymous]
-    public async Task<IActionResult> VerifyAccountOtp([FromBody] VerifyOtpDto request)
+    public async Task<IActionResult> VerifyAccountOtp(
+        [FromBody] VerifyOtpDto request)
     {
         if (!ModelState.IsValid)
         {
-            return BadRequest(new { success = false, message = "Dữ liệu OTP không hợp lệ." });
+            return BadRequest(new
+            {
+                success = false,
+                message = "Dữ liệu OTP không hợp lệ."
+            });
         }
 
         var result = await _authService.VerifyOtpAsync(request);
+
         if (!result.Success)
         {
             return BadRequest(result);
@@ -94,10 +155,12 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Generates and dispatches a 6-digit OTP code via Email or SMS for Registration or Password Recovery (I1-011 / UC03).
-    /// </summary>
+    // =========================================================
+    // SEND OTP - Registration / Forgot Password
+    // =========================================================
+
     [HttpPost("otp/send")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(SendOtpResponseDto), StatusCodes.Status429TooManyRequests)]
@@ -114,21 +177,27 @@ public class AuthController : ControllerBase
             });
         }
 
-        var clientIp = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
+        var clientIp =
+            HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
             ?? HttpContext.Connection.RemoteIpAddress?.ToString()
             ?? "Unknown-IP";
 
         _logger.LogInformation(
-            "[BMS Auth API] Processing OTP dispatch to {Destination} (Purpose: {Purpose}) from IP {ClientIp}",
+            "Processing OTP dispatch for {Destination}, purpose {Purpose}, IP {ClientIp}",
             request.Destination,
             request.Purpose,
             clientIp);
 
-        var result = await _otpService.SendOtpAsync(request, clientIp, ct);
+        var result = await _otpService.SendOtpAsync(
+            request,
+            clientIp,
+            ct);
 
         if (result.IsRateLimited)
         {
-            return StatusCode(StatusCodes.Status429TooManyRequests, result);
+            return StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                result);
         }
 
         if (!result.Success)
@@ -139,10 +208,12 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Verifies a 6-digit OTP code submitted by the user (I1-011 / UC03).
-    /// </summary>
+    // =========================================================
+    // VERIFY OTP - Forgot Password / OTP workflow
+    // =========================================================
+
     [HttpPost("otp/verify")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> VerifyOtp(
@@ -158,11 +229,6 @@ public class AuthController : ControllerBase
             });
         }
 
-        _logger.LogInformation(
-            "[BMS Auth API] Processing OTP verification for {Destination} (Purpose: {Purpose})",
-            request.Destination,
-            request.Purpose);
-
         var result = await _otpService.VerifyOtpAsync(request, ct);
 
         if (!result.Success)
@@ -173,19 +239,41 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Lấy thông tin tài khoản hiện tại từ header hoặc param (Fallback demo)
-    /// </summary>
+    // =========================================================
+    // CURRENT USER - Đọc profile bằng JWT
+    // =========================================================
+
     [HttpGet("me")]
-    public async Task<IActionResult> GetCurrentUser([FromQuery] string? userId)
+    [Authorize]
+    [ProducesResponseType(typeof(UserInfoDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<UserInfoDto>> Me(CancellationToken ct)
     {
-        var id = userId ?? "USR-PAT-01";
-        var user = await _authService.GetUserByIdAsync(id);
-        if (user == null)
+        var result = await _authService.GetProfileAsync(
+            CurrentUserId,
+            ct);
+
+        return Ok(result);
+    }
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    private string CurrentUserId =>
+        User.FindFirstValue("sub")
+        ?? throw new UnauthorizedAccessException();
+
+    private ClientContext GetClient()
+    {
+        var userAgent = Request.Headers.UserAgent.ToString();
+
+        if (userAgent.Length > 256)
         {
-            return NotFound(new { success = false, message = "Không tìm thấy người dùng." });
+            userAgent = userAgent[..256];
         }
 
-        return Ok(new { success = true, data = user });
+        return new ClientContext(
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            userAgent);
     }
 }

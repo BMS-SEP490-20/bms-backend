@@ -1,54 +1,120 @@
+using BMS.Api.Extensions;
 using BMS.Application;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
 using BMS.Infrastructure;
 using BMS.Infrastructure.Data;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container
+// =========================================================
+// SERVICES
+// =========================================================
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-// Register Clean Architecture layers for MongoDB & Identity / Lab Criteria
+// Database and authentication
+builder.Services.AddMongo(builder.Configuration);
+builder.Services.AddAuthModule(builder.Configuration);
+
+// Password recovery and API security
+builder.Services.AddPasswordRecovery(
+    builder.Configuration,
+    builder.Environment);
+
+builder.Services.AddServicePackages();
+builder.Services.AddApiHardening(builder.Configuration);
+
+// Clean Architecture
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices();
 
-// Register In-Memory Context as Singleton for dev state persistence
+// Development context
 builder.Services.AddSingleton<BmsDbContext>();
 
-// Register Application Services from main
+// Main branch services
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
 
-// Configure CORS for frontend applications (React on 3000, Vite on 5173, Mobile apps)
+// IMPORTANT:
+// Không đăng ký IAuthService lần nữa ở đây nếu
+// AddAuthModule(), AddApplicationServices() hoặc
+// AddInfrastructureServices() đã đăng ký dịch vụ này.
+
+// =========================================================
+// CORS
+// =========================================================
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("BmsFrontend", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy
+            .WithOrigins(
+                "http://localhost:5175",
+                "http://127.0.0.1:5175",
+                "http://localhost:5173",
+                "http://localhost:3000"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod();
     });
 });
 
+// =========================================================
+// FORWARDED HEADERS
+// =========================================================
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto;
+});
+
+// =========================================================
+// BUILD APPLICATION
+// =========================================================
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
+// Forwarded headers should run early in the pipeline.
+app.UseForwardedHeaders();
+
+// Exception handling
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+else
+{
+    app.UseExceptionHandler();
+    app.UseHsts();
+}
 
-app.UseCors("AllowAll");
+// HTTP pipeline
 app.UseHttpsRedirection();
+
+app.UseRouting();
+
+app.UseCors("BmsFrontend");
+
+app.UseAuthentication();
+
+app.UseRateLimiter();
+
 app.UseAuthorization();
 
+// Controllers
 app.MapControllers();
 
-// Health Check endpoint
+// =========================================================
+// HEALTH CHECK
+// =========================================================
+
 app.MapGet("/", () => Results.Ok(new
 {
     system = "BMS Blood Laboratory Management System API",
