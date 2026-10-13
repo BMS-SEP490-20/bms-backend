@@ -1,93 +1,137 @@
+
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace BMS.Core.Entities;
 
 /// <summary>
-/// Entity representing a system user account.
-/// Maps to the <c>accounts</c> collection in MongoDB.
-/// Used across authentication, RBAC, and audit features.
+/// Trạng thái tài khoản trong hệ thống BMS.
+/// </summary>
+public enum UserStatus
+{
+    Active = 1
+}
+
+/// <summary>
+/// Các vai trò người dùng trong hệ thống BMS.
+/// </summary>
+public enum UserRole
+{
+    Patient = 1,
+    Receptionist = 2,
+    Doctor = 3,
+    LaboratoryUser = 4,
+    Manager = 5,
+    Administrator = 6
+}
+
+/// <summary>
+/// Domain entity đại diện cho tài khoản người dùng BMS.
+/// Hỗ trợ thông tin bệnh nhân, xác thực, quên mật khẩu
+/// và chống brute-force khi đăng nhập.
 /// </summary>
 public class User
 {
-    /// <summary>
-    /// Unique account identifier (MongoDB ObjectId).
-    /// </summary>
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; } = string.Empty;
+    public string Id { get; set; } = Guid.NewGuid().ToString();
 
-    /// <summary>
-    /// Login username. Must be unique across the system.
-    /// </summary>
-    [BsonElement("Username")]
+    [BsonElement("username")]
     public string Username { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Hashed password (BCrypt / ASP.NET Identity hash).
-    /// Never store or return the plain-text password.
-    /// </summary>
-    [BsonElement("Password")]
-    public string Password { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Account email address. Must be unique.
-    /// </summary>
-    [BsonElement("Email")]
+    [BsonElement("email")]
     public string Email { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Display full name of the account holder.
-    /// </summary>
-    [BsonElement("FullName")]
+    [BsonElement("phoneNumber")]
+    public string? PhoneNumber { get; set; }
+
+    [BsonElement("fullName")]
     public string FullName { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Contact phone number (used for OTP and notifications).
-    /// </summary>
-    [BsonElement("PhoneNumber")]
-    public string PhoneNumber { get; set; } = string.Empty;
+    // Thông tin bệnh nhân
+    [BsonElement("patientCode")]
+    public string? PatientCode { get; set; }
 
-    /// <summary>
-    /// Foreign key referencing the <c>roles</c> collection (_id).
-    /// Determines the user's RBAC permissions.
-    /// <list type="bullet">
-    ///   <item>1 – Admin</item>
-    ///   <item>2 – Doctor</item>
-    ///   <item>3 – LabTechnician</item>
-    ///   <item>4 – LabHead</item>
-    ///   <item>5 – Nurse</item>
-    ///   <item>6 – Receptionist</item>
-    ///   <item>7 – Cashier</item>
-    ///   <item>8 – WarehouseStaff</item>
-    ///   <item>9 – Patient</item>
-    /// </list>
-    /// </summary>
-    [BsonElement("RoleId")]
-    public int RoleId { get; set; }
+    [BsonElement("identityCardNumber")]
+    public string? IdentityCardNumber { get; set; }
 
-    /// <summary>
-    /// Account status flag.
-    /// <list type="bullet">
-    ///   <item>0 – Inactive / Pending activation</item>
-    ///   <item>1 – Active</item>
-    ///   <item>2 – Locked / Suspended</item>
-    /// </list>
-    /// </summary>
-    [BsonElement("Status")]
-    public int Status { get; set; }
+    [BsonElement("dateOfBirth")]
+    public DateTime? DateOfBirth { get; set; }
 
-    /// <summary>
-    /// Timestamp when the account was created (UTC).
-    /// </summary>
-    [BsonElement("CreatedAt")]
-    public DateTime CreatedAt { get; set; }
+    [BsonElement("gender")]
+    public string? Gender { get; set; }
 
-    /// <summary>
-    /// Timestamp of the most recent successful login (UTC).
-    /// Null if the user has never logged in.
-    /// </summary>
-    [BsonElement("LastLoginAt")]
-    [BsonIgnoreIfNull]
+    [BsonElement("address")]
+    public string? Address { get; set; }
+
+    [BsonElement("bloodType")]
+    public string? BloodType { get; set; }
+
+    // Vai trò
+    [BsonElement("role")]
+    [BsonRepresentation(BsonType.String)]
+    public UserRole Role { get; set; } = UserRole.Patient;
+
+    [BsonElement("roleId")]
+    [BsonRepresentation(BsonType.String)]
+    public string? RoleId { get; set; }
+
+    // Xác thực tài khoản
+    [BsonElement("passwordHash")]
+    public string PasswordHash { get; set; } = string.Empty;
+
+    [BsonElement("passwordSalt")]
+    public string PasswordSalt { get; set; } = string.Empty;
+
+    [BsonElement("status")]
+    public int Status { get; set; } = (int)UserStatus.Active;
+
+    [BsonElement("isActive")]
+    public bool IsActive
+    {
+        get => Status == (int)UserStatus.Active;
+        set => Status = value
+            ? (int)UserStatus.Active
+            : 0;
+    }
+
+    [BsonElement("isDeleted")]
+    public bool IsDeleted { get; set; }
+
+    [BsonElement("emailConfirmed")]
+    public bool EmailConfirmed { get; set; }
+
+    // OTP xác thực email
+    [BsonElement("verificationOtp")]
+    public string? VerificationOtp { get; set; }
+
+    [BsonElement("otpExpiresAt")]
+    public DateTime? OtpExpiresAt { get; set; }
+
+    // OTP quên mật khẩu
+    [BsonElement("passwordResetOtp")]
+    public string? PasswordResetOtp { get; set; }
+
+    [BsonElement("passwordResetExpiresAt")]
+    public DateTime? PasswordResetExpiresAt { get; set; }
+
+    // Chống brute-force
+    [BsonElement("failedLoginCount")]
+    public int FailedLoginCount { get; set; }
+
+    [BsonElement("lockoutEnd")]
+    public DateTime? LockoutEnd { get; set; }
+
+    // Thông tin bổ sung
+    [BsonElement("avatarUrl")]
+    public string? AvatarUrl { get; set; }
+
+    [BsonElement("createdAt")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [BsonElement("updatedAt")]
+    public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [BsonElement("lastLoginAt")]
     public DateTime? LastLoginAt { get; set; }
 }
+

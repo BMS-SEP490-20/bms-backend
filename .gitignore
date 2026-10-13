@@ -52,8 +52,7 @@ CodeCoverage/
 [Bb]uild[Ll]og.*
 
 # NUnit
-*.VisualState.xml
-TestResult.xml
 nunit-*.xml
 
-src/.vs/
+# Visual Studio
+.vs/
