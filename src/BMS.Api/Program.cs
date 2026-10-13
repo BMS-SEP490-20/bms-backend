@@ -26,6 +26,7 @@ builder.Services.AddPasswordRecovery(
     builder.Environment);
 
 builder.Services.AddServicePackages();
+builder.Services.AddTestCriteria();
 builder.Services.AddApiHardening(builder.Configuration);
 
 // Clean Architecture
@@ -44,6 +45,7 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 // AddAuthModule(), AddApplicationServices() hoặc
 // AddInfrastructureServices() đã đăng ký dịch vụ này.
 
+
 // =========================================================
 // CORS
 // =========================================================
@@ -57,12 +59,14 @@ builder.Services.AddCors(options =>
                 "http://localhost:5175",
                 "http://127.0.0.1:5175",
                 "http://localhost:5173",
+                "http://127.0.0.1:5173",
                 "http://localhost:3000"
             )
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
 });
+
 
 // =========================================================
 // FORWARDED HEADERS

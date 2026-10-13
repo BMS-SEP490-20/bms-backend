@@ -1,28 +1,50 @@
+
 using System.Collections.Concurrent;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
+using BMS.Infrastructure.Mongo;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
+using ApplicationTestCriterionRepository =
+    BMS.Application.Interfaces.ITestCriterionRepository;
+
+using CoreTestCriterionRepository =
+    BMS.Core.Interfaces.ITestCriterionRepository;
+
 namespace BMS.Infrastructure.Repositories;
 
-/// <summary>
-/// Implements repository for laboratory test criteria interacting with MongoDB collection "test_criteria".
-/// Conforms to: ISO 15189 Quality Standards & Repository Pattern.
+/// </summary>>
+/// Repository quản lý tiêu chí xét nghiệm.
+/// Hỗ trợ cả API quản lý tiêu chí xét nghiệm và API quản lý gói dịch vụ.
 /// </summary>
-public class TestCriterionRepository : ITestCriterionRepository
+public sealed class TestCriterionRepository :
+    CoreTestCriterionRepository,
+    ApplicationTestCriterionRepository
 {
     private readonly MongoDbContext _context;
     private readonly ILogger<TestCriterionRepository> _logger;
 
-    private static readonly ConcurrentDictionary<string, TestCriterionEntity> _memoryCriteria = new();
-    private static bool _seeded = false;
+    // Collection tương thích với entity của nhánh ManageServicePackages.
+    private readonly IMongoCollection<TestCriterion> _legacyCriteria;
 
-    public TestCriterionRepository(MongoDbContext context, ILogger<TestCriterionRepository> logger)
+    private static readonly ConcurrentDictionary<string, TestCriterionEntity>
+        _memoryCriteria = new();
+
+    private static bool _seeded;
+
+    public TestCriterionRepository(
+        MongoDbContext context,
+        ILogger<TestCriterionRepository> logger,
+        IMongoDatabase database,
+        MongoCollections collections)
     {
         _context = context;
         _logger = logger;
+
+        _legacyCriteria = database.GetCollection<TestCriterion>(
+            collections.TestCriteria);
     }
 
     public async Task<(List<TestCriterionEntity> Items, long TotalCount)> GetPagedAsync(
