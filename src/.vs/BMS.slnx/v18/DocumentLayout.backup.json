@@ -1,0 +1,104 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\controllers\\servicepackages\\servicepackagescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\controllers\\servicepackages\\servicepackagescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\dtos\\servicepackages\\servicepackagedtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\dtos\\servicepackages\\servicepackagedtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\dtos\\auth\\authdtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\dtos\\auth\\authdtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 4,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "ServicePackagesController.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
+              "RelativeDocumentMoniker": "BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
+              "RelativeToolTip": "BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
+              "ViewState": "AgIAACYAAAAAAAAAAAAgwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T08:51:14.498Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "ServicePackageDtos.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "RelativeDocumentMoniker": "BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "RelativeToolTip": "BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T08:51:05.997Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "AuthDtos.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\Auth\\AuthDtos.cs",
+              "RelativeDocumentMoniker": "BMS.Application\\DTOs\\Auth\\AuthDtos.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\Auth\\AuthDtos.cs",
+              "RelativeToolTip": "BMS.Application\\DTOs\\Auth\\AuthDtos.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAxAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T08:17:28.845Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Program.cs",
+              "RelativeDocumentMoniker": "BMS.Api\\Program.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Program.cs",
+              "RelativeToolTip": "BMS.Api\\Program.cs",
+              "ViewState": "AgIAAA0AAAAAAAAAAAAowDEAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T03:10:40.076Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\appsettings.json",
+              "RelativeDocumentMoniker": "BMS.Api\\appsettings.json",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\appsettings.json*",
+              "RelativeToolTip": "BMS.Api\\appsettings.json*",
+              "ViewState": "AgIAABIAAAAAAAAAAAAAACEAAAAWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-10-12T03:10:15.634Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

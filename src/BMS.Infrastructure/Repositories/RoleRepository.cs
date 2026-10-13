@@ -9,53 +9,81 @@ using MongoDB.Driver;
 namespace BMS.Infrastructure.Repositories;
 
 /// <summary>
-/// Implements Role repository interacting with MongoDB collection "roles" and in-memory fallback.
-/// Conforms to: Repository Pattern & Clean Architecture.
+/// Repository quản lý role trong MongoDB,
+/// hỗ trợ in-memory fallback.
 /// </summary>
 public class RoleRepository : IRoleRepository
 {
     private readonly MongoDbContext _context;
     private readonly ILogger<RoleRepository> _logger;
 
-    private static readonly ConcurrentDictionary<string, RoleEntity> _memoryRoles = new();
-    private static bool _seeded = false;
+    private static readonly ConcurrentDictionary<string, RoleEntity>
+        _memoryRoles = new();
 
-    public RoleRepository(MongoDbContext context, ILogger<RoleRepository> logger)
+    private static bool _seeded;
+
+    public RoleRepository(
+        MongoDbContext context,
+        ILogger<RoleRepository> logger)
     {
         _context = context;
         _logger = logger;
     }
 
     /// <summary>
-    /// Retrieves paginated list of non-deleted roles.
+    /// Lấy danh sách role có phân trang,
+    /// hỗ trợ tìm kiếm và lọc trạng thái.
     /// </summary>
-    public async Task<(List<RoleEntity> Items, long TotalCount)> GetPagedAsync(
-        int page,
-        int pageSize,
-        string? search = null,
-        bool? isActive = null,
-        CancellationToken ct = default)
+    public async Task<(List<RoleEntity> Items, long TotalCount)>
+        GetPagedAsync(
+            int page,
+            int pageSize,
+            string? search = null,
+            bool? isActive = null,
+            CancellationToken ct = default)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Max(1, pageSize);
+
         if (_context.Roles != null)
         {
             try
             {
                 var builder = Builders<RoleEntity>.Filter;
-                var filter = builder.Eq(r => r.IsDeleted, false);
+
+                var filter = builder.Eq(
+                    r => r.IsDeleted,
+                    false);
 
                 if (!string.IsNullOrWhiteSpace(search))
                 {
-                    var searchLower = search.Trim().ToLowerInvariant();
-                    filter &= (builder.Regex(r => r.RoleCode, new MongoDB.Bson.BsonRegularExpression(searchLower, "i")) |
-                               builder.Regex(r => r.RoleName, new MongoDB.Bson.BsonRegularExpression(searchLower, "i")));
+                    var keyword = search.Trim();
+
+                    filter &= (
+                        builder.Regex(
+                            r => r.RoleCode,
+                            new MongoDB.Bson.BsonRegularExpression(
+                                keyword, "i"))
+                        |
+                        builder.Regex(
+                            r => r.RoleName,
+                            new MongoDB.Bson.BsonRegularExpression(
+                                keyword, "i"))
+                    );
                 }
 
                 if (isActive.HasValue)
                 {
-                    filter &= builder.Eq(r => r.IsActive, isActive.Value);
+                    filter &= builder.Eq(
+                        r => r.IsActive,
+                        isActive.Value);
                 }
 
-                var total = await _context.Roles.CountDocumentsAsync(filter, cancellationToken: ct);
+                var total = await _context.Roles
+                    .CountDocumentsAsync(
+                        filter,
+                        cancellationToken: ct);
+
                 var items = await _context.Roles
                     .Find(filter)
                     .SortByDescending(r => r.CreatedAt)
@@ -67,51 +95,92 @@ public class RoleRepository : IRoleRepository
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to query roles from MongoDB. Falling back to memory store.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to query roles from MongoDB. " +
+                    "Falling back to memory store.");
             }
         }
 
-        var query = _memoryRoles.Values.Where(r => !r.IsDeleted);
+        var query = _memoryRoles.Values
+            .Where(r => !r.IsDeleted);
+
         if (!string.IsNullOrWhiteSpace(search))
         {
+            var keyword = search.Trim();
+
             query = query.Where(r =>
-                r.RoleCode.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                r.RoleName.Contains(search, StringComparison.OrdinalIgnoreCase));
+                r.RoleCode.Contains(
+                    keyword,
+                    StringComparison.OrdinalIgnoreCase)
+                ||
+                r.RoleName.Contains(
+                    keyword,
+                    StringComparison.OrdinalIgnoreCase));
         }
 
         if (isActive.HasValue)
         {
-            query = query.Where(r => r.IsActive == isActive.Value);
+            query = query.Where(
+                r => r.IsActive == isActive.Value);
         }
 
-        var memoryList = query.OrderByDescending(r => r.CreatedAt).ToList();
-        var pagedItems = memoryList.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        var memoryList = query
+            .OrderByDescending(r => r.CreatedAt)
+            .ToList();
+
+        var pagedItems = memoryList
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
         return (pagedItems, memoryList.Count);
     }
 
-    public async Task<RoleEntity?> GetByIdAsync(string id, CancellationToken ct = default)
+    /// <summary>
+    /// Tìm role theo ID, bỏ qua role đã xóa.
+    /// </summary>
+    public async Task<RoleEntity?> GetByIdAsync(
+        string id,
+        CancellationToken ct = default)
     {
         if (_context.Roles != null)
         {
             try
             {
-                var filter = Builders<RoleEntity>.Filter.And(
-                    Builders<RoleEntity>.Filter.Eq(r => r.Id, id),
-                    Builders<RoleEntity>.Filter.Eq(r => r.IsDeleted, false)
-                );
-                return await _context.Roles.Find(filter).FirstOrDefaultAsync(ct);
+                var filter =
+                    Builders<RoleEntity>.Filter.And(
+                        Builders<RoleEntity>.Filter.Eq(
+                            r => r.Id, id),
+                        Builders<RoleEntity>.Filter.Eq(
+                            r => r.IsDeleted, false));
+
+                return await _context.Roles
+                    .Find(filter)
+                    .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to query role by Id from MongoDB. Falling back to memory.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to query role by ID from MongoDB. " +
+                    "Falling back to memory.");
             }
         }
 
         _memoryRoles.TryGetValue(id, out var role);
-        return role is { IsDeleted: false } ? role : null;
+
+        return role is { IsDeleted: false }
+            ? role
+            : null;
     }
 
-    public async Task<RoleEntity?> GetByCodeAsync(string roleCode, CancellationToken ct = default)
+    /// <summary>
+    /// Tìm role theo mã role.
+    /// </summary>
+    public async Task<RoleEntity?> GetByCodeAsync(
+        string roleCode,
+        CancellationToken ct = default)
     {
         var upperCode = roleCode.Trim().ToUpperInvariant();
 
@@ -119,47 +188,76 @@ public class RoleRepository : IRoleRepository
         {
             try
             {
-                var filter = Builders<RoleEntity>.Filter.And(
-                    Builders<RoleEntity>.Filter.Eq(r => r.RoleCode, upperCode),
-                    Builders<RoleEntity>.Filter.Eq(r => r.IsDeleted, false)
-                );
-                return await _context.Roles.Find(filter).FirstOrDefaultAsync(ct);
+                var filter =
+                    Builders<RoleEntity>.Filter.And(
+                        Builders<RoleEntity>.Filter.Eq(
+                            r => r.RoleCode, upperCode),
+                        Builders<RoleEntity>.Filter.Eq(
+                            r => r.IsDeleted, false));
+
+                return await _context.Roles
+                    .Find(filter)
+                    .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to query role by code from MongoDB. Falling back to memory.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to query role by code from MongoDB. " +
+                    "Falling back to memory.");
             }
         }
 
         return _memoryRoles.Values.FirstOrDefault(r =>
-            !r.IsDeleted && r.RoleCode.Equals(upperCode, StringComparison.OrdinalIgnoreCase));
+            !r.IsDeleted &&
+            r.RoleCode.Equals(
+                upperCode,
+                StringComparison.OrdinalIgnoreCase));
     }
 
-    public async Task CreateAsync(RoleEntity role, CancellationToken ct = default)
+    /// <summary>
+    /// Tạo role mới.
+    /// </summary>
+    public async Task CreateAsync(
+        RoleEntity role,
+        CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(role.Id))
+        if (string.IsNullOrWhiteSpace(role.Id))
         {
-            role.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+            role.Id = MongoDB.Bson.ObjectId
+                .GenerateNewId()
+                .ToString();
         }
 
         if (_context.Roles != null)
         {
             try
             {
-                await _context.Roles.InsertOneAsync(role, cancellationToken: ct);
+                await _context.Roles.InsertOneAsync(
+                    role,
+                    cancellationToken: ct);
+
                 _memoryRoles[role.Id] = role;
                 return;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to insert role into MongoDB. Falling back to memory.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to insert role into MongoDB. " +
+                    "Falling back to memory.");
             }
         }
 
         _memoryRoles[role.Id] = role;
     }
 
-    public async Task UpdateAsync(RoleEntity role, CancellationToken ct = default)
+    /// <summary>
+    /// Cập nhật role.
+    /// </summary>
+    public async Task UpdateAsync(
+        RoleEntity role,
+        CancellationToken ct = default)
     {
         role.UpdatedAt = DateTime.UtcNow;
 
@@ -167,24 +265,47 @@ public class RoleRepository : IRoleRepository
         {
             try
             {
-                var filter = Builders<RoleEntity>.Filter.Eq(r => r.Id, role.Id);
-                await _context.Roles.ReplaceOneAsync(filter, role, cancellationToken: ct);
-                _memoryRoles[role.Id] = role;
-                return;
+                var filter =
+                    Builders<RoleEntity>.Filter.Eq(
+                        r => r.Id, role.Id);
+
+                var result = await _context.Roles
+                    .ReplaceOneAsync(
+                        filter,
+                        role,
+                        cancellationToken: ct);
+
+                if (result.MatchedCount > 0)
+                {
+                    _memoryRoles[role.Id] = role;
+                    return;
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update role in MongoDB. Falling back to memory.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to update role in MongoDB. " +
+                    "Falling back to memory.");
             }
         }
 
         _memoryRoles[role.Id] = role;
     }
 
-    public async Task DeleteAsync(string id, CancellationToken ct = default)
+    /// <summary>
+    /// Xóa mềm role.
+    /// </summary>
+    public async Task DeleteAsync(
+        string id,
+        CancellationToken ct = default)
     {
         var role = await GetByIdAsync(id, ct);
-        if (role == null) return;
+
+        if (role == null)
+        {
+            return;
+        }
 
         role.IsDeleted = true;
         role.UpdatedAt = DateTime.UtcNow;
@@ -193,12 +314,15 @@ public class RoleRepository : IRoleRepository
     }
 
     /// <summary>
-    /// Seeds default built-in clinical roles with IsSystemRole = true per rule BR-ROLE-01.
+    /// Khởi tạo các role mặc định của hệ thống.
     /// </summary>
-    public async Task EnsureDefaultRolesSeededAsync(CancellationToken ct = default)
+    public async Task EnsureDefaultRolesSeededAsync(
+        CancellationToken ct = default)
     {
-        if (_seeded) return;
-        _seeded = true;
+        if (_seeded)
+        {
+            return;
+        }
 
         var defaultRoles = new List<RoleEntity>
         {
@@ -206,10 +330,15 @@ public class RoleRepository : IRoleRepository
             {
                 RoleCode = "ADMIN",
                 RoleName = "Quản Trị Viên Hệ Thống",
-                Description = "Toàn quyền quản trị phân hệ IAM, cấu hình tham số, danh mục và bảo mật.",
-                Permissions = new List<string> {
-                    SystemPermissions.IamView, SystemPermissions.IamManage,
-                    SystemPermissions.LabApprove, SystemPermissions.BillingRefund
+                Description =
+                    "Toàn quyền quản trị phân hệ IAM, " +
+                    "cấu hình tham số, danh mục và bảo mật.",
+                Permissions = new List<string>
+                {
+                    SystemPermissions.IamView,
+                    SystemPermissions.IamManage,
+                    SystemPermissions.LabApprove,
+                    SystemPermissions.BillingRefund
                 },
                 IsSystemRole = true,
                 IsActive = true
@@ -218,9 +347,14 @@ public class RoleRepository : IRoleRepository
             {
                 RoleCode = "DOCTOR",
                 RoleName = "Bác Sĩ Khám Bệnh",
-                Description = "Bác sĩ lâm sàng: Khám bệnh, chỉ định xét nghiệm và kê đơn EMR.",
-                Permissions = new List<string> {
-                    SystemPermissions.ClinicExam, SystemPermissions.ClinicOrder, SystemPermissions.LabTest
+                Description =
+                    "Bác sĩ lâm sàng: Khám bệnh, " +
+                    "chỉ định xét nghiệm và kê đơn EMR.",
+                Permissions = new List<string>
+                {
+                    SystemPermissions.ClinicExam,
+                    SystemPermissions.ClinicOrder,
+                    SystemPermissions.LabTest
                 },
                 IsSystemRole = true,
                 IsActive = true
@@ -229,9 +363,14 @@ public class RoleRepository : IRoleRepository
             {
                 RoleCode = "LAB_TECHNICIAN",
                 RoleName = "Kỹ Thuật Viên Xét Nghiệm",
-                Description = "KTV phòng Lab: Tiếp nhận mẫu bệnh phẩm, vận hành máy sinh hóa, nhập kết quả.",
-                Permissions = new List<string> {
-                    SystemPermissions.LabTest, SystemPermissions.LabApprove, SystemPermissions.InventoryView
+                Description =
+                    "Tiếp nhận mẫu bệnh phẩm, vận hành " +
+                    "máy xét nghiệm và nhập kết quả.",
+                Permissions = new List<string>
+                {
+                    SystemPermissions.LabTest,
+                    SystemPermissions.LabApprove,
+                    SystemPermissions.InventoryView
                 },
                 IsSystemRole = true,
                 IsActive = true
@@ -240,9 +379,13 @@ public class RoleRepository : IRoleRepository
             {
                 RoleCode = "RECEPTIONIST",
                 RoleName = "Nhân Viên Tiếp Đón",
-                Description = "Điều phối hàng đợi, tiếp nhận bệnh nhân, đặt lịch khám.",
-                Permissions = new List<string> {
-                    SystemPermissions.ReceptionQueue, SystemPermissions.ReceptionCheckin
+                Description =
+                    "Điều phối hàng đợi, tiếp nhận " +
+                    "bệnh nhân và đặt lịch khám.",
+                Permissions = new List<string>
+                {
+                    SystemPermissions.ReceptionQueue,
+                    SystemPermissions.ReceptionCheckin
                 },
                 IsSystemRole = true,
                 IsActive = true
@@ -251,20 +394,29 @@ public class RoleRepository : IRoleRepository
             {
                 RoleCode = "PATIENT",
                 RoleName = "Bệnh Nhân",
-                Description = "Tài khoản cổng thông tin bệnh nhân: Tra cứu kết quả và đặt lịch khám.",
+                Description =
+                    "Tra cứu kết quả và đặt lịch khám.",
                 Permissions = new List<string>(),
                 IsSystemRole = true,
                 IsActive = true
             }
         };
 
-        foreach (var r in defaultRoles)
+        foreach (var role in defaultRoles)
         {
-            var existing = await GetByCodeAsync(r.RoleCode, ct);
+            ct.ThrowIfCancellationRequested();
+
+            var existing = await GetByCodeAsync(
+                role.RoleCode,
+                ct);
+
             if (existing == null)
             {
-                await CreateAsync(r, ct);
+                await CreateAsync(role, ct);
             }
         }
+
+        _seeded = true;
     }
 }
+

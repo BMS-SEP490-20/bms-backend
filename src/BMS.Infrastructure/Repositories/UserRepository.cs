@@ -1,35 +1,40 @@
+
 using System.Collections.Concurrent;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace BMS.Infrastructure.Repositories;
 
-/// <summary>
-/// Implements the User Repository interacting with MongoDB collection "users".
-/// Includes resilient in-memory fallback support for offline development and testing.
-/// Conforms to: Repository Pattern & Clean Architecture.
-/// </summary>
-public class UserRepository : IUserRepository
+public sealed class UserRepository : IUserRepository
 {
+    private static readonly Collation CaseInsensitive =
+        new("en", strength: CollationStrength.Secondary);
+
     private readonly MongoDbContext _context;
     private readonly ILogger<UserRepository> _logger;
 
-    // In-memory fallback dictionary
-    private static readonly ConcurrentDictionary<string, User> _memoryUsers = new();
+    private static readonly ConcurrentDictionary<string, User>
+        _memoryUsers = new();
 
-    public UserRepository(MongoDbContext context, ILogger<UserRepository> logger)
+    public UserRepository(
+        MongoDbContext context,
+        ILogger<UserRepository> logger)
     {
         _context = context;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Retrieves user by MongoDB ObjectId or memory fallback.
-    /// </summary>
-    public async Task<User?> GetByIdAsync(string id, CancellationToken ct = default)
+    // =========================================================
+    // QUERY
+    // =========================================================
+
+    public async Task<User?> GetByIdAsync(
+        string id,
+        CancellationToken ct = default)
     {
         if (_context.Users != null)
         {
@@ -37,26 +42,41 @@ public class UserRepository : IUserRepository
             {
                 var filter = Builders<User>.Filter.And(
                     Builders<User>.Filter.Eq(u => u.Id, id),
-                    Builders<User>.Filter.Eq(u => u.IsDeleted, false)
-                );
-                return await _context.Users.Find(filter).FirstOrDefaultAsync(ct);
+                    Builders<User>.Filter.Eq(u => u.IsDeleted, false));
+
+                return await _context.Users
+                    .Find(filter)
+                    .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to query user from MongoDB. Falling back to in-memory store.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to query user by ID. Falling back to memory.");
             }
         }
 
-        _memoryUsers.TryGetValue(id, out var memoryUser);
-        return memoryUser is { IsDeleted: false } ? memoryUser : null;
+        return _memoryUsers.TryGetValue(id, out var user)
+            && !user.IsDeleted
+                ? user
+                : null;
     }
 
-    /// <summary>
-    /// Retrieves user by email or username.
-    /// </summary>
-    public async Task<User?> GetByEmailOrUsernameAsync(string identifier, CancellationToken ct = default)
+    public async Task<User?> FindByIdAsync(
+        string id,
+        CancellationToken ct = default)
     {
-        var lowerId = identifier.ToLowerInvariant().Trim();
+        return await GetByIdAsync(id, ct);
+    }
+
+    public async Task<User?> GetByEmailOrUsernameAsync(
+        string identifier,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+            return null;
+
+        var keyword = identifier.Trim();
 
         if (_context.Users != null)
         {
@@ -64,93 +84,174 @@ public class UserRepository : IUserRepository
             {
                 var filter = Builders<User>.Filter.And(
                     Builders<User>.Filter.Or(
-                        Builders<User>.Filter.Eq(u => u.Email, lowerId),
-                        Builders<User>.Filter.Eq(u => u.Username, lowerId)
-                    ),
-                    Builders<User>.Filter.Eq(u => u.IsDeleted, false)
-                );
-                return await _context.Users.Find(filter).FirstOrDefaultAsync(ct);
+                        Builders<User>.Filter.Eq(
+                            u => u.Email, keyword),
+                        Builders<User>.Filter.Eq(
+                            u => u.Username, keyword)),
+                    Builders<User>.Filter.Eq(
+                        u => u.IsDeleted, false));
+
+                return await _context.Users
+                    .Find(filter)
+                    .Collation(CaseInsensitive)
+                    .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to query user by identifier from MongoDB. Falling back to memory store.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to query user by identifier. Falling back to memory.");
             }
         }
 
         return _memoryUsers.Values.FirstOrDefault(u =>
             !u.IsDeleted &&
-            (u.Email.Equals(lowerId, StringComparison.OrdinalIgnoreCase) ||
-             u.Username.Equals(lowerId, StringComparison.OrdinalIgnoreCase)));
+            (string.Equals(
+                 u.Email, keyword,
+                 StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(
+                 u.Username, keyword,
+                 StringComparison.OrdinalIgnoreCase)));
     }
 
-    /// <summary>
-    /// Counts active users belonging to a specific role.
-    /// </summary>
-    public async Task<long> CountUsersByRoleIdAsync(string roleId, CancellationToken ct = default)
+    public async Task<User?> FindByLoginAsync(
+        string usernameOrEmail,
+        CancellationToken ct = default)
+    {
+        return await GetByEmailOrUsernameAsync(
+            usernameOrEmail, ct);
+    }
+
+    public async Task<User?> FindByEmailAsync(
+        string email,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return null;
+
+        var keyword = email.Trim();
+
+        if (_context.Users != null)
+        {
+            try
+            {
+                var filter = Builders<User>.Filter.And(
+                    Builders<User>.Filter.Eq(
+                        u => u.Email, keyword),
+                    Builders<User>.Filter.Eq(
+                        u => u.IsDeleted, false));
+
+                return await _context.Users
+                    .Find(filter)
+                    .Collation(CaseInsensitive)
+                    .FirstOrDefaultAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to query user by email. Falling back to memory.");
+            }
+        }
+
+        return _memoryUsers.Values.FirstOrDefault(u =>
+            !u.IsDeleted &&
+            string.Equals(
+                u.Email, keyword,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    // =========================================================
+    // COUNT BY ROLE
+    // =========================================================
+
+    public async Task<long> CountUsersByRoleIdAsync(
+        string roleId,
+        CancellationToken ct = default)
     {
         if (_context.Users != null)
         {
             try
             {
-                var roleParsed = Enum.TryParse<UserRole>(roleId, true, out var parsedRole);
                 var roleFilters = new List<FilterDefinition<User>>
                 {
-                    Builders<User>.Filter.Eq(u => u.RoleId, roleId)
+                    Builders<User>.Filter.Eq(
+                        u => u.RoleId, roleId)
                 };
 
-                if (roleParsed)
+                if (Enum.TryParse<UserRole>(
+                    roleId, true, out var parsedRole))
                 {
-                    roleFilters.Add(Builders<User>.Filter.Eq(u => u.Role, parsedRole));
+                    roleFilters.Add(
+                        Builders<User>.Filter.Eq(
+                            u => u.Role, parsedRole));
                 }
 
                 var filter = Builders<User>.Filter.And(
                     Builders<User>.Filter.Or(roleFilters),
-                    Builders<User>.Filter.Eq(u => u.IsDeleted, false)
-                );
-                return await _context.Users.CountDocumentsAsync(filter, cancellationToken: ct);
+                    Builders<User>.Filter.Eq(
+                        u => u.IsDeleted, false));
+
+                return await _context.Users.CountDocumentsAsync(
+                    filter,
+                    cancellationToken: ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to count users by role from MongoDB. Falling back to memory store.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to count users by role. Falling back to memory.");
             }
         }
 
-        return _memoryUsers.Values.Count(u =>
+        return _memoryUsers.Values.LongCount(u =>
             !u.IsDeleted &&
-            (u.RoleId == roleId || u.Role.ToString().Equals(roleId, StringComparison.OrdinalIgnoreCase)));
+            (u.RoleId == roleId ||
+             string.Equals(
+                 u.Role.ToString(),
+                 roleId,
+                 StringComparison.OrdinalIgnoreCase)));
     }
 
-    /// <summary>
-    /// Inserts a new user document into MongoDB or memory store.
-    /// </summary>
-    public async Task CreateAsync(User user, CancellationToken ct = default)
+    // =========================================================
+    // CREATE / UPDATE
+    // =========================================================
+
+    public async Task CreateAsync(
+        User user,
+        CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(user.Id))
+        if (string.IsNullOrWhiteSpace(user.Id))
         {
-            user.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+            user.Id = ObjectId.GenerateNewId().ToString();
         }
 
         if (_context.Users != null)
         {
             try
             {
-                await _context.Users.InsertOneAsync(user, cancellationToken: ct);
+                await _context.Users.InsertOneAsync(
+                    user,
+                    cancellationToken: ct);
+
                 _memoryUsers[user.Id] = user;
                 return;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to insert user into MongoDB. Storing in memory fallback.");
+                _logger.LogWarning(
+                    ex,
+                    "Failed to insert user into MongoDB.");
+                throw;
             }
         }
 
         _memoryUsers[user.Id] = user;
     }
 
-    /// <summary>
-    /// Updates an existing user document.
-    /// </summary>
-    public async Task UpdateAsync(User user, CancellationToken ct = default)
+    public async Task UpdateAsync(
+        User user,
+        CancellationToken ct = default)
     {
         user.UpdatedAt = DateTime.UtcNow;
 
@@ -158,17 +259,166 @@ public class UserRepository : IUserRepository
         {
             try
             {
-                var filter = Builders<User>.Filter.Eq(u => u.Id, user.Id);
-                await _context.Users.ReplaceOneAsync(filter, user, cancellationToken: ct);
-                _memoryUsers[user.Id] = user;
-                return;
+                var filter =
+                    Builders<User>.Filter.Eq(
+                        u => u.Id, user.Id);
+
+                var result = await _context.Users.ReplaceOneAsync(
+                    filter,
+                    user,
+                    cancellationToken: ct);
+
+                if (result.MatchedCount > 0)
+                {
+                    _memoryUsers[user.Id] = user;
+                    return;
+                }
+
+                throw new InvalidOperationException(
+                    $"User '{user.Id}' was not found in MongoDB.");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update user in MongoDB. Storing in memory fallback.");
+                _logger.LogError(
+                    ex,
+                    "Failed to update user in MongoDB.");
+                throw;
             }
         }
 
         _memoryUsers[user.Id] = user;
+    }
+
+    // =========================================================
+    // LOGIN SECURITY
+    // =========================================================
+
+    public async Task<int> IncrementFailedLoginAsync(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (_context.Users != null)
+        {
+            var filter = Builders<User>.Filter.And(
+                Builders<User>.Filter.Eq(u => u.Id, id),
+                Builders<User>.Filter.Eq(u => u.IsDeleted, false));
+
+            var updated = await _context.Users.FindOneAndUpdateAsync(
+                filter,
+                Builders<User>.Update.Inc(
+                    u => u.FailedLoginCount, 1),
+                new FindOneAndUpdateOptions<User>
+                {
+                    ReturnDocument = ReturnDocument.After
+                },
+                ct);
+
+            return updated?.FailedLoginCount ?? 0;
+        }
+
+        if (!_memoryUsers.TryGetValue(id, out var user)
+            || user.IsDeleted)
+        {
+            return 0;
+        }
+
+        return Interlocked.Increment(
+            ref user.FailedLoginCount);
+    }
+
+    public async Task LockAsync(
+        string id,
+        DateTime lockoutEnd,
+        CancellationToken ct = default)
+    {
+        if (_context.Users != null)
+        {
+            await _context.Users.UpdateOneAsync(
+                Builders<User>.Filter.Eq(u => u.Id, id),
+                Builders<User>.Update
+                    .Set(u => u.LockoutEnd, lockoutEnd)
+                    .Set(u => u.FailedLoginCount, 0),
+                cancellationToken: ct);
+
+            return;
+        }
+
+        if (_memoryUsers.TryGetValue(id, out var user))
+        {
+            user.LockoutEnd = lockoutEnd;
+            user.FailedLoginCount = 0;
+        }
+    }
+
+    public async Task RecordSuccessfulLoginAsync(
+        string id,
+        DateTime now,
+        string? newPasswordHash,
+        CancellationToken ct = default)
+    {
+        if (_context.Users != null)
+        {
+            var update = Builders<User>.Update
+                .Set(u => u.LastLoginAt, now)
+                .Set(u => u.FailedLoginCount, 0)
+                .Unset(u => u.LockoutEnd);
+
+            if (newPasswordHash is not null)
+            {
+                update = update.Set(
+                    u => u.PasswordHash, newPasswordHash);
+            }
+
+            await _context.Users.UpdateOneAsync(
+                Builders<User>.Filter.Eq(u => u.Id, id),
+                update,
+                cancellationToken: ct);
+
+            return;
+        }
+
+        if (_memoryUsers.TryGetValue(id, out var user))
+        {
+            user.LastLoginAt = now;
+            user.FailedLoginCount = 0;
+            user.LockoutEnd = null;
+
+            if (newPasswordHash is not null)
+            {
+                user.PasswordHash = newPasswordHash;
+            }
+        }
+    }
+
+    // =========================================================
+    // FORGOT PASSWORD
+    // =========================================================
+
+    public async Task UpdatePasswordAsync(
+        string id,
+        string newPasswordHash,
+        CancellationToken ct = default)
+    {
+        if (_context.Users != null)
+        {
+            var update = Builders<User>.Update
+                .Set(u => u.PasswordHash, newPasswordHash)
+                .Set(u => u.FailedLoginCount, 0)
+                .Unset(u => u.LockoutEnd);
+
+            await _context.Users.UpdateOneAsync(
+                Builders<User>.Filter.Eq(u => u.Id, id),
+                update,
+                cancellationToken: ct);
+
+            return;
+        }
+
+        if (_memoryUsers.TryGetValue(id, out var user))
+        {
+            user.PasswordHash = newPasswordHash;
+            user.FailedLoginCount = 0;
+            user.LockoutEnd = null;
+        }
     }
 }
