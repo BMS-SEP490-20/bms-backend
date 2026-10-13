@@ -2,6 +2,7 @@ using BMS.Api.Extensions;
 using BMS.Application;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
+using BMS.Api.DependencyInjection;
 using BMS.Infrastructure;
 using BMS.Infrastructure.Data;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -13,6 +14,8 @@ var builder = WebApplication.CreateBuilder(args);
 // =========================================================
 
 builder.Services.AddControllers();
+
+// Shared (once)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
@@ -83,6 +86,10 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // BUILD APPLICATION
 // =========================================================
 
+// Features
+builder.Services.AddServiceCatalog();
+builder.Services.AddDoctorSchedule();
+
 var app = builder.Build();
 
 // Forwarded headers should run early in the pipeline.
@@ -90,7 +97,6 @@ app.UseForwardedHeaders();
 
 // Exception handling
 if (app.Environment.IsDevelopment())
-{
     app.UseBmsSwagger();
 }
 else
