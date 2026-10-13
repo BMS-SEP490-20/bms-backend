@@ -2,6 +2,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\BMS.Application\BMS.Application.csproj" />
     <ProjectReference Include="..\BMS.Core\BMS.Core.csproj" />
     <ProjectReference Include="..\BMS.Application\BMS.Application.csproj" />
   </ItemGroup>

@@ -91,7 +91,7 @@ app.UseForwardedHeaders();
 // Exception handling
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseBmsSwagger();
 }
 else
 {
