@@ -12,9 +12,9 @@ namespace BMS.Application.Services;
 /// </summary>
 public class TestCriterionService : ITestCriterionService
 {
-    private readonly ITestCriterionRepository _repository;
+    private readonly BMS.Core.Interfaces.ITestCriterionRepository _repository;
 
-    public TestCriterionService(ITestCriterionRepository repository)
+    public TestCriterionService(BMS.Core.Interfaces.ITestCriterionRepository repository)
     {
         _repository = repository;
     }
