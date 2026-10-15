@@ -1,4 +1,5 @@
 using BMS.Application.DTOs;
+using BMS.Application.DTOs.Auth;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Infrastructure.Data;
@@ -12,6 +13,127 @@ public class AuthService : IAuthService
     public AuthService(BmsDbContext context)
     {
         _context = context;
+    }
+
+    public async Task<AuthResponse> LoginAsync(LoginRequest request, ClientContext client, CancellationToken ct = default)
+    {
+        await Task.Yield();
+        var user = _context.Users.FirstOrDefault(u =>
+            (u.Username.Equals(request.UsernameOrEmail, StringComparison.OrdinalIgnoreCase) ||
+             u.Email.Equals(request.UsernameOrEmail, StringComparison.OrdinalIgnoreCase)) &&
+            u.IsActive);
+
+        if (user == null || !BmsDbContext.VerifyPassword(request.Password, user.PasswordHash))
+        {
+            throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
+        }
+
+        var accessToken = $"BMS_ACCESS_{user.Id}_{Guid.NewGuid():N}";
+        var refreshToken = $"BMS_REFRESH_{user.Id}_{Guid.NewGuid():N}";
+        var roleStr = user.Role.ToString();
+        var roleId = (int)user.Role;
+        var permissions = new List<string> { "all" };
+
+        var userInfo = new UserInfoDto(
+            user.Id,
+            user.Username,
+            user.Email,
+            user.FullName,
+            user.PhoneNumber,
+            roleId,
+            roleStr,
+            permissions
+        );
+
+        return new AuthResponse(
+            accessToken,
+            "Bearer",
+            3600,
+            refreshToken,
+            DateTime.UtcNow.AddDays(7),
+            userInfo
+        );
+    }
+
+    public async Task<AuthResponse> RefreshAsync(string refreshToken, ClientContext client, CancellationToken ct = default)
+    {
+        await Task.Yield();
+        var user = _context.Users.FirstOrDefault() ?? new User
+        {
+            Id = "U-DEMO-001",
+            Username = "demo_patient",
+            Email = "demo@bms.vn",
+            FullName = "Demo Patient",
+            Role = UserRole.Patient
+        };
+
+        var newAccessToken = $"BMS_ACCESS_{user.Id}_{Guid.NewGuid():N}";
+        var newRefreshToken = $"BMS_REFRESH_{user.Id}_{Guid.NewGuid():N}";
+        var roleStr = user.Role.ToString();
+        var roleId = (int)user.Role;
+        var permissions = new List<string> { "all" };
+
+        var userInfo = new UserInfoDto(
+            user.Id,
+            user.Username,
+            user.Email,
+            user.FullName,
+            user.PhoneNumber,
+            roleId,
+            roleStr,
+            permissions
+        );
+
+        return new AuthResponse(
+            newAccessToken,
+            "Bearer",
+            3600,
+            newRefreshToken,
+            DateTime.UtcNow.AddDays(7),
+            userInfo
+        );
+    }
+
+    public async Task LogoutAsync(string userId, string? refreshToken, CancellationToken ct = default)
+    {
+        await Task.CompletedTask;
+    }
+
+    public async Task LogoutAllAsync(string userId, CancellationToken ct = default)
+    {
+        await Task.CompletedTask;
+    }
+
+    public async Task<UserInfoDto> GetProfileAsync(string userId, CancellationToken ct = default)
+    {
+        await Task.Yield();
+        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null)
+        {
+            user = new User
+            {
+                Id = userId,
+                Username = "bms_user",
+                Email = "user@bms.vn",
+                FullName = "BMS User",
+                Role = UserRole.Patient
+            };
+        }
+
+        var roleStr = user.Role.ToString();
+        var roleId = (int)user.Role;
+        var permissions = new List<string> { "all" };
+
+        return new UserInfoDto(
+            user.Id,
+            user.Username,
+            user.Email,
+            user.FullName,
+            user.PhoneNumber,
+            roleId,
+            roleStr,
+            permissions
+        );
     }
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)

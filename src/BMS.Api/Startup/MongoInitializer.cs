@@ -108,10 +108,10 @@ public sealed partial class MongoInitializer(
         var fixedCount = 0;
         string? newHash = null;
 
-        foreach (var u in all.Where(u => !BcryptFormat().IsMatch(u.Password ?? "")))
+        foreach (var u in all.Where(u => !BcryptFormat().IsMatch(u.PasswordHash ?? "")))
         {
             newHash ??= hasher.Hash(password);
-            await users.UpdateOneAsync(x => x.Id == u.Id, Builders<User>.Update.Set(x => x.Password, newHash), cancellationToken: ct);
+            await users.UpdateOneAsync(x => x.Id == u.Id, Builders<User>.Update.Set(x => x.PasswordHash, newHash), cancellationToken: ct);
             fixedCount++;
         }
 

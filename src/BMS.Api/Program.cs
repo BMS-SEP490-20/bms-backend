@@ -1,3 +1,4 @@
+using BMS.Api;
 using BMS.Api.Extensions;
 using BMS.Application;
 using BMS.Application.Interfaces;
@@ -97,6 +98,7 @@ app.UseForwardedHeaders();
 
 // Exception handling
 if (app.Environment.IsDevelopment())
+{
     app.UseBmsSwagger();
 }
 else

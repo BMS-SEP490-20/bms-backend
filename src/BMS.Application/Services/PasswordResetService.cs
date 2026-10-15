@@ -5,6 +5,7 @@ using BMS.Application.Interfaces;
 using BMS.Application.Options;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
+using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

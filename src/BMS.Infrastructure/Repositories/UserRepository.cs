@@ -11,7 +11,7 @@ namespace BMS.Infrastructure.Repositories;
 
 public sealed class UserRepository : IUserRepository
 {
-    private static readonly Collation CaseInsensitive =
+    public static readonly Collation CaseInsensitive =
         new("en", strength: CollationStrength.Secondary);
 
     private readonly MongoDbContext _context;
@@ -92,8 +92,7 @@ public sealed class UserRepository : IUserRepository
                         u => u.IsDeleted, false));
 
                 return await _context.Users
-                    .Find(filter)
-                    .Collation(CaseInsensitive)
+                    .Find(filter, new FindOptions { Collation = CaseInsensitive })
                     .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
@@ -142,8 +141,7 @@ public sealed class UserRepository : IUserRepository
                         u => u.IsDeleted, false));
 
                 return await _context.Users
-                    .Find(filter)
-                    .Collation(CaseInsensitive)
+                    .Find(filter, new FindOptions { Collation = CaseInsensitive })
                     .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
@@ -322,8 +320,8 @@ public sealed class UserRepository : IUserRepository
             return 0;
         }
 
-        return Interlocked.Increment(
-            ref user.FailedLoginCount);
+        user.FailedLoginCount++;
+        return user.FailedLoginCount;
     }
 
     public async Task LockAsync(
