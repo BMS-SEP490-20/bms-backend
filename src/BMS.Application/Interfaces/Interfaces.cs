@@ -3,36 +3,7 @@ using BMS.Core.Entities;
 
 namespace BMS.Application.Interfaces;
 
-public interface IAuthService
-{
-    Task<AuthResponse> LoginAsync(LoginRequest request, ClientContext client, CancellationToken ct = default);
-    Task<AuthResponse> RefreshAsync(string refreshToken, ClientContext client, CancellationToken ct = default);
-    Task LogoutAsync(string userId, string? refreshToken, CancellationToken ct = default);
-    Task LogoutAllAsync(string userId, CancellationToken ct = default);
-    Task<UserInfoDto> GetProfileAsync(string userId, CancellationToken ct = default);
-}
 
-public interface IUserRepository
-{
-    Task<User?> FindByLoginAsync(string usernameOrEmail, CancellationToken ct = default);
-    Task<User?> FindByIdAsync(string id, CancellationToken ct = default);
-    Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
-
-    /// <summary>Đặt mật khẩu mới (hash), reset đếm đăng nhập sai và mở khoá tài khoản.</summary>
-    Task UpdatePasswordAsync(string id, string newPasswordHash, CancellationToken ct = default);
-
-    /// <summary>Tăng đếm đăng nhập sai (atomic) và trả về giá trị mới.</summary>
-    Task<int> IncrementFailedLoginAsync(string id, CancellationToken ct = default);
-    Task LockAsync(string id, DateTime lockoutEnd, CancellationToken ct = default);
-
-    /// <summary>Reset đếm sai, ghi LastLoginAt, (tuỳ chọn) nâng cấp hash.</summary>
-    Task RecordSuccessfulLoginAsync(string id, DateTime now, string? newPasswordHash, CancellationToken ct = default);
-}
-
-public interface IRoleRepository
-{
-    Task<Role?> GetByIdAsync(int roleId, CancellationToken ct = default);
-}
 
 public interface IRefreshTokenRepository
 {

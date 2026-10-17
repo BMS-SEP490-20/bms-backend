@@ -54,5 +54,14 @@ CodeCoverage/
 # NUnit
 nunit-*.xml
 
-# Visual Studio
+# Visual Studio & IDEs
 .vs/
+**/.vs/
+.idea/
+.qodo/
+*.user
+*.suo
+
+# Recursive build outputs
+**/[Bb]in/
+**/[Oo]bj/

@@ -81,7 +81,63 @@ public class BmsDbContext
                 FullName = "Bệnh Nhân Võ Gia Huy",
                 PhoneNumber = "0901234567",
                 Role = UserRole.Patient,
-                PasswordHash = HashPassword("Patient@123"),
+                PasswordHash = HashPassword("Admin@123"),
+                EmailConfirmed = true,
+                IsActive = true
+            },
+            new User
+            {
+                Id = "USR-ADMIN-BMS",
+                Username = "admin_bms",
+                Email = "admin@bms.health.vn",
+                FullName = "Nguyễn Quản Trị",
+                Role = UserRole.Administrator,
+                PasswordHash = HashPassword("Admin@123"),
+                EmailConfirmed = true,
+                IsActive = true
+            },
+            new User
+            {
+                Id = "USR-DOC-MINH",
+                Username = "dr_nguyenminh",
+                Email = "minh.nguyen@bms.health.vn",
+                FullName = "BS. CKI Nguyễn Văn Minh",
+                Role = UserRole.Doctor,
+                PasswordHash = HashPassword("Admin@123"),
+                EmailConfirmed = true,
+                IsActive = true
+            },
+            new User
+            {
+                Id = "USR-LAB-HUNG",
+                Username = "tech_quochung",
+                Email = "hung.pham@bms.health.vn",
+                FullName = "KTV. Phạm Quốc Hưng",
+                Role = UserRole.LaboratoryUser,
+                PasswordHash = HashPassword("Admin@123"),
+                EmailConfirmed = true,
+                IsActive = true
+            },
+            new User
+            {
+                Id = "USR-REC-LANANH",
+                Username = "recep_lananh",
+                Email = "anh.lan@bms.health.vn",
+                FullName = "Lễ tân Đỗ Lan Anh",
+                Role = UserRole.Receptionist,
+                PasswordHash = HashPassword("Admin@123"),
+                EmailConfirmed = true,
+                IsActive = true
+            },
+            new User
+            {
+                Id = "USR-PAT-AN",
+                Username = "patient_tranvanan",
+                Email = "an.tran@gmail.com",
+                FullName = "Trần Văn An",
+                PhoneNumber = "0909000001",
+                Role = UserRole.Patient,
+                PasswordHash = HashPassword("Admin@123"),
                 EmailConfirmed = true,
                 IsActive = true
             }

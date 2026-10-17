@@ -5,6 +5,9 @@ using BMS.Infrastructure.Data;
 
 namespace BMS.Application.Services;
 
+/// <summary>
+/// Service orchestrating laboratory sample queuing, status transitions, and STAT prioritization (UC17).
+/// </summary>
 public class LabQueueService : ILabQueueService
 {
     private readonly BmsDbContext _context;
@@ -14,6 +17,9 @@ public class LabQueueService : ILabQueueService
         _context = context;
     }
 
+    /// <summary>
+    /// Retrieves filtered, prioritized specimen list for clinical laboratory technicians.
+    /// </summary>
     public async Task<(List<LabQueueItemDto> Items, int TotalCount)> GetQueueAsync(QueueFilterDto filter)
     {
         await Task.Yield();

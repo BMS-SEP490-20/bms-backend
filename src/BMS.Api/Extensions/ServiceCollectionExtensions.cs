@@ -6,6 +6,7 @@ using BMS.Api.Startup;
 using BMS.Application.Interfaces;
 using BMS.Application.Options;
 using BMS.Application.Services;
+using BMS.Core.Interfaces;
 using BMS.Infrastructure.Email;
 using BMS.Infrastructure.Mongo;
 using BMS.Infrastructure.Repositories;
@@ -123,7 +124,8 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddTestCriteria(this IServiceCollection services)
     {
-        services.AddSingleton<ITestCriterionRepository, TestCriterionRepository>();
+        services.AddSingleton<BMS.Core.Interfaces.ITestCriterionRepository, TestCriterionRepository>();
+        services.AddSingleton<BMS.Application.Interfaces.ITestCriterionRepository, TestCriterionRepository>();
         return services;
     }
 

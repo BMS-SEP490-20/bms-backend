@@ -7,6 +7,13 @@ using Microsoft.Extensions.Logging;
 
 namespace BMS.Application.Services;
 
+/// <summary>
+/// Business service implementing laboratory test package management workflows (UC15).
+/// Enforces business rules:
+/// - BR-PKG-01: Unique uppercase package code.
+/// - BR-PKG-02: Non-negative price validation.
+/// - BR-PKG-03: Soft delete to maintain auditability.
+/// </summary>
 public sealed class ServicePackageService(
     IServicePackageRepository packages,
     TimeProvider clock,

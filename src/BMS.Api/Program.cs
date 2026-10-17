@@ -1,3 +1,4 @@
+using BMS.Api;
 using BMS.Api.Extensions;
 using BMS.Application;
 using BMS.Application.Interfaces;
@@ -18,6 +19,7 @@ builder.Services.AddControllers();
 // Shared (once)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+builder.Services.AddBmsSwagger();
 
 // Database and authentication
 builder.Services.AddMongo(builder.Configuration);
@@ -97,6 +99,7 @@ app.UseForwardedHeaders();
 
 // Exception handling
 if (app.Environment.IsDevelopment())
+{
     app.UseBmsSwagger();
 }
 else

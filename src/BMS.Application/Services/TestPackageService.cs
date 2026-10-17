@@ -1,15 +1,19 @@
-﻿using BMS.Application.DTOs;
+using BMS.Application.DTOs;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 
 namespace BMS.Application.Services;
 
+/// <summary>
 /// Implementation of <see cref="ITestPackageService"/> – UC01 View Service Catalog.
+/// </summary>
 public class TestPackageService : ITestPackageService
 {
     private readonly ITestPackageRepository _repository;
 
+    /// <summary>
     /// Initializes the service with its repository dependency.
+    /// </summary>
     public TestPackageService(ITestPackageRepository repository)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
