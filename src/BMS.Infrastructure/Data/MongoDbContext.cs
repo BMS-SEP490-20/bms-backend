@@ -18,10 +18,13 @@ public class MongoDbContext
     {
         _logger = logger;
         var connectionString = configuration.GetConnectionString("MongoDb")
+            ?? configuration["MongoDB:ConnectionString"]
             ?? configuration["MongoDbSettings:ConnectionString"]
             ?? "mongodb://localhost:27017";
 
-        var databaseName = configuration["MongoDbSettings:DatabaseName"] ?? "BmsDatabase";
+        var databaseName = configuration["MongoDB:DatabaseName"]
+            ?? configuration["MongoDbSettings:DatabaseName"]
+            ?? "BMS_Database";
 
         try
         {
@@ -43,10 +46,10 @@ public class MongoDbContext
         _database?.GetCollection<OtpTokenEntity>("otp_tokens");
 
     /// <summary>
-    /// Collection persisting clinical user and patient accounts ("users").
+    /// Collection persisting clinical user and patient accounts ("accounts").
     /// </summary>
     public IMongoCollection<User>? Users =>
-        _database?.GetCollection<User>("users");
+        _database?.GetCollection<User>("accounts");
 
     /// <summary>
     /// Collection persisting RBAC security roles and permission matrix ("roles").

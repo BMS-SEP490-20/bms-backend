@@ -19,6 +19,7 @@ builder.Services.AddControllers();
 // Shared (once)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+builder.Services.AddBmsSwagger();
 
 // Database and authentication
 builder.Services.AddMongo(builder.Configuration);

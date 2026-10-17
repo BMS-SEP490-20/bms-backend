@@ -9,6 +9,8 @@ namespace BMS.Api.Controllers.Auth;
 
 [ApiController]
 [Route("api/auth/passwords")]
+[Route("api/auth")]
+[Route("api/v1/auth")]
 [Produces("application/json")]
 public sealed class PasswordsController : ControllerBase
 {
@@ -82,8 +84,7 @@ public sealed class PasswordsController : ControllerBase
     [HttpPost("forgot-password")]
     [AllowAnonymous]
     [EnableRateLimiting("forgot-password")]
-    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<MessageResponse>> ForgotPassword(
+    public async Task<IActionResult> ForgotPassword(
         [FromBody] ForgotPasswordRequest request,
         CancellationToken ct)
     {
@@ -96,13 +97,17 @@ public sealed class PasswordsController : ControllerBase
             });
         }
 
-        await _passwords.ForgotPasswordAsync(
-            request.Email,
-            GetClient(),
-            ct);
+        var result = await _authService.ForgotPasswordAsync(new ForgotPasswordDto
+        {
+            Email = request.Email
+        });
 
-        return Ok(new MessageResponse(
-            "Nếu email tồn tại trong hệ thống, chúng tôi đã gửi hướng dẫn đặt lại mật khẩu. Vui lòng kiểm tra hộp thư."));
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
     }
 
     /// <summary>

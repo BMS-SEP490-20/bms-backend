@@ -40,13 +40,26 @@ public sealed class UserRepository : IUserRepository
         {
             try
             {
-                var filter = Builders<User>.Filter.And(
-                    Builders<User>.Filter.Eq(u => u.Id, id),
+                if (ObjectId.TryParse(id, out _))
+                {
+                    var filter = Builders<User>.Filter.And(
+                        Builders<User>.Filter.Eq(u => u.Id, id),
+                        Builders<User>.Filter.Eq(u => u.IsDeleted, false));
+
+                    var found = await _context.Users
+                        .Find(filter)
+                        .FirstOrDefaultAsync(ct);
+                    if (found != null) return found;
+                }
+
+                var usernameFilter = Builders<User>.Filter.And(
+                    Builders<User>.Filter.Eq(u => u.Username, id),
                     Builders<User>.Filter.Eq(u => u.IsDeleted, false));
 
-                return await _context.Users
-                    .Find(filter)
+                var byUsername = await _context.Users
+                    .Find(usernameFilter)
                     .FirstOrDefaultAsync(ct);
+                if (byUsername != null) return byUsername;
             }
             catch (Exception ex)
             {
@@ -171,22 +184,18 @@ public sealed class UserRepository : IUserRepository
         {
             try
             {
-                var roleFilters = new List<FilterDefinition<User>>
+                var roleFilters = new List<FilterDefinition<User>>();
+                if (int.TryParse(roleId, out var parsedIntRole))
                 {
-                    Builders<User>.Filter.Eq(
-                        u => u.RoleId, roleId)
-                };
-
-                if (Enum.TryParse<UserRole>(
-                    roleId, true, out var parsedRole))
+                    roleFilters.Add(Builders<User>.Filter.Eq(u => u.RoleId, parsedIntRole));
+                }
+                else if (Enum.TryParse<UserRole>(roleId, true, out var parsedRole))
                 {
-                    roleFilters.Add(
-                        Builders<User>.Filter.Eq(
-                            u => u.Role, parsedRole));
+                    roleFilters.Add(Builders<User>.Filter.Eq(u => u.RoleId, (int)parsedRole));
                 }
 
                 var filter = Builders<User>.Filter.And(
-                    Builders<User>.Filter.Or(roleFilters),
+                    Builders<User>.Filter.Or(roleFilters.Count > 0 ? roleFilters : [Builders<User>.Filter.Empty]),
                     Builders<User>.Filter.Eq(
                         u => u.IsDeleted, false));
 
@@ -204,7 +213,7 @@ public sealed class UserRepository : IUserRepository
 
         return _memoryUsers.Values.LongCount(u =>
             !u.IsDeleted &&
-            (u.RoleId == roleId ||
+            ((int.TryParse(roleId, out var parsedInt) && u.RoleId == parsedInt) ||
              string.Equals(
                  u.Role.ToString(),
                  roleId,
@@ -219,7 +228,7 @@ public sealed class UserRepository : IUserRepository
         User user,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(user.Id))
+        if (string.IsNullOrWhiteSpace(user.Id) || !ObjectId.TryParse(user.Id, out _))
         {
             user.Id = ObjectId.GenerateNewId().ToString();
         }
