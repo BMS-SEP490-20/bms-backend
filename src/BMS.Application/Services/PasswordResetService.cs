@@ -11,6 +11,13 @@ using Microsoft.Extensions.Options;
 
 namespace BMS.Application.Services;
 
+/// <summary>
+/// Service orchestrating password recovery, reset token dispatch, and verification workflows (UC04, UC05).
+/// Enforces security best practices:
+/// - Generic responses to mitigate user enumeration.
+/// - Cryptographic 256-bit token hashing (raw token never stored).
+/// - Anti-spam request cooldowns.
+/// </summary>
 public sealed class PasswordResetService(
     IUserRepository users,
     IPasswordResetTokenRepository resetTokens,

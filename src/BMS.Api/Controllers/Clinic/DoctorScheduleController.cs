@@ -1,4 +1,4 @@
-﻿using BMS.Application.DTOs;
+using BMS.Application.DTOs;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,6 +11,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/v1/schedules")]
+[Route("api/schedules")]
 [Produces("application/json")]
 public class DoctorScheduleController : ControllerBase
 {

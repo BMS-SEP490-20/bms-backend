@@ -1,5 +1,8 @@
 namespace BMS.Core.Entities;
 
+/// <summary>
+/// Lifecycle status of a biological specimen within the clinical laboratory workflow (UC17).
+/// </summary>
 public enum SampleStatus
 {
     PendingCollection = 1,
@@ -11,6 +14,9 @@ public enum SampleStatus
     RerunRequested = 7
 }
 
+/// <summary>
+/// Clinical priority of a specimen (Routine, Urgent, or STAT emergency).
+/// </summary>
 public enum SamplePriority
 {
     Normal = 1,
@@ -18,6 +24,9 @@ public enum SamplePriority
     Stat = 3
 }
 
+/// <summary>
+/// Represents a laboratory specimen / tube identified by a unique barcode (UC17 / UC22).
+/// </summary>
 public class Sample
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
