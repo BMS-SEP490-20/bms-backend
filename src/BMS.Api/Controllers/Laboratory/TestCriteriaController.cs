@@ -10,6 +10,7 @@ namespace BMS.Api.Controllers.Laboratory;
 
 [ApiController]
 [Route("api/v1/laboratory/criteria")]
+[Route("api/laboratory/criteria")]
 [Produces("application/json")]
 public class TestCriteriaController : ControllerBase
 {

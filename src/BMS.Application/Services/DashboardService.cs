@@ -5,6 +5,10 @@ using BMS.Infrastructure.Data;
 
 namespace BMS.Application.Services;
 
+/// <summary>
+/// Service computing operational role-tailored dashboard metrics and KPI cards (UC12).
+/// Supports Patient, Doctor, LabUser, Receptionist, Manager.
+/// </summary>
 public class DashboardService : IDashboardService
 {
     private readonly BmsDbContext _context;
@@ -14,6 +18,9 @@ public class DashboardService : IDashboardService
         _context = context;
     }
 
+    /// <summary>
+    /// Computes summary cards and role-specific data payloads for the authenticated user and active role.
+    /// </summary>
     public async Task<DashboardStatsDto> GetDashboardStatsAsync(string userId, string role)
     {
         await Task.Yield();

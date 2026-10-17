@@ -315,4 +315,18 @@ public sealed class TestCriterionRepository :
             }
         }
     }
+
+    public async Task<List<TestCriterion>> GetAllAsync(CancellationToken ct = default)
+    {
+        await EnsureDefaultCriteriaSeededAsync(ct);
+        var (items, _) = await GetPagedAsync(1, 1000, null, null, true, ct);
+        return items.Select(x => new TestCriterion
+        {
+            Id = x.Id,
+            Code = x.CriterionCode,
+            Name = x.CriterionName,
+            Unit = x.Unit,
+            Category = x.Category
+        }).ToList();
+    }
 }

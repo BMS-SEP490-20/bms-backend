@@ -10,6 +10,10 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace BMS.Infrastructure.Security;
 
+/// <summary>
+/// Service generating cryptographic JSON Web Tokens (JWT) and refresh tokens.
+/// Conforms to: OWASP Top 10 &amp; AGENTS-CODE.md.
+/// </summary>
 public sealed class JwtTokenService : ITokenService
 {
     private readonly JwtOptions _jwt;
@@ -17,6 +21,9 @@ public sealed class JwtTokenService : ITokenService
     private readonly SigningCredentials _signing;
     private readonly JsonWebTokenHandler _handler = new();
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="JwtTokenService"/>.
+    /// </summary>
     public JwtTokenService(IOptions<JwtOptions> options, TimeProvider clock)
     {
         _jwt = options.Value;
@@ -26,6 +33,9 @@ public sealed class JwtTokenService : ITokenService
             SecurityAlgorithms.HmacSha256);
     }
 
+    /// <summary>
+    /// Generates a signed JWT access token containing standard identity claims and permissions.
+    /// </summary>
     public AccessTokenResult CreateAccessToken(User user, Role? role)
     {
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -38,7 +48,7 @@ public sealed class JwtTokenService : ITokenService
             new(JwtRegisteredClaimNames.Email, user.Email),
             new("preferred_username", user.Username),
             new("name", user.FullName),
-            new("role_id", user.RoleId.ToString()),
+            new("role_id", user.RoleId?.ToString() ?? string.Empty),
             new("role", role?.RoleName ?? "Unknown")
         };
 

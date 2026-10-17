@@ -17,12 +17,18 @@ public enum UserStatus
 /// </summary>
 public enum UserRole
 {
-    Patient = 1,
-    Receptionist = 2,
-    Doctor = 3,
-    LaboratoryUser = 4,
+    Administrator = 1,
+    Admin = 1,
+    Doctor = 2,
+    LaboratoryUser = 3,
+    LabTechnician = 3,
+    LabHead = 4,
+    Nurse = 5,
     Manager = 5,
-    Administrator = 6
+    Receptionist = 6,
+    Cashier = 7,
+    WarehouseStaff = 8,
+    Patient = 9
 }
 
 /// <summary>
@@ -30,10 +36,11 @@ public enum UserRole
 /// Hỗ trợ thông tin bệnh nhân, xác thực, quên mật khẩu
 /// và chống brute-force khi đăng nhập.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class User
 {
     [BsonId]
-    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
 
     [BsonElement("username")]
     public string Username { get; set; } = string.Empty;
@@ -67,13 +74,16 @@ public class User
     public string? BloodType { get; set; }
 
     // Vai trò
-    [BsonElement("role")]
-    [BsonRepresentation(BsonType.String)]
-    public UserRole Role { get; set; } = UserRole.Patient;
-
     [BsonElement("roleId")]
-    [BsonRepresentation(BsonType.String)]
-    public string? RoleId { get; set; }
+    [BsonIgnoreIfNull]
+    public int? RoleId { get; set; }
+
+    [BsonIgnore]
+    public UserRole Role
+    {
+        get => RoleId.HasValue ? (UserRole)RoleId.Value : UserRole.Patient;
+        set => RoleId = (int)value;
+    }
 
     // Xác thực tài khoản
     [BsonElement("passwordHash")]

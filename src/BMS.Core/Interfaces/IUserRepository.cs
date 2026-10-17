@@ -32,4 +32,19 @@ public interface IUserRepository
     /// Updates an existing user document.
     /// </summary>
     Task UpdateAsync(User user, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves user entity matching email specifically.
+    /// </summary>
+    Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves user entity matching unique ID.
+    /// </summary>
+    Task<User?> FindByIdAsync(string id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates password hash for the specified user.
+    /// </summary>
+    Task UpdatePasswordAsync(string id, string newPasswordHash, CancellationToken ct = default);
 }

@@ -94,18 +94,16 @@ public class ForgotPasswordDto
 
 public class ResetPasswordDto
 {
-    [Required]
-    [EmailAddress]
+    [Required(ErrorMessage = "Email là bắt buộc")]
+    [EmailAddress(ErrorMessage = "Email không hợp lệ")]
     public string Email { get; set; } = string.Empty;
 
-    [Required]
+    [Required(ErrorMessage = "Mã OTP là bắt buộc")]
     public string Otp { get; set; } = string.Empty;
 
-    [Required]
-    [StringLength(100, MinimumLength = 6)]
+    [Required(ErrorMessage = "Mật khẩu mới là bắt buộc")]
+    [StringLength(100, MinimumLength = 6, ErrorMessage = "Mật khẩu mới tối thiểu 6 ký tự")]
     public string NewPassword { get; set; } = string.Empty;
 
-    [Required]
-    [Compare("NewPassword")]
-    public string ConfirmNewPassword { get; set; } = string.Empty;
+    public string? ConfirmNewPassword { get; set; }
 }
