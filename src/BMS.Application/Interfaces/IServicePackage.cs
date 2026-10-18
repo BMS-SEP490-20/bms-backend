@@ -13,13 +13,17 @@ public sealed record ServicePackageQuery(
     string SortBy,
     bool SortDesc,
     int Page,
-    int PageSize);
+    int PageSize,
+    string? Category = null);
 
 public interface IServicePackageRepository
 {
     Task<ServicePackage?> GetByIdAsync(string id, CancellationToken ct = default);
     Task<PagedResult<ServicePackage>> SearchAsync(ServicePackageQuery query, CancellationToken ct = default);
     Task<bool> CodeExistsAsync(string code, CancellationToken ct = default);
+
+    /// <summary>Kiểm tra gói dịch vụ có đang được tham chiếu bởi lịch hẹn đang hoạt động hay không.</summary>
+    Task<bool> HasActiveDependenciesAsync(string id, string code, CancellationToken ct = default);
 
     /// <summary>Ném ServicePackageCodeAlreadyExistsException nếu trùng mã (kể cả khi 2 request đua nhau).</summary>
     Task InsertAsync(ServicePackage package, CancellationToken ct = default);

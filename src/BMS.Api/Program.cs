@@ -97,14 +97,15 @@ var app = builder.Build();
 // Forwarded headers should run early in the pipeline.
 app.UseForwardedHeaders();
 
-// Exception handling
+// Exception handling (RFC 7807 ProblemDetails via GlobalExceptionHandler in all environments)
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseBmsSwagger();
 }
 else
 {
-    app.UseExceptionHandler();
     app.UseHsts();
 }
 

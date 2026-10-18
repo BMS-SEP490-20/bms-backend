@@ -23,6 +23,12 @@ public abstract class ServicePackageWriteRequest : IValidatableObject
     [StringLength(2000)]
     public string? Description { get; init; }
 
+    [StringLength(100)]
+    public string? Category { get; init; }
+
+    [StringLength(1000)]
+    public string? PreparationNotes { get; init; }
+
     [Range(typeof(decimal), "0", "1000000000", ErrorMessage = "Giá không hợp lệ.")]
     public decimal Price { get; init; }
 
@@ -66,6 +72,10 @@ public class ServicePackageListRequest
     /// <summary>true/false: lọc theo trạng thái. Người không có quyền quản lý luôn chỉ thấy gói đang hoạt động.</summary>
     public bool? IsActive { get; init; }
 
+    /// <summary>Lọc theo danh mục gói dịch vụ (tuỳ chọn).</summary>
+    [StringLength(100)]
+    public string? Category { get; init; }
+
     /// <summary>name | code | price | createdAt (mặc định createdAt).</summary>
     public string? SortBy { get; init; }
 
@@ -103,6 +113,8 @@ public sealed record ServicePackageDto(
     IReadOnlyList<ServicePackageTestInfo> Tests,
     bool IsActive,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    string? Category = null,
+    string? PreparationNotes = null);
 
 public sealed record ServicePackageTestInfo(string Code, string Name);
