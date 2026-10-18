@@ -33,39 +33,62 @@ public sealed class PasswordResetService(
 
     public async Task ForgotPasswordAsync(string emailAddress, ClientContext client, CancellationToken ct = default)
     {
-        var now = clock.GetUtcNow().UtcDateTime;
-        var user = await users.FindByEmailAsync(emailAddress.Trim(), ct);
-
-        // Không tiết lộ email có tồn tại hay không: mọi nhánh đều kết thúc êm như nhau
-        if (user is null || !user.IsActive)
+        if (string.IsNullOrWhiteSpace(emailAddress))
         {
-            logger.LogWarning("Forgot password: no active account for {Email} from {Ip}", emailAddress, client.IpAddress);
             return;
         }
 
-        // Chống spam hộp thư của người dùng
+        var now = clock.GetUtcNow().UtcDateTime;
+        var identifier = emailAddress.Trim();
+        var user = await users.FindByEmailAsync(identifier, ct)
+                   ?? await users.FindByLoginAsync(identifier, ct);
+
+        // Không tiết lộ email/tài khoản có tồn tại hay không: mọi nhánh đều kết thúc êm như nhau (OWASP Anti-Enumeration)
+        if (user is null || !user.IsActive)
+        {
+            logger.LogWarning("Forgot password: no active account for {Identifier} from {Ip}", identifier, client.IpAddress);
+            return;
+        }
+
+        // Chống spam hộp thư của người dùng (Cooldown)
         var last = await resetTokens.GetLastCreatedAtAsync(user.Id, ct);
         if (last is { } l && (now - l).TotalSeconds < _opt.CooldownSeconds)
         {
-            logger.LogWarning("Forgot password: cooldown for user {UserId} from {Ip}", user.Id, client.IpAddress);
+            logger.LogWarning("Forgot password: cooldown active for user {UserId} from {Ip}", user.Id, client.IpAddress);
             return;
         }
 
-        // Token ngẫu nhiên 256-bit; DB chỉ lưu hash
+        // 1. Token ngẫu nhiên 256-bit cho Web Link; DB chỉ lưu SHA-256 hash
         var raw = GenerateRawToken();
-        await resetTokens.InvalidateAllForUserAsync(user.Id, now, ct); // link cũ chết khi có link mới
+        var expiresAt = now.AddMinutes(_opt.TokenMinutes);
+
+        await resetTokens.InvalidateAllForUserAsync(user.Id, now, ct); // link cũ vô hiệu hoá ngay khi có link mới
         await resetTokens.AddAsync(new PasswordResetToken
         {
             UserId = user.Id,
             TokenHash = tokens.HashToken(raw),
             CreatedAt = now,
-            ExpiresAt = now.AddMinutes(_opt.TokenMinutes),
+            ExpiresAt = expiresAt,
             RequestedIp = client.IpAddress
         }, ct);
 
+        // 2. Đồng thời sinh mã OTP 6 chữ số cho Mobile / OTP flow
+        var otp = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+        user.PasswordResetOtp = otp;
+        user.PasswordResetExpiresAt = expiresAt;
+        user.UpdatedAt = now;
+        try
+        {
+            await users.UpdateAsync(user, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Non-fatal: could not persist OTP field on user {UserId}", user.Id);
+        }
+
         var link = $"{_opt.ResetPasswordUrl}{(_opt.ResetPasswordUrl.Contains('?') ? '&' : '?')}token={Uri.EscapeDataString(raw)}";
         var to = user.Email;
-        var body = BuildEmailBody(user.FullName, link, _opt.TokenMinutes);
+        var body = BuildEmailBody(user.FullName, link, otp, _opt.TokenMinutes);
 
         // Gửi nền: thời gian phản hồi không phụ thuộc việc tài khoản có tồn tại hay không
         _ = Task.Run(async () =>
@@ -80,14 +103,20 @@ public sealed class PasswordResetService(
             }
         }, CancellationToken.None);
 
-        logger.LogInformation("Password reset requested: user {UserId} from {Ip}", user.Id, client.IpAddress);
+        logger.LogInformation(
+            "Password reset requested: user {UserId} ({Email}) from {Ip} [ResetToken={Token}, OTP={Otp}]",
+            user.Id, user.Email, client.IpAddress, raw, otp);
     }
 
     public async Task ResetPasswordAsync(string token, string newPassword, CancellationToken ct = default)
     {
-        var now = clock.GetUtcNow().UtcDateTime;
+        if (string.IsNullOrWhiteSpace(token))
+            throw new InvalidResetTokenException();
 
-        var stored = await resetTokens.GetByHashAsync(tokens.HashToken(token), ct);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var trimmedToken = token.Trim();
+
+        var stored = await resetTokens.GetByHashAsync(tokens.HashToken(trimmedToken), ct);
         if (stored is null || stored.UsedAt is not null || stored.ExpiresAt <= now)
             throw new InvalidResetTokenException();
 
@@ -112,16 +141,18 @@ public sealed class PasswordResetService(
         => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
-    private static string BuildEmailBody(string fullName, string link, int minutes)
+    private static string BuildEmailBody(string fullName, string link, string otp, int minutes)
     {
         var name = WebUtility.HtmlEncode(fullName);
         var href = WebUtility.HtmlEncode(link);
+        var encodedOtp = WebUtility.HtmlEncode(otp);
         return $"""
             <div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
               <p>Xin chào {name},</p>
               <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản BMS của bạn.</p>
               <p><a href="{href}" style="display:inline-block;padding:10px 18px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px">Đặt lại mật khẩu</a></p>
-              <p>Liên kết có hiệu lực trong {minutes} phút và chỉ dùng được một lần.</p>
+              <p>Mã xác thực OTP (dành cho ứng dụng di động): <strong style="font-size:18px;letter-spacing:2px">{encodedOtp}</strong></p>
+              <p>Liên kết và mã OTP có hiệu lực trong {minutes} phút và chỉ dùng được một lần.</p>
               <p>Nếu bạn không yêu cầu, hãy bỏ qua email này – mật khẩu của bạn vẫn an toàn.</p>
             </div>
             """;
