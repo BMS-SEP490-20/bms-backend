@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace BMS.Core.Entities;
@@ -7,6 +7,7 @@ namespace BMS.Core.Entities;
 /// Doctor profile linked to an account.
 /// Maps to the <c>doctors</c> collection. <c>_id</c> equals the account ObjectId.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class Doctor
 {
     /// <summary>Same as the linked account ObjectId.</summary>
