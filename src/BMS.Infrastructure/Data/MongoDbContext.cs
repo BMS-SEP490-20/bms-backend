@@ -40,6 +40,11 @@ public class MongoDbContext
     }
 
     /// <summary>
+    /// Underlying MongoDB database instance.
+    /// </summary>
+    public IMongoDatabase? Database => _database;
+
+    /// <summary>
     /// Collection persisting OTP verification tokens ("otp_tokens").
     /// </summary>
     public IMongoCollection<OtpTokenEntity>? OtpTokens =>

@@ -17,6 +17,8 @@ public static class DependencyInjection
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<BMS.Core.Interfaces.ITestCriterionRepository, TestCriterionRepository>();
         services.AddScoped<BMS.Application.Interfaces.ITestCriterionRepository, TestCriterionRepository>();
+        services.AddScoped<IPatientRepository, PatientRepository>();
+        services.AddScoped<IShiftRepository, ShiftRepository>();
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<ISmsService, SmsService>();
 

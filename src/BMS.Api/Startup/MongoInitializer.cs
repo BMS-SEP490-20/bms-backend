@@ -25,7 +25,11 @@ public sealed partial class MongoInitializer(
         try
         {
             await CreateIndexesAsync(ct);
-            if (env.IsDevelopment()) await FixSampleHashesAsync(ct);
+            if (env.IsDevelopment())
+            {
+                await FixSampleHashesAsync(ct);
+                await SeedServicePackagesIfEmptyAsync(ct);
+            }
         }
         catch (Exception ex)
         {
@@ -104,6 +108,7 @@ public sealed partial class MongoInitializer(
         if (string.IsNullOrWhiteSpace(password)) return;
 
         var users = db.GetCollection<User>(names.Users);
+        var rawCol = db.GetCollection<BsonDocument>(names.Users);
         var all = await users.Find(FilterDefinition<User>.Empty).ToListAsync(ct);
         var fixedCount = 0;
         string? newHash = null;
@@ -111,11 +116,100 @@ public sealed partial class MongoInitializer(
         foreach (var u in all.Where(u => !BcryptFormat().IsMatch(u.PasswordHash ?? "")))
         {
             newHash ??= hasher.Hash(password);
-            await users.UpdateOneAsync(x => x.Id == u.Id, Builders<User>.Update.Set(x => x.PasswordHash, newHash), cancellationToken: ct);
+            var idFilter = ObjectId.TryParse(u.Id, out var oid)
+                ? Builders<BsonDocument>.Filter.Eq("_id", oid)
+                : Builders<BsonDocument>.Filter.Eq("_id", u.Id);
+
+            var update = Builders<BsonDocument>.Update
+                .Set("Password", newHash)
+                .Set("PasswordHash", newHash)
+                .Set("passwordHash", newHash);
+
+            await rawCol.UpdateOneAsync(idFilter, update, cancellationToken: ct);
             fixedCount++;
         }
 
         if (fixedCount > 0)
             logger.LogWarning("[DEV ONLY] Re-hashed {Count} sample account(s) with DevSeed:DefaultPassword", fixedCount);
+    }
+
+    private async Task SeedServicePackagesIfEmptyAsync(CancellationToken ct)
+    {
+        var packages = db.GetCollection<ServicePackage>(names.ServicePackages);
+        var count = await packages.CountDocumentsAsync(FilterDefinition<ServicePackage>.Empty, cancellationToken: ct);
+        if (count > 0) return;
+
+        var now = DateTime.UtcNow;
+        var initialPackages = new List<ServicePackage>
+        {
+            new()
+            {
+                Code = "PKG_GEN_01",
+                Name = "Gói Xét Nghiệm Tổng Quát Cơ Bản",
+                Description = "Kiểm tra công thức máu, đường huyết, mỡ máu, chức năng gan thận cơ bản.",
+                Category = "General Checkup",
+                PreparationNotes = "Nhịn ăn sáng từ 8-12 tiếng trước khi lấy máu.",
+                Price = 650000m,
+                DiscountPrice = 585000m,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = "SYSTEM",
+                Tests =
+                [
+                    new ServicePackageTest { Code = "RBC", Name = "Số lượng Hồng cầu (Red Blood Cells)" },
+                    new ServicePackageTest { Code = "WBC", Name = "Số lượng Bạch cầu (White Blood Cells)" },
+                    new ServicePackageTest { Code = "HGB", Name = "Huyết sắc tố (Hemoglobin)" },
+                    new ServicePackageTest { Code = "PLT", Name = "Số lượng Tiểu cầu (Platelets)" },
+                    new ServicePackageTest { Code = "GLU", Name = "Đường huyết lúc đói (Fasting Glucose)" },
+                    new ServicePackageTest { Code = "AST", Name = "Men gan AST (GOT)" },
+                    new ServicePackageTest { Code = "ALT", Name = "Men gan ALT (GPT)" },
+                    new ServicePackageTest { Code = "CRE", Name = "Creatinine máu (Chức năng thận)" },
+                    new ServicePackageTest { Code = "CHOL", Name = "Cholesterol toàn phần" }
+                ]
+            },
+            new()
+            {
+                Code = "PKG_LIVER_02",
+                Name = "Gói Tầm Soát Chức Năng Gan Chuyên Sâu",
+                Description = "Đánh giá tổn thương tế bào gan và chức năng bài tiết mật.",
+                Category = "Specialized",
+                PreparationNotes = "Không uống rượu bia ít nhất 24 giờ trước khi xét nghiệm.",
+                Price = 320000m,
+                DiscountPrice = 290000m,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = "SYSTEM",
+                Tests =
+                [
+                    new ServicePackageTest { Code = "AST", Name = "Men gan AST (GOT)" },
+                    new ServicePackageTest { Code = "ALT", Name = "Men gan ALT (GPT)" }
+                ]
+            },
+            new()
+            {
+                Code = "PKG_DIAB_03",
+                Name = "Gói Theo Dõi Tiểu Đường & Mỡ Máu",
+                Description = "Dành cho bệnh nhân có nguy cơ tim mạch, béo phì, đái tháo đường.",
+                Category = "Chronic Disease",
+                PreparationNotes = "Nhịn ăn tối thiểu 8 tiếng, chỉ uống nước lọc.",
+                Price = 280000m,
+                DiscountPrice = 250000m,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = "SYSTEM",
+                Tests =
+                [
+                    new ServicePackageTest { Code = "GLU", Name = "Đường huyết lúc đói (Fasting Glucose)" },
+                    new ServicePackageTest { Code = "CHOL", Name = "Cholesterol toàn phần" },
+                    new ServicePackageTest { Code = "CRE", Name = "Creatinine máu (Chức năng thận)" }
+                ]
+            }
+        };
+
+        await packages.InsertManyAsync(initialPackages, cancellationToken: ct);
+        logger.LogInformation("Seeded {Count} default service packages into collection {Collection}", initialPackages.Count, names.ServicePackages);
     }
 }

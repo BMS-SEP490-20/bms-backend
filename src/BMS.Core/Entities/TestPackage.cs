@@ -5,9 +5,10 @@ namespace BMS.Core.Entities;
 
 
 /// <summary>
-/// Entity representing a laboratory test package (Service Catalog item - UC01).
+/// Entity representing a laboratory test package (Service Catalog item - UC01 / Search Test Packages).
 /// Maps to the <c>test_packages</c> collection in MongoDB.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class TestPackage
 {
     /// <summary>Unique package identifier (e.g. PKG-CBC-01).</summary>
@@ -49,4 +50,22 @@ public class TestPackage
     /// </summary>
     [BsonElement("is_active")]
     public bool IsActive { get; set; } = true;
+}
+
+/// <summary>
+/// Join document linking a test package to its test criteria in <c>test_package_criteria</c>.
+/// </summary>
+[BsonIgnoreExtraElements]
+public class TestPackageCriterionMap
+{
+    [BsonId]
+    [BsonRepresentation(BsonType.ObjectId)]
+    [BsonIgnoreIfDefault]
+    public string? Id { get; set; }
+
+    [BsonElement("package_id")]
+    public string PackageId { get; set; } = string.Empty;
+
+    [BsonElement("criteria_id")]
+    public string CriteriaId { get; set; } = string.Empty;
 }

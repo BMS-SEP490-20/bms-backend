@@ -15,7 +15,9 @@ public class ServicePackage
     /// <summary>Mã gói (duy nhất trong các gói chưa xoá), luôn viết hoa.</summary>
     public string Code { get; set; } = default!;
     public string Name { get; set; } = default!;
+    public string? Category { get; set; }
     public string? Description { get; set; }
+    public string? PreparationNotes { get; set; }
 
     public decimal Price { get; set; }
     public decimal? DiscountPrice { get; set; }

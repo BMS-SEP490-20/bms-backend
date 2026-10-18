@@ -303,6 +303,76 @@ public sealed class TestCriterionRepository :
                 PanicLow = null,
                 PanicHigh = 500.0,
                 IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "AST",
+                CriterionName = "Aspartate Aminotransferase (Men gan AST)",
+                EnglishName = "Serum Glutamic Oxaloacetic Transaminase",
+                Category = "Biochemistry",
+                Unit = "U/L",
+                ValueType = "Numeric",
+                NormalMin = 0.0,
+                NormalMax = 40.0,
+                PanicLow = null,
+                PanicHigh = 500.0,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "HGB",
+                CriterionName = "Huyết sắc tố (Hemoglobin)",
+                EnglishName = "Hemoglobin Concentration",
+                Category = "Hematology",
+                Unit = "g/L",
+                ValueType = "Numeric",
+                NormalMin = 120.0,
+                NormalMax = 165.0,
+                PanicLow = 70.0,
+                PanicHigh = 200.0,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "PLT",
+                CriterionName = "Số lượng tiểu cầu",
+                EnglishName = "Platelet Count",
+                Category = "Hematology",
+                Unit = "G/L",
+                ValueType = "Numeric",
+                NormalMin = 150.0,
+                NormalMax = 450.0,
+                PanicLow = 50.0,
+                PanicHigh = 1000.0,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "CRE",
+                CriterionName = "Creatinine huyết thanh (Chức năng thận)",
+                EnglishName = "Serum Creatinine",
+                Category = "Biochemistry",
+                Unit = "µmol/L",
+                ValueType = "Numeric",
+                NormalMin = 53.0,
+                NormalMax = 106.0,
+                PanicLow = null,
+                PanicHigh = 500.0,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "CHOL",
+                CriterionName = "Cholesterol toàn phần",
+                EnglishName = "Total Cholesterol",
+                Category = "Biochemistry",
+                Unit = "mmol/L",
+                ValueType = "Numeric",
+                NormalMin = 3.4,
+                NormalMax = 5.2,
+                PanicLow = null,
+                PanicHigh = 10.0,
+                IsActive = true
             }
         };
 

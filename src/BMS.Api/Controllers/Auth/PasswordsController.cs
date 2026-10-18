@@ -79,35 +79,23 @@ public sealed class PasswordsController : ControllerBase
 
     /// <summary>
     /// Gửi email hướng dẫn đặt lại mật khẩu.
-    /// Luôn trả cùng thông báo để hạn chế dò tìm tài khoản.
+    /// Luôn trả cùng thông báo để hạn chế dò tìm tài khoản (OWASP Anti-Enumeration).
     /// </summary>
     [HttpPost("forgot-password")]
     [AllowAnonymous]
     [EnableRateLimiting("forgot-password")]
-    public async Task<IActionResult> ForgotPassword(
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MessageResponse>> ForgotPassword(
         [FromBody] ForgotPasswordRequest request,
         CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = "Email không hợp lệ."
-            });
-        }
+        await _passwords.ForgotPasswordAsync(
+            request.Email,
+            GetClient(),
+            ct);
 
-        var result = await _authService.ForgotPasswordAsync(new ForgotPasswordDto
-        {
-            Email = request.Email
-        });
-
-        if (!result.Success)
-        {
-            return BadRequest(result);
-        }
-
-        return Ok(result);
+        return Ok(new MessageResponse(
+            "Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi."));
     }
 
     /// <summary>
@@ -122,15 +110,6 @@ public sealed class PasswordsController : ControllerBase
         [FromBody] ResetPasswordRequest request,
         CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = "Dữ liệu đặt lại mật khẩu không hợp lệ."
-            });
-        }
-
         await _passwords.ResetPasswordAsync(
             request.Token,
             request.NewPassword,
