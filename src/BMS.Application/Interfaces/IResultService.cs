@@ -1,4 +1,4 @@
-using BMS.TestResults.DTOs;
+using BMS.Application.DTOs.Result;
 
 namespace BMS.Application.Interfaces;
 

@@ -1,7 +1,7 @@
 using BMS.Core.Entities;
-using BMS.TestResults.DTOs;
 using BMS.Application.Interfaces;
 using BMS.Core.Interfaces;
+using BMS.Application.DTOs.Result;
 
 namespace BMS.Application.Services;
 
