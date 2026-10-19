@@ -11,17 +11,33 @@ namespace BMS.Infrastructure.Repositories;
 
 public sealed class ServicePackageRepository : IServicePackageRepository
 {
+    private readonly IMongoDatabase _db;
     private readonly IMongoCollection<ServicePackage> _col;
 
     public ServicePackageRepository(IMongoDatabase db, MongoCollections names)
-        => _col = db.GetCollection<ServicePackage>(names.ServicePackages);
+    {
+        _db = db;
+        _col = db.GetCollection<ServicePackage>(names.ServicePackages);
+    }
 
     private static readonly FilterDefinitionBuilder<ServicePackage> F = Builders<ServicePackage>.Filter;
 
     public async Task<ServicePackage?> GetByIdAsync(string id, CancellationToken ct = default)
     {
-        if (!ObjectId.TryParse(id, out _)) return null;
-        return await _col.Find(F.And(F.Eq(x => x.Id, id), F.Eq(x => x.IsDeleted, false)))
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        var trimmed = id.Trim();
+
+        if (ObjectId.TryParse(trimmed, out _))
+        {
+            var byId = await _col.Find(F.And(F.Eq(x => x.Id, trimmed), F.Eq(x => x.IsDeleted, false)))
+                .FirstOrDefaultAsync(ct);
+            if (byId != null) return byId;
+        }
+
+        // Cho phép tìm theo Code nếu id truyền vào là mã gói (vd: PKG_GEN_01)
+        return await _col.Find(F.And(
+                F.Or(F.Eq(x => x.Id, trimmed), F.Eq(x => x.Code, trimmed.ToUpperInvariant())),
+                F.Eq(x => x.IsDeleted, false)))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -33,6 +49,12 @@ public sealed class ServicePackageRepository : IServicePackageRepository
         if (q.MinPrice is { } min) filters.Add(F.Gte(x => x.Price, min));
         if (q.MaxPrice is { } max) filters.Add(F.Lte(x => x.Price, max));
 
+        if (!string.IsNullOrWhiteSpace(q.Category))
+        {
+            var catRx = new BsonRegularExpression($"^{Regex.Escape(q.Category.Trim())}$", "i");
+            filters.Add(F.Regex(x => x.Category, catRx));
+        }
+
         if (!string.IsNullOrWhiteSpace(q.Keyword))
         {
             // Regex.Escape: coi keyword là văn bản thường, chặn regex injection / ReDoS
@@ -41,6 +63,7 @@ public sealed class ServicePackageRepository : IServicePackageRepository
                 F.Regex(x => x.Code, rx),
                 F.Regex(x => x.Name, rx),
                 F.Regex(x => x.Description, rx),
+                F.Regex(x => x.Category, rx),
                 F.Regex("Tests.Code", rx),
                 F.Regex("Tests.Name", rx)));
         }
@@ -60,6 +83,31 @@ public sealed class ServicePackageRepository : IServicePackageRepository
     public async Task<bool> CodeExistsAsync(string code, CancellationToken ct = default)
         => await _col.Find(F.And(F.Eq(x => x.Code, code), F.Eq(x => x.IsDeleted, false)))
             .Limit(1).AnyAsync(ct);
+
+    public async Task<bool> HasActiveDependenciesAsync(string id, string code, CancellationToken ct = default)
+    {
+        try
+        {
+            var appointments = _db.GetCollection<BsonDocument>("appointments");
+            var fb = Builders<BsonDocument>.Filter;
+            var inactiveStatuses = new[] { "Cancelled", "Completed", "Rejected", "NoShow" };
+
+            var packageMatch = fb.Or(
+                fb.Eq("service_package_id", id),
+                fb.Eq("service_package_code", code),
+                fb.AnyEq("test_packages", id),
+                fb.AnyEq("test_packages", code));
+
+            var activeStatusFilter = fb.Nin("status", inactiveStatuses);
+            return await appointments.Find(fb.And(packageMatch, activeStatusFilter))
+                .Limit(1)
+                .AnyAsync(ct);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     public async Task InsertAsync(ServicePackage package, CancellationToken ct = default)
     {
@@ -83,7 +131,7 @@ public sealed class ServicePackageRepository : IServicePackageRepository
 
     public async Task<bool> SoftDeleteAsync(string id, DateTime now, string? userId, CancellationToken ct = default)
     {
-        if (!ObjectId.TryParse(id, out _)) return false;
+        if (string.IsNullOrWhiteSpace(id)) return false;
 
         var result = await _col.UpdateOneAsync(
             F.And(F.Eq(x => x.Id, id), F.Eq(x => x.IsDeleted, false)),

@@ -1,19 +1,20 @@
 using BMS.Application.DTOs;
+using BMS.Application.DTOs.Common;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 
 namespace BMS.Application.Services;
 
 /// <summary>
-/// Implementation of <see cref="ITestPackageService"/> – UC01 View Service Catalog.
+/// Implementation of <see cref="ITestPackageService"/> – UC01 View Service Catalog &amp; Search Test Packages.
 /// </summary>
 public class TestPackageService : ITestPackageService
 {
+    private static readonly HashSet<string> AllowedSortFields = new(StringComparer.OrdinalIgnoreCase)
+        { "name", "code", "price", "category" };
+
     private readonly ITestPackageRepository _repository;
 
-    /// <summary>
-    /// Initializes the service with its repository dependency.
-    /// </summary>
     public TestPackageService(ITestPackageRepository repository)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
@@ -26,8 +27,9 @@ public class TestPackageService : ITestPackageService
         CancellationToken cancellationToken = default)
     {
         var packages = await _repository.GetActivePackagesAsync(category, search, cancellationToken);
+        var criteriaMap = await _repository.GetCriteriaByPackageIdsAsync(packages.Select(p => p.Id), cancellationToken);
 
-        var dtos = packages.Select(MapToDto).ToList();
+        var dtos = packages.Select(p => MapToDto(p, criteriaMap)).ToList();
 
         // Load categories from the full active set (independent of current filters)
         // so the frontend always has a complete filter list.
@@ -51,26 +53,78 @@ public class TestPackageService : ITestPackageService
     }
 
     /// <inheritdoc />
-    public async Task<TestPackageDto?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<TestPackageDto>> SearchTestPackagesAsync(
+        TestPackageSearchRequest request,
+        bool includeInactive = false,
+        CancellationToken cancellationToken = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        var sortBy = !string.IsNullOrWhiteSpace(request.SortBy) && AllowedSortFields.Contains(request.SortBy.Trim())
+            ? AllowedSortFields.First(f => f.Equals(request.SortBy.Trim(), StringComparison.OrdinalIgnoreCase))
+            : "category";
+
+        var sortDesc = !string.IsNullOrWhiteSpace(request.SortDir) &&
+                       request.SortDir.Trim().Equals("desc", StringComparison.OrdinalIgnoreCase);
+
+        var query = new TestPackageSearchQuery(
+            Keyword: request.EffectiveKeyword,
+            Category: string.IsNullOrWhiteSpace(request.Category) ? null : request.Category.Trim(),
+            SampleTube: string.IsNullOrWhiteSpace(request.SampleTube) ? null : request.SampleTube.Trim(),
+            MinPrice: request.MinPrice,
+            MaxPrice: request.MaxPrice,
+            IsActive: includeInactive ? request.IsActive : true,
+            SortBy: sortBy,
+            SortDesc: sortDesc,
+            Page: page,
+            PageSize: pageSize);
+
+        var paged = await _repository.SearchPackagesAsync(query, cancellationToken);
+        var criteriaMap = await _repository.GetCriteriaByPackageIdsAsync(paged.Items.Select(p => p.Id), cancellationToken);
+
+        var items = paged.Items.Select(p => MapToDto(p, criteriaMap)).ToList();
+        return new PagedResult<TestPackageDto>(items, paged.Page, paged.PageSize, paged.TotalItems);
+    }
+
+    /// <inheritdoc />
+    public Task<TestPackageDto?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+        => GetByIdAsync(id, includeInactive: false, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<TestPackageDto?> GetByIdAsync(
+        string id,
+        bool includeInactive,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
             return null;
 
-        var entity = await _repository.GetActiveByIdAsync(id, cancellationToken);
-        return entity is null ? null : MapToDto(entity);
+        var entity = await _repository.GetByIdOrCodeAsync(id, includeInactive, cancellationToken);
+        if (entity is null)
+            return null;
+
+        var criteriaMap = await _repository.GetCriteriaByPackageIdsAsync([entity.Id], cancellationToken);
+        return MapToDto(entity, criteriaMap);
     }
 
-    /// Maps an entity to its DTO representation.
-    private static TestPackageDto MapToDto(TestPackage entity) => new()
+    private static TestPackageDto MapToDto(
+        TestPackage entity,
+        IReadOnlyDictionary<string, IReadOnlyList<TestPackageCriterionSummaryDto>> criteriaMap)
     {
-        Id = entity.Id,
-        PackageCode = entity.PackageCode,
-        PackageName = entity.PackageName,
-        Category = entity.Category,
-        Price = entity.Price,
-        Description = entity.Description,
-        SampleTube = entity.SampleTube,
-        SampleVolumeMl = entity.SampleVolumeMl,
-        IsActive = entity.IsActive
-    };
+        criteriaMap.TryGetValue(entity.Id, out var criteria);
+        return new TestPackageDto
+        {
+            Id = entity.Id,
+            PackageCode = entity.PackageCode,
+            PackageName = entity.PackageName,
+            Category = entity.Category,
+            Price = entity.Price,
+            Description = entity.Description,
+            SampleTube = entity.SampleTube,
+            SampleVolumeMl = entity.SampleVolumeMl,
+            IsActive = entity.IsActive,
+            Criteria = criteria ?? Array.Empty<TestPackageCriterionSummaryDto>()
+        };
+    }
 }
