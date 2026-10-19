@@ -1,5 +1,6 @@
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
+using BMS.Schedule.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BMS.Application;
@@ -14,6 +15,7 @@ public static class DependencyInjection
         services.AddScoped<ITestCriterionService, TestCriterionService>();
         services.AddScoped<IPatientService, PatientService>();
         services.AddScoped<IShiftService, ShiftService>();
+        services.AddScoped<IScheduleService, ScheduleService>();
 
         return services;
     }
