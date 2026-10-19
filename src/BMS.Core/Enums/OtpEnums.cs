@@ -1,9 +1,12 @@
+using System.Text.Json.Serialization;
+
 namespace BMS.Core.Enums;
 
 /// <summary>
 /// Business purpose of the One-Time Password (OTP) in the BMS platform.
 /// Conforms to: NIST SP 800-63B & OWASP Authentication Guidelines.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum OtpPurpose
 {
     /// <summary>
@@ -30,6 +33,7 @@ public enum OtpPurpose
 /// <summary>
 /// Telecommunication transmission channel for delivering the OTP code.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum OtpChannel
 {
     /// <summary>
@@ -42,3 +46,4 @@ public enum OtpChannel
     /// </summary>
     Sms = 2
 }
+
