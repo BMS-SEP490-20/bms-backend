@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace BMS.Core.Entities;
 
@@ -6,6 +6,7 @@ namespace BMS.Core.Entities;
 /// Examination / consultation room assigned to doctors.
 /// Maps to the <c>doctor_rooms</c> collection.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class DoctorRoom
 {
     /// <summary>Room identifier (e.g. ROOM-101).</summary>

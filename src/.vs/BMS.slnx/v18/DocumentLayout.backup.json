@@ -3,12 +3,28 @@
   "WorkspaceRootPath": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\services\\servicepackageservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\services\\servicepackageservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{97406DA6-F7D7-FDF5-D35B-ECCE9351BAB8}|BMS.Infrastructure\\BMS.Infrastructure.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.infrastructure\\repositories\\servicepackagerepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{97406DA6-F7D7-FDF5-D35B-ECCE9351BAB8}|BMS.Infrastructure\\BMS.Infrastructure.csproj|solutionrelative:bms.infrastructure\\repositories\\servicepackagerepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\interfaces\\iservicepackage.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\interfaces\\iservicepackage.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\dtos\\servicepackages\\servicepackagedtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\dtos\\servicepackages\\servicepackagedtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\controllers\\servicepackages\\servicepackagescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|solutionrelative:bms.api\\controllers\\servicepackages\\servicepackagescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\services\\servicepackageservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\services\\servicepackageservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{53A038EE-4D71-1BFC-25B7-AC897093FC9F}|BMS.Core\\BMS.Core.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.core\\entities\\servicepackage.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{53A038EE-4D71-1BFC-25B7-AC897093FC9F}|BMS.Core\\BMS.Core.csproj|solutionrelative:bms.core\\entities\\servicepackage.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{951600C9-8A67-A221-1E75-B38FB7AA6BEA}|BMS.Api\\BMS.Api.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.api\\controllers\\laboratory\\testcriteriacontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -39,10 +55,6 @@
       "RelativeMoniker": "D:0:0:{53A038EE-4D71-1BFC-25B7-AC897093FC9F}|BMS.Core\\BMS.Core.csproj|solutionrelative:bms.core\\entities\\testcriterion.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\dtos\\servicepackages\\servicepackagedtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\dtos\\servicepackages\\servicepackagedtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|c:\\s9\\sep490\\code\\bms-backend\\src\\bms.application\\dtos\\auth\\authdtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{56712828-41EA-E6E9-C0F6-63116DE1E49C}|BMS.Application\\BMS.Application.csproj|solutionrelative:bms.application\\dtos\\auth\\authdtos.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
@@ -54,50 +66,50 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 4,
+          "SelectedChildIndex": 0,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": "ServiceCollectionExtensions.cs",
-              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
-              "RelativeDocumentMoniker": "BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
-              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
-              "RelativeToolTip": "BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
-              "ViewState": "AgIAAGsAAAAAAAAAAAAgwH8AAAAFAAAAAAAAAA==",
+              "DocumentIndex": 0,
+              "Title": "ServicePackageRepository.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Repositories\\ServicePackageRepository.cs",
+              "RelativeDocumentMoniker": "BMS.Infrastructure\\Repositories\\ServicePackageRepository.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Repositories\\ServicePackageRepository.cs",
+              "RelativeToolTip": "BMS.Infrastructure\\Repositories\\ServicePackageRepository.cs",
+              "ViewState": "AgIAABQAAAAAAAAAAAAgwBQAAAAvAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T13:20:20.669Z",
+              "WhenOpened": "2026-10-12T14:12:24.515Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "TestCriteriaController.cs",
-              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
-              "RelativeDocumentMoniker": "BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
-              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
-              "RelativeToolTip": "BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAARAAAAAAAAAA==",
+              "DocumentIndex": 1,
+              "Title": "IServicePackage.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Interfaces\\IServicePackage.cs",
+              "RelativeDocumentMoniker": "BMS.Application\\Interfaces\\IServicePackage.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Interfaces\\IServicePackage.cs",
+              "RelativeToolTip": "BMS.Application\\Interfaces\\IServicePackage.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACMAAAApAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T12:21:46.993Z",
+              "WhenOpened": "2026-10-12T14:10:42.703Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
               "DocumentIndex": 5,
-              "Title": "MongoMappings.cs",
-              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Mongo\\MongoMappings.cs",
-              "RelativeDocumentMoniker": "BMS.Infrastructure\\Mongo\\MongoMappings.cs",
-              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Mongo\\MongoMappings.cs",
-              "RelativeToolTip": "BMS.Infrastructure\\Mongo\\MongoMappings.cs",
-              "ViewState": "AgIAAFQAAAAAAAAAAAAowGgAAAAPAAAAAAAAAA==",
+              "Title": "ServicePackage.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Core\\Entities\\ServicePackage.cs",
+              "RelativeDocumentMoniker": "BMS.Core\\Entities\\ServicePackage.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Core\\Entities\\ServicePackage.cs",
+              "RelativeToolTip": "BMS.Core\\Entities\\ServicePackage.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T13:18:41.519Z",
+              "WhenOpened": "2026-10-12T14:11:26.758Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 11,
               "Title": "ITestCriterionRepository.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Interfaces\\ITestCriterionRepository.cs",
               "RelativeDocumentMoniker": "BMS.Application\\Interfaces\\ITestCriterionRepository.cs",
@@ -110,33 +122,85 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 4,
               "Title": "ServicePackageService.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Services\\ServicePackageService.cs",
               "RelativeDocumentMoniker": "BMS.Application\\Services\\ServicePackageService.cs",
               "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\Services\\ServicePackageService.cs",
               "RelativeToolTip": "BMS.Application\\Services\\ServicePackageService.cs",
-              "ViewState": "AgIAABoAAAAAAAAAAAAawCYAAAAMAAAAAAAAAA==",
+              "ViewState": "AgIAAAYAAAAAAAAAAAArwBQAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-10-12T09:46:01.887Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 2,
+              "Title": "ServicePackageDtos.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "RelativeDocumentMoniker": "BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "RelativeToolTip": "BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
+              "ViewState": "AgIAACwAAAAAAAAAAAAUwF8AAAAVAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T08:51:05.997Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
               "Title": "ServicePackagesController.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
               "RelativeDocumentMoniker": "BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
               "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
               "RelativeToolTip": "BMS.Api\\Controllers\\ServicePackages\\ServicePackagesController.cs",
-              "ViewState": "AgIAADkAAAAAAAAAAAAowEUAAAAFAAAAAAAAAA==",
+              "ViewState": "AgIAAA4AAAAAAAAAAAAxwBUAAABAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-10-12T08:51:14.498Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 9,
+              "Title": "MongoMappings.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Mongo\\MongoMappings.cs",
+              "RelativeDocumentMoniker": "BMS.Infrastructure\\Mongo\\MongoMappings.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Mongo\\MongoMappings.cs",
+              "RelativeToolTip": "BMS.Infrastructure\\Mongo\\MongoMappings.cs",
+              "ViewState": "AgIAAFQAAAAAAAAAAAAowGgAAAAPAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T13:18:41.519Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "TestCriteriaController.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
+              "RelativeDocumentMoniker": "BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
+              "RelativeToolTip": "BMS.Api\\Controllers\\Laboratory\\TestCriteriaController.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAARAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T12:21:46.993Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "ServiceCollectionExtensions.cs",
+              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
+              "RelativeDocumentMoniker": "BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
+              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
+              "RelativeToolTip": "BMS.Api\\Extensions\\ServiceCollectionExtensions.cs",
+              "ViewState": "AgIAAGsAAAAAAAAAAAAgwH8AAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-10-12T13:20:20.669Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
               "Title": "Program.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Api\\Program.cs",
               "RelativeDocumentMoniker": "BMS.Api\\Program.cs",
@@ -149,7 +213,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 10,
               "Title": "TestCriterionRepository.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Infrastructure\\Repositories\\TestCriterionRepository.cs",
               "RelativeDocumentMoniker": "BMS.Infrastructure\\Repositories\\TestCriterionRepository.cs",
@@ -162,7 +226,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 12,
               "Title": "TestCriterion.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Core\\Entities\\TestCriterion.cs",
               "RelativeDocumentMoniker": "BMS.Core\\Entities\\TestCriterion.cs",
@@ -175,19 +239,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
-              "Title": "ServicePackageDtos.cs",
-              "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
-              "RelativeDocumentMoniker": "BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
-              "ToolTip": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
-              "RelativeToolTip": "BMS.Application\\DTOs\\ServicePackages\\ServicePackageDtos.cs",
-              "ViewState": "AgIAACQAAAAAAAAAAAAIwDMAAAAxAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T08:51:05.997Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 13,
               "Title": "AuthDtos.cs",
               "DocumentMoniker": "C:\\S9\\SEP490\\Code\\bms-backend\\src\\BMS.Application\\DTOs\\Auth\\AuthDtos.cs",
               "RelativeDocumentMoniker": "BMS.Application\\DTOs\\Auth\\AuthDtos.cs",
