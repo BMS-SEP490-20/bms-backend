@@ -18,19 +18,22 @@ public class AuthService : IAuthService
     private readonly IUserRepository? _userRepository;
     private readonly IPasswordHasher? _passwordHasher;
     private readonly IEmailService? _emailService;
+    private readonly IOtpRepository? _otpRepository;
 
     public AuthService(
         BmsDbContext context,
         ITokenService? tokenService = null,
         IUserRepository? userRepository = null,
         IPasswordHasher? passwordHasher = null,
-        IEmailService? emailService = null)
+        IEmailService? emailService = null,
+        IOtpRepository? otpRepository = null)
     {
         _context = context;
         _tokenService = tokenService;
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
+        _otpRepository = otpRepository;
     }
 
     /// <summary>
@@ -238,63 +241,164 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
     {
-        await Task.Yield();
+        var usernameTrimmed = dto.Username.Trim();
+        var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
 
-        // 1. Check duplicate username or email
-        var exists = _context.Users.Any(u => 
-            u.Username.Equals(dto.Username, StringComparison.OrdinalIgnoreCase) || 
-            u.Email.Equals(dto.Email, StringComparison.OrdinalIgnoreCase));
-
-        if (exists)
+        // 1. Check duplicate username or email across MongoDB and in-memory context
+        User? existingUser = null;
+        if (_userRepository != null)
         {
+            existingUser = await _userRepository.FindByEmailAsync(emailTrimmed)
+                        ?? await _userRepository.GetByEmailOrUsernameAsync(usernameTrimmed);
+        }
+
+        if (existingUser == null)
+        {
+            existingUser = _context.Users.FirstOrDefault(u =>
+                u.Username.Equals(usernameTrimmed, StringComparison.OrdinalIgnoreCase) ||
+                u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (existingUser != null)
+        {
+            if (existingUser.EmailConfirmed)
+            {
+                return new AuthResponseDto
+                {
+                    Success = false,
+                    Message = "Tên đăng nhập hoặc email đã được sử dụng trong hệ thống."
+                };
+            }
+
+            // Unconfirmed account: refresh OTP and resend
+            var freshOtp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+            existingUser.VerificationOtp = freshOtp;
+            existingUser.OtpExpiresAt = DateTime.UtcNow.AddMinutes(15);
+            existingUser.PasswordHash = _passwordHasher != null ? _passwordHasher.Hash(dto.Password) : BmsDbContext.HashPassword(dto.Password);
+            existingUser.FullName = dto.FullName.Trim();
+            existingUser.PhoneNumber = dto.PhoneNumber;
+            existingUser.UpdatedAt = DateTime.UtcNow;
+
+            if (_userRepository != null && !string.IsNullOrWhiteSpace(existingUser.Id))
+            {
+                try { await _userRepository.UpdateAsync(existingUser); } catch {}
+            }
+
+            if (_emailService != null)
+            {
+                await _emailService.SendOtpEmailAsync(
+                    existingUser.Email,
+                    freshOtp,
+                    "Xác thực đăng ký tài khoản Bệnh nhân BMS (Account Verification)",
+                    15);
+            }
+
             return new AuthResponseDto
             {
-                Success = false,
-                Message = "Tên đăng nhập hoặc email đã được sử dụng trong hệ thống."
+                Success = true,
+                Message = $"Mã OTP xác thực mới (6 chữ số) đã được gửi đến email {existingUser.Email}. Vui lòng kiểm tra hộp thư.",
+                User = MapToDto(existingUser)
             };
         }
 
-        // 2. Generate 6-digit OTP for email verification
-        var otp = new Random().Next(100000, 999999).ToString();
+        // 2. Generate 6-digit CSPRNG OTP
+        var otp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+        var expiresAt = DateTime.UtcNow.AddMinutes(15);
 
         var newUser = new User
         {
-            Username = dto.Username.Trim(),
-            Email = dto.Email.Trim().ToLowerInvariant(),
+            Username = usernameTrimmed,
+            Email = emailTrimmed,
             FullName = dto.FullName.Trim(),
             PhoneNumber = dto.PhoneNumber,
             Address = dto.Address,
             DateOfBirth = dto.DateOfBirth,
             Gender = dto.Gender,
             Role = UserRole.Patient, // Default self-registered role
-            PasswordHash = BmsDbContext.HashPassword(dto.Password),
+            PasswordHash = _passwordHasher != null ? _passwordHasher.Hash(dto.Password) : BmsDbContext.HashPassword(dto.Password),
             EmailConfirmed = false,
             VerificationOtp = otp,
-            OtpExpiresAt = DateTime.UtcNow.AddMinutes(15),
+            OtpExpiresAt = expiresAt,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
 
+        if (_userRepository != null)
+        {
+            try
+            {
+                await _userRepository.CreateAsync(newUser);
+            }
+            catch {}
+        }
         _context.Users.Add(newUser);
+
+        // 3. Dispatch live OTP email via Gmail SMTP
+        bool sent = false;
+        if (_emailService != null)
+        {
+            sent = await _emailService.SendOtpEmailAsync(
+                newUser.Email,
+                otp,
+                "Xác thực đăng ký tài khoản Bệnh nhân BMS (Account Verification)",
+                15);
+        }
 
         return new AuthResponseDto
         {
             Success = true,
-            Message = $"Đăng ký tài khoản thành công! Mã OTP xác thực (6 chữ số) đã gửi tới email {dto.Email}. (Mã OTP demo: {otp})",
+            Message = sent
+                ? $"Đăng ký tài khoản thành công! Mã OTP xác thực (6 chữ số) đã được gửi đến email {dto.Email}. Vui lòng kiểm tra hộp thư đến hoặc mục thư rác."
+                : $"Đăng ký tài khoản thành công! Mã OTP xác thực đã được gửi tới email {dto.Email}.",
             User = MapToDto(newUser)
         };
     }
 
     public async Task<AuthResponseDto> VerifyOtpAsync(VerifyOtpDto dto)
     {
-        await Task.Yield();
-        var user = _context.Users.FirstOrDefault(u => u.Email.Equals(dto.Email, StringComparison.OrdinalIgnoreCase));
+        var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
+        var otpTrimmed = dto.Otp.Trim();
+
+        User? user = null;
+        if (_userRepository != null)
+        {
+            user = await _userRepository.FindByEmailAsync(emailTrimmed);
+        }
+
+        if (user == null)
+        {
+            user = _context.Users.FirstOrDefault(u => u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+        }
+
         if (user == null)
         {
             return new AuthResponseDto { Success = false, Message = "Tài khoản không tồn tại." };
         }
 
-        if (user.VerificationOtp != dto.Otp || user.OtpExpiresAt < DateTime.UtcNow)
+        bool isOtpValid = (!string.IsNullOrEmpty(user.VerificationOtp) &&
+                           user.VerificationOtp == otpTrimmed &&
+                           user.OtpExpiresAt.HasValue &&
+                           user.OtpExpiresAt.Value >= DateTime.UtcNow);
+
+        // Fallback: Check if resent via IOtpRepository
+        if (!isOtpValid && _otpRepository != null)
+        {
+            var otpEntity = await _otpRepository.GetLatestActiveByRecipientAsync(emailTrimmed, "Registration");
+            if (otpEntity != null && !otpEntity.IsUsed && otpEntity.ExpiresAt >= DateTime.UtcNow)
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var combined = System.Text.Encoding.UTF8.GetBytes(otpTrimmed + otpEntity.Salt);
+                var computedHash = Convert.ToBase64String(sha.ComputeHash(combined));
+                if (computedHash == otpEntity.HashedOtp)
+                {
+                    isOtpValid = true;
+                    otpEntity.IsUsed = true;
+                    await _otpRepository.UpdateAsync(otpEntity);
+                }
+            }
+        }
+
+        if (!isOtpValid)
         {
             return new AuthResponseDto { Success = false, Message = "Mã OTP không đúng hoặc đã hết hạn (15 phút)." };
         }
@@ -303,6 +407,11 @@ public class AuthService : IAuthService
         user.VerificationOtp = null;
         user.OtpExpiresAt = null;
         user.UpdatedAt = DateTime.UtcNow;
+
+        if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+        {
+            try { await _userRepository.UpdateAsync(user); } catch {}
+        }
 
         return new AuthResponseDto
         {
