@@ -1,5 +1,6 @@
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
+using BMS.Schedule.Services;
 using BMS.WalkIn.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<ITestCriterionService, TestCriterionService>();
         services.AddScoped<IPatientService, PatientService>();
         services.AddScoped<IShiftService, ShiftService>();
+        services.AddScoped<IScheduleService, ScheduleService>();
         services.AddScoped<IAppointmentService, AppointmentService>();
         services.AddScoped<IWalkInService, WalkInService>();
 
