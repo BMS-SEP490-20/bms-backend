@@ -3,7 +3,7 @@ using BMS.Application.Interfaces;
 using BMS.Core.Exceptions;
 using BMS.WalkIn.DTOs;
 
-namespace BMS.WalkIn.Services;
+namespace BMS.Application.Services;
 
 /// <summary>
 /// UC26 – Register walk-in patient.

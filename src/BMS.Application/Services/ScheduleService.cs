@@ -1,8 +1,9 @@
 using BMS.Core.Entities;
 using BMS.Schedule.DTOs;
 using BMS.Schedule.Repositories;
+using BMS.Application.Interfaces;
 
-namespace BMS.Schedule.Services;
+namespace BMS.Application.Services;
 
 public class ScheduleService : IScheduleService
 {
