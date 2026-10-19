@@ -3,6 +3,7 @@ using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
 using BMS.Infrastructure.Repositories;
 using BMS.Infrastructure.Services;
+using BMS.Schedule.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BMS.Infrastructure;
@@ -21,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<IShiftRepository, ShiftRepository>();
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<ISmsService, SmsService>();
+        services.AddScoped<IScheduleRepository, ScheduleRepository>();
 
         return services;
     }
