@@ -372,7 +372,11 @@ public class AuthService : IAuthService
 
         if (user == null)
         {
-            return new AuthResponseDto { Success = false, Message = "Tài khoản không tồn tại." };
+            return new AuthResponseDto
+            {
+                Success = false,
+                Message = "Tài khoản chưa được lưu thông tin đăng ký. Vui lòng bấm 'Để Sau' để đóng hộp thoại và nhấn nút 'Đăng Ký Tài Khoản Bệnh Nhân' bên dưới."
+            };
         }
 
         bool isOtpValid = (!string.IsNullOrEmpty(user.VerificationOtp) &&
@@ -387,7 +391,7 @@ public class AuthService : IAuthService
             if (otpEntity != null && !otpEntity.IsUsed && otpEntity.ExpiresAt >= DateTime.UtcNow)
             {
                 using var sha = System.Security.Cryptography.SHA256.Create();
-                var combined = System.Text.Encoding.UTF8.GetBytes(otpTrimmed + otpEntity.Salt);
+                var combined = System.Text.Encoding.UTF8.GetBytes($"{otpEntity.Salt}:{otpTrimmed}");
                 var computedHash = Convert.ToBase64String(sha.ComputeHash(combined));
                 if (computedHash == otpEntity.HashedOtp)
                 {
