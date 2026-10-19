@@ -1,4 +1,5 @@
 using BMS.Application.Interfaces;
+using BMS.Application.Services;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
 using BMS.Infrastructure.Repositories;
@@ -23,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<ISmsService, SmsService>();
         services.AddScoped<IScheduleRepository, ScheduleRepository>();
+        services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 
         return services;
     }
