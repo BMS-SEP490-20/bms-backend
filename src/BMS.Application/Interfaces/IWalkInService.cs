@@ -1,6 +1,6 @@
 using BMS.WalkIn.DTOs;
 
-namespace BMS.WalkIn.Services;
+namespace BMS.Application.Interfaces;
 
 public interface IWalkInService
 {

@@ -1,7 +1,5 @@
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
-using BMS.Schedule.Services;
-using BMS.WalkIn.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BMS.Application;

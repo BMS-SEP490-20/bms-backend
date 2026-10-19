@@ -1,6 +1,6 @@
 using BMS.Schedule.DTOs;
 
-namespace BMS.Schedule.Services;
+namespace BMS.Application.Interfaces;
 
 public interface IScheduleService
 {
