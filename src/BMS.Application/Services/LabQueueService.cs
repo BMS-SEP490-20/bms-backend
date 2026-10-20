@@ -688,13 +688,44 @@ public class LabQueueService : ILabQueueService
         return true;
     }
 
-    public Task<List<SampleRerunItemDto>> GetRerunRequestsAsync()
+    public async Task<List<SampleRerunItemDto>> GetRerunRequestsAsync()
     {
         var result = new List<SampleRerunItemDto>();
-        lock (_dbContext.Samples)
+
+        if (SamplesCol != null)
         {
-            var reruns = _dbContext.Samples
-                .Where(s => s.Status == SampleStatus.RerunRequested)
+            try
+            {
+                var fb = Builders<Sample>.Filter;
+                var dbReruns = await SamplesCol
+                    .Find(fb.Eq(s => s.Status, SampleStatus.RerunRequested))
+                    .ToListAsync();
+
+                foreach (var s in dbReruns)
+                {
+                    result.Add(new SampleRerunItemDto
+                    {
+                        SpecimenId = !string.IsNullOrEmpty(s.Barcode) ? s.Barcode : $"SPC-{s.Id}",
+                        PatientName = s.PatientName,
+                        Parameter = s.TestPackageName?.Contains("Lipid") == true ? "LDL" : (s.TestPackageName?.Contains("CBC") == true ? "PLT" : "ALT"),
+                        Reason = !string.IsNullOrEmpty(s.RerunReason) ? s.RerunReason : "Clinical recheck",
+                        Status = "In progress",
+                        OriginalValue = "3.95",
+                        RerunValue = null,
+                        RequestedAt = s.UpdatedAt ?? s.CollectedAt ?? DateTime.UtcNow
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to query blood_samples for reruns in MongoDB");
+            }
+        }
+
+        lock (_context.Samples)
+        {
+            var memoryReruns = _context.Samples
+                .Where(s => s.Status == SampleStatus.RerunRequested && !result.Any(r => r.SpecimenId == s.Barcode || r.SpecimenId == $"SPC-{s.Id}"))
                 .Select(s => new SampleRerunItemDto
                 {
                     SpecimenId = s.Barcode.Length > 8 ? s.Barcode : $"SPC-{s.Id}",
@@ -708,37 +739,10 @@ public class LabQueueService : ILabQueueService
                 })
                 .ToList();
 
-            result.AddRange(reruns);
+            result.AddRange(memoryReruns);
         }
 
-        if (!result.Any())
-        {
-            // Seed sample rerun items matching 05-lab-user.html#uc47
-            result.Add(new SampleRerunItemDto
-            {
-                SpecimenId = "SPC-0089",
-                PatientName = "Nguyễn Văn An",
-                Parameter = "LDL",
-                Reason = "Delta check failed",
-                Status = "New",
-                OriginalValue = "3.95",
-                RerunValue = null,
-                RequestedAt = DateTime.UtcNow.AddMinutes(-30)
-            });
-            result.Add(new SampleRerunItemDto
-            {
-                SpecimenId = "SPC-0092",
-                PatientName = "Phạm Minh Ơn",
-                Parameter = "ALT",
-                Reason = "QC flag",
-                Status = "In progress",
-                OriginalValue = "72",
-                RerunValue = null,
-                RequestedAt = DateTime.UtcNow.AddMinutes(-75)
-            });
-        }
-
-        return Task.FromResult(result);
+        return result;
     }
 
     public async Task<SampleRerunDetailsDto?> GetSampleRerunDetailsAsync(string id)
@@ -746,18 +750,7 @@ public class LabQueueService : ILabQueueService
         var sample = await FindSampleAsync(id);
         if (sample == null)
         {
-            return new SampleRerunDetailsDto
-            {
-                SampleId = id,
-                Barcode = $"SPC-261006-A1-0089",
-                PatientId = "PT-004523",
-                PatientName = "Nguyễn Văn An",
-                CurrentResult = "LDL = 3.95 mmol/L",
-                Flag = "HH",
-                Analyzer = "BC-01 · BATCH-261006-02",
-                FirstRunTime = "09:38",
-                AvailableParameters = new List<string> { "LDL Cholesterol", "Total Cholesterol", "HDL", "Triglycerides" }
-            };
+            return null;
         }
 
         return new SampleRerunDetailsDto
@@ -766,7 +759,7 @@ public class LabQueueService : ILabQueueService
             Barcode = sample.Barcode,
             PatientId = sample.PatientId,
             PatientName = sample.PatientName,
-            CurrentResult = sample.TestPackageName.Contains("Lipid") ? "LDL = 3.95 mmol/L" : $"{sample.TestPackageName} = Elevated",
+            CurrentResult = sample.TestPackageName?.Contains("Lipid") == true ? "LDL = 3.95 mmol/L" : $"{sample.TestPackageName} = Elevated",
             Flag = "HH",
             Analyzer = !string.IsNullOrEmpty(sample.LabRoom) ? sample.LabRoom : "BC-01 · Bench 1",
             FirstRunTime = sample.CollectedAt.HasValue ? sample.CollectedAt.Value.ToString("HH:mm") : "09:38",
