@@ -20,123 +20,6 @@ public class TestOrderService : ITestOrderService
     private readonly IUserRepository _userRepository;
     private readonly BmsDbContext _dbContext;
 
-    // Standard clinical test catalog
-    private static readonly List<TestCatalogItemDto> CatalogItems = new()
-    {
-        new TestCatalogItemDto
-        {
-            Code = "SP-LIP-02",
-            Name = "Lipid Profile Extended",
-            Category = "Biochemistry",
-            TubeType = "SST 4mL",
-            TubeColor = "Gold",
-            VolumeMl = 4.0,
-            TurnaroundTime = "~4h",
-            PreparationNotes = "Fast 12h",
-            FastingRequired = true,
-            FastingHours = 12,
-            Price = 380000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "TST-GLU-F",
-            Name = "Fasting Glucose",
-            Category = "Biochemistry",
-            TubeType = "NaF 2mL",
-            TubeColor = "Green",
-            VolumeMl = 2.0,
-            TurnaroundTime = "~1h",
-            PreparationNotes = "Fast 8h",
-            FastingRequired = true,
-            FastingHours = 8,
-            Price = 80000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "SP-LFT-01",
-            Name = "Liver Function Test (AST, ALT, GGT, Bili)",
-            Category = "Biochemistry",
-            TubeType = "SST 3mL",
-            TubeColor = "Gold",
-            VolumeMl = 3.0,
-            TurnaroundTime = "~3h",
-            PreparationNotes = "Fast 8h",
-            FastingRequired = true,
-            FastingHours = 8,
-            Price = 280000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "TST-HBA1C",
-            Name = "HbA1c (Glycated Hemoglobin)",
-            Category = "Hematology",
-            TubeType = "EDTA 2mL",
-            TubeColor = "Lavender",
-            VolumeMl = 2.0,
-            TurnaroundTime = "~2h",
-            PreparationNotes = "None",
-            FastingRequired = false,
-            FastingHours = 0,
-            Price = 150000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "TST-CRP-H",
-            Name = "hs-CRP (High-Sensitivity Cardiac CRP)",
-            Category = "Immunology",
-            TubeType = "SST 1mL",
-            TubeColor = "Gold",
-            VolumeMl = 1.0,
-            TurnaroundTime = "~2h",
-            PreparationNotes = "None",
-            FastingRequired = false,
-            FastingHours = 0,
-            Price = 120000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "SP-CBC-01",
-            Name = "Complete Blood Count (CBC 24-parameters)",
-            Category = "Hematology",
-            TubeType = "EDTA 2mL",
-            TubeColor = "Lavender",
-            VolumeMl = 2.0,
-            TurnaroundTime = "~1h",
-            PreparationNotes = "None",
-            FastingRequired = false,
-            FastingHours = 0,
-            Price = 120000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "SP-KFT-01",
-            Name = "Kidney Function Test (Urea, Creatinine, eGFR)",
-            Category = "Biochemistry",
-            TubeType = "SST 3mL",
-            TubeColor = "Gold",
-            VolumeMl = 3.0,
-            TurnaroundTime = "~2h",
-            PreparationNotes = "None",
-            FastingRequired = false,
-            FastingHours = 0,
-            Price = 180000m
-        },
-        new TestCatalogItemDto
-        {
-            Code = "TST-THY-01",
-            Name = "Thyroid Panel (TSH, FT3, FT4)",
-            Category = "Immunology",
-            TubeType = "SST 3mL",
-            TubeColor = "Gold",
-            VolumeMl = 3.0,
-            TurnaroundTime = "~3h",
-            PreparationNotes = "None",
-            FastingRequired = false,
-            FastingHours = 0,
-            Price = 350000m
-        }
-    };
-
     private readonly IServicePackageRepository? _packageRepository;
 
     public TestOrderService(
@@ -174,25 +57,25 @@ public class TestOrderService : ITestOrderService
                     {
                         Code = pkg.Code,
                         Name = pkg.Name,
-                        Category = !string.IsNullOrEmpty(pkg.Category) ? pkg.Category : "Laboratory",
-                        TubeType = "SST 4mL",
-                        TubeColor = "Gold",
-                        VolumeMl = 4.0,
-                        TurnaroundTime = "~2-4h",
-                        PreparationNotes = "Fasting required if metabolic test",
-                        FastingRequired = true,
-                        FastingHours = 8,
+                        Category = !string.IsNullOrEmpty(pkg.Category) ? pkg.Category : string.Empty,
+                        TubeType = string.Empty,
+                        TubeColor = string.Empty,
+                        VolumeMl = 0.0,
+                        TurnaroundTime = string.Empty,
+                        PreparationNotes = string.Empty,
+                        FastingRequired = false,
+                        FastingHours = 0,
                         Price = pkg.Price
-                    });
+                    }).ToList();
                 }
             }
             catch
             {
-                // Fall back to in-memory items on DB error
+                // Return empty list on failure
             }
         }
 
-        return CatalogItems;
+        return Enumerable.Empty<TestCatalogItemDto>();
     }
 
     public async Task<IEnumerable<TestOrderResponseDto>> GetOrdersAsync(string? patientId = null, string? doctorId = null, string? status = null)
@@ -221,29 +104,36 @@ public class TestOrderService : ITestOrderService
             throw new ArgumentException("At least one test or test package must be included in the order.", nameof(request.Items));
         }
 
-        // Look up patient info if available
-        var patientName = request.PatientName ?? "Bệnh nhân";
-        var patientGender = request.PatientGender ?? "Nam";
+        // Look up patient info from database (mandatory)
+        if (string.IsNullOrWhiteSpace(request.PatientId))
+        {
+            throw new KeyNotFoundException("Patient ID is required.");
+        }
+
+        var patientUser = await _userRepository.GetByIdAsync(request.PatientId);
+        if (patientUser == null)
+        {
+            throw new KeyNotFoundException($"Patient with ID '{request.PatientId}' not found.");
+        }
+
+        var patientName = !string.IsNullOrWhiteSpace(patientUser.FullName) ? patientUser.FullName : (request.PatientName ?? string.Empty);
+        var patientGender = !string.IsNullOrWhiteSpace(patientUser.Gender) ? patientUser.Gender : (request.PatientGender ?? string.Empty);
         var patientAge = request.PatientAge ?? 0;
 
-        if (!string.IsNullOrEmpty(request.PatientId))
+        // Resolve doctor info from authenticated context
+        var docId = currentUserId ?? request.DoctorId;
+        if (string.IsNullOrWhiteSpace(docId))
         {
-            var user = await _userRepository.GetByIdAsync(request.PatientId);
-            if (user != null)
-            {
-                patientName = user.FullName;
-                patientGender = user.Gender ?? patientGender;
-            }
+            throw new UnauthorizedAccessException("Authenticated doctor identity is required.");
         }
 
-        // Resolve doctor info
-        string doctorName = request.DoctorName ?? string.Empty;
-        if (string.IsNullOrEmpty(doctorName) && !string.IsNullOrEmpty(request.DoctorId ?? currentUserId))
+        var docUser = await _userRepository.GetByIdAsync(docId);
+        if (docUser == null)
         {
-            var docId = request.DoctorId ?? currentUserId;
-            var docUser = await _userRepository.GetByIdAsync(docId!);
-            doctorName = docUser?.FullName ?? "Bác sĩ chỉ định";
+            throw new UnauthorizedAccessException("Doctor account could not be found.");
         }
+
+        string doctorName = docUser.FullName;
 
         // Parse Priority
         var priority = SamplePriority.Normal;
@@ -263,32 +153,40 @@ public class TestOrderService : ITestOrderService
 
         foreach (var itemReq in request.Items)
         {
-            // Cross-reference with catalog for clinical tube/pricing specifications
-            var catalogItem = CatalogItems.FirstOrDefault(c => c.Code.Equals(itemReq.TestCode, StringComparison.OrdinalIgnoreCase));
+            ServicePackage? pkg = null;
+            if (_packageRepository != null && !string.IsNullOrWhiteSpace(itemReq.TestCode))
+            {
+                try
+                {
+                    var search = await _packageRepository.SearchAsync(new ServicePackageQuery(
+                        Keyword: itemReq.TestCode,
+                        IsActive: true,
+                        MinPrice: null,
+                        MaxPrice: null,
+                        SortBy: "Code",
+                        SortDesc: false,
+                        Page: 1,
+                        PageSize: 5));
+                    pkg = search.Items.FirstOrDefault(p => p.Code.Equals(itemReq.TestCode, StringComparison.OrdinalIgnoreCase) || p.Id.Equals(itemReq.TestCode, StringComparison.OrdinalIgnoreCase));
+                }
+                catch { }
+            }
 
             var item = new TestOrderItem
             {
                 TestCode = itemReq.TestCode,
-                TestName = itemReq.TestName ?? catalogItem?.Name ?? itemReq.TestCode,
-                Category = itemReq.Category ?? catalogItem?.Category ?? "Biochemistry",
-                TubeType = itemReq.TubeType ?? catalogItem?.TubeType ?? "SST 4mL",
-                VolumeMl = itemReq.VolumeMl ?? catalogItem?.VolumeMl ?? 4.0,
-                TurnaroundTime = itemReq.TurnaroundTime ?? catalogItem?.TurnaroundTime ?? "~2h",
-                PreparationNotes = itemReq.PreparationNotes ?? catalogItem?.PreparationNotes ?? "None",
-                Price = itemReq.Price ?? catalogItem?.Price ?? 100000m
+                TestName = itemReq.TestName ?? pkg?.Name ?? itemReq.TestCode,
+                Category = itemReq.Category ?? pkg?.Category ?? string.Empty,
+                TubeType = itemReq.TubeType ?? string.Empty,
+                VolumeMl = itemReq.VolumeMl ?? 0.0,
+                TurnaroundTime = itemReq.TurnaroundTime ?? string.Empty,
+                PreparationNotes = itemReq.PreparationNotes ?? string.Empty,
+                Price = itemReq.Price ?? pkg?.Price ?? 0m
             };
 
             totalAmount += item.Price;
 
-            if (catalogItem != null && catalogItem.FastingRequired)
-            {
-                fastingRequired = true;
-                if (catalogItem.FastingHours > maxFastingHours)
-                {
-                    maxFastingHours = catalogItem.FastingHours;
-                }
-            }
-            else if (item.PreparationNotes.Contains("Fast", StringComparison.OrdinalIgnoreCase))
+            if (item.PreparationNotes.Contains("Fast", StringComparison.OrdinalIgnoreCase))
             {
                 fastingRequired = true;
                 if (item.PreparationNotes.Contains("12h")) maxFastingHours = Math.Max(maxFastingHours, 12);

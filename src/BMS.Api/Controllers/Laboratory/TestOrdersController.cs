@@ -79,6 +79,10 @@ public class TestOrdersController : ControllerBase
     /// Creates a new physician laboratory test order (UC32).
     /// </summary>
     [HttpPost]
+    [ProducesResponseType(typeof(TestOrderResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreateOrder([FromBody] CreateTestOrderRequestDto request)
     {
         if (!ModelState.IsValid)
@@ -91,15 +95,52 @@ public class TestOrdersController : ControllerBase
             });
         }
 
-        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var created = await _testOrderService.CreateTestOrderAsync(request, currentUserId);
+        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                            ?? User.FindFirst("sub")?.Value;
 
-        return CreatedAtAction(nameof(GetOrderById), new { id = created.OrderNumber }, new
+        if (string.IsNullOrEmpty(currentUserId) && string.IsNullOrEmpty(request.DoctorId))
         {
-            success = true,
-            message = $"Test order '{created.OrderNumber}' created successfully.",
-            data = created
-        });
+            return Unauthorized(new
+            {
+                success = false,
+                message = "Vui lòng đăng nhập để tạo phiếu chỉ định xét nghiệm."
+            });
+        }
+
+        try
+        {
+            var created = await _testOrderService.CreateTestOrderAsync(request, currentUserId);
+            return CreatedAtAction(nameof(GetOrderById), new { id = created.OrderNumber }, new
+            {
+                success = true,
+                message = $"Test order '{created.OrderNumber}' created successfully.",
+                data = created
+            });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new
+            {
+                success = false,
+                message = ex.Message
+            });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new
+            {
+                success = false,
+                message = ex.Message
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = ex.Message
+            });
+        }
     }
 
     /// <summary>
