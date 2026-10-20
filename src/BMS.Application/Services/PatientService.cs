@@ -112,6 +112,11 @@ public sealed class PatientService(
         return MapToDto(entity, [], [], now);
     }
 
+    /// <summary>
+    /// UC30 - View Patient Information (Issue I2-031 | BR-092 / BR-IAM-02).
+    /// Retrieves full clinical patient demographic profile, vital signs history, and access control audit.
+    /// Non-staff callers are strictly restricted to their own patient records.
+    /// </summary>
     public async Task<PatientInformationDto> GetPatientInformationAsync(
         string idOrCode,
         string? requesterUserId,
