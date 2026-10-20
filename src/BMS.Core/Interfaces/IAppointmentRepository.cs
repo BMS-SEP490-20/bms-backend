@@ -26,6 +26,7 @@ namespace BMS.Core.Interfaces
         Task<Doctor?> GetDoctorAsync(string doctorId, CancellationToken ct = default);
         Task<List<Doctor>> GetDoctorsByIdsAsync(IEnumerable<string> doctorIds, CancellationToken ct = default);
 
+        // UC23: View & Filter Appointments
         Task<(List<Appointment> Items, long TotalCount)> GetFilteredAsync(
             DateTime? fromDate,
             DateTime? toDate,
@@ -36,5 +37,10 @@ namespace BMS.Core.Interfaces
             int page,
             int pageSize,
             CancellationToken ct = default);
+
+        // UC28: Smart Queue & Doctor Call
+        Task<Appointment?> CallNextPatientAtomicAsync(string doctorId, string roomId, CancellationToken ct = default);
+        Task<List<Appointment>> GetTodayQueueAppointmentsAsync(string? roomId, string? doctorId, CancellationToken ct = default);
+        Task<bool> HasActiveDoctorShiftTodayAsync(string doctorId, CancellationToken ct = default);
     }
 }
