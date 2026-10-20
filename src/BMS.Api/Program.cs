@@ -54,6 +54,8 @@ builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotifi
 builder.Services.AddScoped<IAppointmentNotificationService, AppointmentNotificationService>();
 builder.Services.AddScoped<IQueueRepository, QueueRepository>();
 builder.Services.AddScoped<IQueueService, QueueService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ITestOrderRepository, BMS.Infrastructure.Repositories.TestOrderRepository>();
+builder.Services.AddScoped<ITestOrderService, TestOrderService>();
 
 // IMPORTANT:
 // Không đăng ký IAuthService lần nữa ở đây nếu
