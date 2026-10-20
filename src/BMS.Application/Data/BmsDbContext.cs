@@ -7,6 +7,7 @@ public class BmsDbContext
     // Thread-safe in-memory collections for fast startup & testing
     public List<User> Users { get; } = new();
     public List<Sample> Samples { get; } = new();
+    public List<QueueTicket> QueueTickets { get; } = new();
 
     public BmsDbContext()
     {
@@ -236,7 +237,105 @@ public class BmsDbContext
                 AssignedTechnicianName = "KTV. Lê Thị Bình",
                 CollectedAt = now.AddHours(-3),
                 ReceivedAt = now.AddHours(-2),
-                CompletedAt = now.AddMinutes(-20)
+            }
+        });
+
+        // Seed initial reception queue tickets matching UC27 live queue specification
+        QueueTickets.AddRange(new[]
+        {
+            new QueueTicket
+            {
+                Id = "TKT-012",
+                TicketNumber = "Q-012",
+                PatientId = "USR-PAT-NAM",
+                PatientName = "Lê Hoàng Nam",
+                PatientCode = "PT-012056",
+                PackageName = "Thyroid",
+                Priority = QueuePriority.Routine,
+                Status = QueueTicketStatus.Called,
+                CounterName = "Counter 1",
+                CheckedInAt = now.AddMinutes(-12),
+                CalledAt = now.AddMinutes(-5),
+                EstimatedWaitMinutes = 0
+            },
+            new QueueTicket
+            {
+                Id = "TKT-013",
+                TicketNumber = "Q-013",
+                PatientId = "USR-PAT-MAI",
+                PatientName = "Trần Thị Mai",
+                PatientCode = "PT-008214",
+                PackageName = "CBC",
+                Priority = QueuePriority.Routine,
+                Status = QueueTicketStatus.Waiting,
+                CheckedInAt = now.AddMinutes(-8),
+                EstimatedWaitMinutes = 8
+            },
+            new QueueTicket
+            {
+                Id = "TKT-014",
+                TicketNumber = "Q-014",
+                PatientId = "USR-PAT-KIEN",
+                PatientName = "Hoàng Văn Kiên",
+                PatientCode = "PT-010334",
+                PackageName = "Lipid",
+                IsWalkIn = true,
+                Priority = QueuePriority.Routine,
+                Status = QueueTicketStatus.Waiting,
+                CheckedInAt = now.AddMinutes(-11),
+                EstimatedWaitMinutes = 11
+            },
+            new QueueTicket
+            {
+                Id = "TKT-015",
+                TicketNumber = "Q-015",
+                PatientId = "USR-PAT-LAN",
+                PatientName = "Nguyễn Thị Lan",
+                PatientCode = "PT-007421",
+                PackageName = "CBC + Lipid",
+                Priority = QueuePriority.Routine,
+                Status = QueueTicketStatus.Waiting,
+                CheckedInAt = now.AddMinutes(-16),
+                EstimatedWaitMinutes = 16
+            },
+            new QueueTicket
+            {
+                Id = "TKT-016",
+                TicketNumber = "Q-016",
+                PatientId = "USR-PAT-ON",
+                PatientName = "Phạm Minh Ơn",
+                PatientCode = "PT-004987",
+                PackageName = "Liver Function",
+                Priority = QueuePriority.Urgent,
+                Status = QueueTicketStatus.Waiting,
+                CheckedInAt = now.AddMinutes(-8),
+                EstimatedWaitMinutes = 8
+            },
+            new QueueTicket
+            {
+                Id = "TKT-017",
+                TicketNumber = "Q-017",
+                PatientId = "USR-PAT-HOA",
+                PatientName = "Lý Thị Hoa",
+                PatientCode = "PT-009876",
+                PackageName = "Thyroid + Liver",
+                Priority = QueuePriority.STAT,
+                Status = QueueTicketStatus.Waiting,
+                CheckedInAt = now.AddMinutes(-4),
+                EstimatedWaitMinutes = 4
+            },
+            new QueueTicket
+            {
+                Id = "TKT-018",
+                TicketNumber = "Q-018",
+                PatientId = "USR-PAT-DAT",
+                PatientName = "Trương Minh Đạt",
+                PatientCode = "PT-011245",
+                PackageName = "Electrolyte",
+                Priority = QueuePriority.Routine,
+                Status = QueueTicketStatus.Waiting,
+                CheckedInAt = now.AddMinutes(-1),
+                EstimatedWaitMinutes = 1
             }
         });
     }
