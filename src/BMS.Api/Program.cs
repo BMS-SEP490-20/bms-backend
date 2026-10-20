@@ -4,8 +4,10 @@ using BMS.Application;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
 using BMS.Api.DependencyInjection;
+using BMS.Core.Interfaces;
 using BMS.Infrastructure;
 using BMS.Infrastructure.Data;
+using BMS.Infrastructure.Repositories;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +50,16 @@ builder.Services.AddSingleton<BmsDbContext>();
 // Main branch services
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotificationRepository>();
+builder.Services.AddScoped<IAppointmentNotificationService, AppointmentNotificationService>();
+builder.Services.AddScoped<IQueueRepository, QueueRepository>();
+builder.Services.AddScoped<IQueueService, QueueService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ITestOrderRepository, BMS.Infrastructure.Repositories.TestOrderRepository>();
+builder.Services.AddScoped<ITestOrderService, TestOrderService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ISampleListRepository, BMS.Infrastructure.Repositories.SampleListRepository>();
+builder.Services.AddScoped<ISampleListService, SampleListService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ITestReportRepository, BMS.Infrastructure.Repositories.TestReportRepository>();
+builder.Services.AddScoped<ITestReportService, TestReportService>();
 
 // IMPORTANT:
 // Không đăng ký IAuthService lần nữa ở đây nếu
@@ -58,6 +70,10 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 // =========================================================
 // CORS
 // =========================================================
+
+// SignalR Real-Time Queue
+builder.Services.AddSignalR();
+builder.Services.AddScoped<IQueueNotifier, BMS.Api.Services.QueueNotifier>();
 
 builder.Services.AddCors(options =>
 {
@@ -72,7 +88,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:3000"
             )
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
@@ -126,8 +143,9 @@ app.UseRateLimiter();
 
 app.UseAuthorization();
 
-// Controllers
+// Controllers & Hubs
 app.MapControllers();
+app.MapHub<BMS.Api.Hubs.QueueHub>("/hubs/queue");
 
 // =========================================================
 // HEALTH CHECK
