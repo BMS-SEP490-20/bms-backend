@@ -7,6 +7,7 @@ public class BmsDbContext
     // Thread-safe in-memory collections for fast startup & testing
     public List<User> Users { get; } = new();
     public List<Sample> Samples { get; } = new();
+    public List<SampleCollectionList> SampleCollectionLists { get; } = new();
 
     public BmsDbContext()
     {
@@ -237,6 +238,59 @@ public class BmsDbContext
                 CollectedAt = now.AddHours(-3),
                 ReceivedAt = now.AddHours(-2),
                 CompletedAt = now.AddMinutes(-20)
+            }
+        });
+
+        // Seed initial sample collection batch for phlebotomy (UC37)
+        SampleCollectionLists.AddRange(new[]
+        {
+            new SampleCollectionList
+            {
+                Id = "BATCH-20261020-A1",
+                BatchCode = "BATCH-261020-A1",
+                Location = "Lab Room 02 — Phlebotomy",
+                TargetTime = "08:30",
+                ScheduledDate = DateTime.UtcNow.Date,
+                CollectorId = "USR-LAB-01",
+                CollectorName = "Phạm Thu Dung",
+                Status = SampleCollectionListStatus.Confirmed,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-60),
+                Items = new List<SampleCollectionItem>
+                {
+                    new SampleCollectionItem
+                    {
+                        SpecimenId = "SPC-261020-A1-0089",
+                        AppointmentId = "APT-342",
+                        PatientId = "USR-PAT-01",
+                        PatientName = "Nguyễn Văn An",
+                        PackageName = "Lipid + Glucose",
+                        Tubes = new List<string> { "SST", "NaF" },
+                        CollectorName = "Phạm Thu Dung",
+                        Status = "PendingCollection"
+                    },
+                    new SampleCollectionItem
+                    {
+                        SpecimenId = "SPC-261020-A1-0090",
+                        AppointmentId = "APT-343",
+                        PatientId = "USR-PAT-02",
+                        PatientName = "Trần Thị Mai",
+                        PackageName = "CBC",
+                        Tubes = new List<string> { "EDTA" },
+                        CollectorName = "Phạm Thu Dung",
+                        Status = "PendingCollection"
+                    },
+                    new SampleCollectionItem
+                    {
+                        SpecimenId = "SPC-261020-A1-0091",
+                        AppointmentId = "APT-344",
+                        PatientId = "USR-PAT-03",
+                        PatientName = "Lê Hoàng Nam",
+                        PackageName = "Thyroid",
+                        Tubes = new List<string> { "SST" },
+                        CollectorName = "Lê Minh Châu",
+                        Status = "PendingCollection"
+                    }
+                }
             }
         });
     }

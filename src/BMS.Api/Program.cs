@@ -48,6 +48,8 @@ builder.Services.AddSingleton<BmsDbContext>();
 // Main branch services
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ISampleListRepository, BMS.Infrastructure.Repositories.SampleListRepository>();
+builder.Services.AddScoped<ISampleListService, SampleListService>();
 
 // IMPORTANT:
 // Không đăng ký IAuthService lần nữa ở đây nếu
