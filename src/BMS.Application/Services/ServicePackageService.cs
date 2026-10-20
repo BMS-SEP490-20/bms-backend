@@ -75,9 +75,14 @@ public sealed class ServicePackageService(
 
     public async Task DeleteAsync(string id, string userId, CancellationToken ct = default)
     {
-        var ok = await packages.SoftDeleteAsync(id, clock.GetUtcNow().UtcDateTime, userId, ct);
+        var existing = await packages.GetByIdAsync(id, ct) ?? throw new ServicePackageNotFoundException();
+
+        if (await packages.HasActiveDependenciesAsync(existing.Id, existing.Code, ct))
+            throw new ServicePackageInUseException(existing.Code, "Gói dịch vụ đang được sử dụng trong lịch hẹn khám/xét nghiệm đang hoạt động.");
+
+        var ok = await packages.SoftDeleteAsync(existing.Id, clock.GetUtcNow().UtcDateTime, userId, ct);
         if (!ok) throw new ServicePackageNotFoundException();
-        logger.LogInformation("Service package deleted: {Id} by {UserId}", id, userId);
+        logger.LogInformation("Service package deleted: {Id} ({Code}) by {UserId}", existing.Id, existing.Code, userId);
     }
 
     // ---------------------------------------------------------------------
@@ -102,7 +107,8 @@ public sealed class ServicePackageService(
             SortBy: sortBy,
             SortDesc: desc,
             Page: r.Page,
-            PageSize: r.PageSize);
+            PageSize: r.PageSize,
+            Category: string.IsNullOrWhiteSpace(r.Category) ? null : r.Category.Trim());
 
         var page = await packages.SearchAsync(query, ct);
         return new PagedResult<ServicePackageDto>(
@@ -113,6 +119,10 @@ public sealed class ServicePackageService(
     {
         e.Name = r.Name.Trim();
         e.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
+        if (r.Category is not null)
+            e.Category = string.IsNullOrWhiteSpace(r.Category) ? null : r.Category.Trim();
+        if (r.PreparationNotes is not null)
+            e.PreparationNotes = string.IsNullOrWhiteSpace(r.PreparationNotes) ? null : r.PreparationNotes.Trim();
         e.Price = r.Price;
         e.DiscountPrice = r.DiscountPrice;
         e.IsActive = r.IsActive;
@@ -124,5 +134,5 @@ public sealed class ServicePackageService(
     private static ServicePackageDto ToDto(ServicePackage p) => new(
         p.Id, p.Code, p.Name, p.Description, p.Price, p.DiscountPrice,
         p.Tests.Select(t => new ServicePackageTestInfo(t.Code, t.Name)).ToList(),
-        p.IsActive, p.CreatedAt, p.UpdatedAt);
+        p.IsActive, p.CreatedAt, p.UpdatedAt, p.Category, p.PreparationNotes);
 }
