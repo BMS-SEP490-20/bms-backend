@@ -45,7 +45,7 @@ public class BmsDbContext
                 Id = "USR-DOC-01",
                 Username = "doctor",
                 Email = "doctor@bms.com",
-                FullName = "BS. Nguyễn Văn An",
+                FullName = "BS. Chuyên Khoa",
                 Role = UserRole.Doctor,
                 PasswordHash = HashPassword("Doctor@123"),
                 EmailConfirmed = true,
