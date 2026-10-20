@@ -493,6 +493,11 @@ public class LabQueueService : ILabQueueService
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// UC45 - Update Sample Status (Issue I2-076 | BR-137 / ISO 15189 Laboratory Specimen Workflow).
+    /// Validates forward-only state transitions (Pending -> Collected -> CheckedIn -> Processing -> Completed),
+    /// maintains specimen chain of custody, and updates audit timestamps.
+    /// </summary>
     public async Task<LabQueueItemDto> UpdateSampleStatusDetailedAsync(
         string idOrBarcode,
         UpdateSampleStatusDto dto,
