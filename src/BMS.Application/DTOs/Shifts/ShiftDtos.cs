@@ -37,6 +37,10 @@ public sealed class ShiftFilterRequest : IValidatableObject
     [StringLength(30)]
     public string? Status { get; set; }
 
+    /// <summary>Filter by department or specialty.</summary>
+    [StringLength(100)]
+    public string? Department { get; set; }
+
     /// <summary>Keyword matching employee name, room name/ID, or department/specialty.</summary>
     [StringLength(100)]
     public string? Keyword { get; set; }

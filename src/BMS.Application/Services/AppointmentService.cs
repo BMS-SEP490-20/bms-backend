@@ -1,11 +1,13 @@
-﻿using BMS.Application.DTOs.Appointment;
+using BMS.Application.DTOs.Appointment;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Security.Cryptography;
-using System.Text;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace BMS.Application.Services
 {
@@ -15,14 +17,21 @@ namespace BMS.Application.Services
         private const int DefaultMaxPatientsPerSlot = 1;
 
         private readonly IAppointmentRepository _repository;
+        private readonly ISampleRepository _sampleRepository;
+        private readonly ILogger<AppointmentService> _logger;
 
-        public AppointmentService(IAppointmentRepository repository)
+        public AppointmentService(
+            IAppointmentRepository repository,
+            ISampleRepository sampleRepository,
+            ILogger<AppointmentService> logger)
         {
             _repository = repository;
+            _sampleRepository = sampleRepository;
+            _logger = logger;
         }
 
         /// <summary>
-        /// Books using BMS.Core.Entities.Appointment (StartTime/EndTime, status Pending).
+        /// UC21: Books using BMS.Core.Entities.Appointment (StartTime/EndTime, status Pending).
         /// Capacity from doctor_shifts (shift_start/shift_end or shift_type defaults).
         /// </summary>
         public async Task<BookAppointmentResponse> BookAsync(
@@ -63,12 +72,8 @@ namespace BMS.Application.Services
             var doctor = await _repository.GetDoctorAsync(request.DoctorId, ct);
             var code = await _repository.GenerateNextCodeAsync(request.AppointmentDate, ct);
 
-            var type = Enum.TryParse<AppointmentType>(request.Type, true, out var t)
-                ? t
-                : AppointmentType.ClinicVisit;
+            var type = ParseType(request.Type);
 
-            // Entity only has singular packageId — take the first selected package.
-            // Extra package ids (if UI sends many) can be noted until multi-package is modeled.
             var primaryPackage = request.PackageIds.FirstOrDefault();
             var notes = request.Notes;
             if (request.PackageIds.Count > 1)
@@ -97,6 +102,7 @@ namespace BMS.Application.Services
             };
 
             await _repository.InsertAsync(appointment, ct);
+            _logger.LogInformation("✅ Appointment booked successfully: {Code}", appointment.AppointmentCode);
             return MapToResponse(appointment, doctor);
         }
 
@@ -186,6 +192,164 @@ namespace BMS.Application.Services
             return MapToResponse(entity, doctor);
         }
 
+        // UC13: Manage Appointments
+        public async Task<IEnumerable<AppointmentReadDto>> GetAllAsync(CancellationToken ct = default)
+        {
+            var list = await _repository.GetAllAsync(ct);
+            var doctorIds = list.Where(a => !string.IsNullOrEmpty(a.DoctorId)).Select(a => a.DoctorId!).Distinct();
+            var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
+
+            return list.Select(a =>
+            {
+                doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
+                return MapToReadDto(a, doc);
+            });
+        }
+
+        public async Task<AppointmentReadDto?> GetDetailByIdAsync(string id, CancellationToken ct = default)
+        {
+            var a = await _repository.GetByIdAsync(id, ct);
+            if (a == null) return null;
+            Doctor? doctor = null;
+            if (!string.IsNullOrEmpty(a.DoctorId))
+                doctor = await _repository.GetDoctorAsync(a.DoctorId, ct);
+            return MapToReadDto(a, doctor);
+        }
+
+        public async Task<AppointmentReadDto> CreateAsync(AppointmentCreateDto dto, CancellationToken ct = default)
+        {
+            var appointmentDate = dto.AppointmentDate ?? dto.AppointmentTime?.Date ?? DateTime.UtcNow.Date;
+            var startTime = TimeSpan.Zero;
+            if (!string.IsNullOrWhiteSpace(dto.SlotTime) && TryParseSlot(dto.SlotTime, out var parsedSlot))
+            {
+                startTime = parsedSlot;
+            }
+            else if (dto.AppointmentTime.HasValue)
+            {
+                startTime = dto.AppointmentTime.Value.TimeOfDay;
+            }
+
+            var endTime = startTime.Add(TimeSpan.FromMinutes(DefaultSlotDurationMinutes));
+            var code = await _repository.GenerateNextCodeAsync(appointmentDate, ct);
+
+            var entity = new Appointment
+            {
+                AppointmentCode = code,
+                PatientId = !string.IsNullOrWhiteSpace(dto.PatientId) ? dto.PatientId : dto.CreatedBy,
+                DoctorId = dto.DoctorId ?? dto.DoctorShiftId,
+                PackageId = dto.PackageId ?? dto.TestPackageId,
+                AppointmentDate = appointmentDate,
+                StartTime = startTime,
+                EndTime = endTime,
+                Type = ParseType(dto.AppointmentType),
+                Status = ParseStatus(dto.Status),
+                Notes = dto.Notes,
+                CollectionAddress = dto.CollectionAddress,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _repository.InsertAsync(entity, ct);
+            _logger.LogInformation("✅ Created Appointment {Id} ({Code})", entity.Id, entity.AppointmentCode);
+
+            return MapToReadDto(entity);
+        }
+
+        public async Task<bool> UpdateAsync(string id, AppointmentUpdateDto dto, CancellationToken ct = default)
+        {
+            var entity = await _repository.GetByIdAsync(id, ct);
+            if (entity == null) return false;
+
+            var oldStatus = entity.Status;
+
+            if (!string.IsNullOrWhiteSpace(dto.PackageId) || !string.IsNullOrWhiteSpace(dto.TestPackageId))
+                entity.PackageId = dto.PackageId ?? dto.TestPackageId;
+
+            if (!string.IsNullOrWhiteSpace(dto.DoctorId) || !string.IsNullOrWhiteSpace(dto.DoctorShiftId))
+                entity.DoctorId = dto.DoctorId ?? dto.DoctorShiftId;
+
+            if (!string.IsNullOrWhiteSpace(dto.Status))
+                entity.Status = ParseStatus(dto.Status);
+
+            if (dto.AppointmentDate.HasValue)
+                entity.AppointmentDate = dto.AppointmentDate.Value.Date;
+            else if (dto.AppointmentTime.HasValue)
+                entity.AppointmentDate = dto.AppointmentTime.Value.Date;
+
+            if (!string.IsNullOrWhiteSpace(dto.SlotTime) && TryParseSlot(dto.SlotTime, out var st))
+            {
+                entity.StartTime = st;
+                entity.EndTime = st.Add(TimeSpan.FromMinutes(DefaultSlotDurationMinutes));
+            }
+            else if (dto.AppointmentTime.HasValue)
+            {
+                entity.StartTime = dto.AppointmentTime.Value.TimeOfDay;
+                entity.EndTime = entity.StartTime.Add(TimeSpan.FromMinutes(DefaultSlotDurationMinutes));
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.AppointmentType))
+                entity.Type = ParseType(dto.AppointmentType);
+
+            if (!string.IsNullOrWhiteSpace(dto.Notes) || !string.IsNullOrWhiteSpace(dto.ReasonForRescheduling))
+                entity.Notes = dto.Notes ?? dto.ReasonForRescheduling;
+
+            if (!string.IsNullOrWhiteSpace(dto.CollectionAddress))
+                entity.CollectionAddress = dto.CollectionAddress;
+
+            entity.UpdatedAt = DateTime.UtcNow;
+            await _repository.UpdateAsync(entity, ct);
+
+            // Business logic: if transitioned to CheckedIn, auto create sample
+            if (oldStatus != AppointmentStatus.CheckedIn && entity.Status == AppointmentStatus.CheckedIn)
+            {
+                try
+                {
+                    var random = new Random();
+                    var sample = new Sample
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Barcode = $"SA{random.Next(0, 999999):D6}",
+                        TestOrderId = entity.Id,
+                        PatientId = entity.PatientId,
+                        Status = SampleStatus.Received,
+                        CollectedAt = DateTime.UtcNow,
+                        ReceivedAt = DateTime.UtcNow,
+                        Notes = "Auto-generated after patient checked in"
+                    };
+
+                    await _sampleRepository.CreateAsync(sample, ct);
+                    _logger.LogInformation("✅ Auto-generated sample {Barcode} for checked-in appointment {Id}", sample.Barcode, entity.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Failed to create auto sample on check-in for appointment {Id}", entity.Id);
+                }
+            }
+
+            return true;
+        }
+
+        public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
+        {
+            var entity = await _repository.GetByIdAsync(id, ct);
+            if (entity == null) return false;
+
+            return await _repository.DeleteAsync(entity.Id, ct);
+        }
+
+        public async Task<IEnumerable<AppointmentReadDto>> GetByPatientIdAsync(string patientId, CancellationToken ct = default)
+        {
+            var list = await _repository.GetByPatientIdAsync(patientId, ct);
+            var doctorIds = list.Where(a => !string.IsNullOrEmpty(a.DoctorId)).Select(a => a.DoctorId!).Distinct();
+            var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
+
+            return list.Select(a =>
+            {
+                doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
+                return MapToReadDto(a, doc);
+            });
+        }
+
         private static List<string> BuildTimeWindowsFromShifts(IEnumerable<DoctorShift> shifts)
         {
             var windows = new HashSet<string>(StringComparer.Ordinal);
@@ -265,6 +429,33 @@ namespace BMS.Application.Services
             return result;
         }
 
+        private static AppointmentStatus ParseStatus(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return AppointmentStatus.Pending;
+            var norm = raw.Trim().ToLowerInvariant();
+            return norm switch
+            {
+                "checked_in" or "checkedin" => AppointmentStatus.CheckedIn,
+                "confirmed" => AppointmentStatus.Confirmed,
+                "inprogress" or "in_progress" => AppointmentStatus.InProgress,
+                "completed" => AppointmentStatus.Completed,
+                "cancelled" => AppointmentStatus.Cancelled,
+                "noshow" or "no_show" => AppointmentStatus.NoShow,
+                _ => Enum.TryParse<AppointmentStatus>(raw, true, out var s) ? s : AppointmentStatus.Pending
+            };
+        }
+
+        private static AppointmentType ParseType(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return AppointmentType.ClinicVisit;
+            var norm = raw.Trim().ToLowerInvariant();
+            return norm switch
+            {
+                "homephlebotomy" or "home_phlebotomy" or "home" => AppointmentType.HomePhlebotomy,
+                _ => AppointmentType.ClinicVisit
+            };
+        }
+
         private static BookAppointmentResponse MapToResponse(Appointment a, Doctor? doctor) => new()
         {
             AppointmentId = a.Id,
@@ -279,6 +470,29 @@ namespace BMS.Application.Services
             Status = a.Status.ToString(),
             Type = a.Type.ToString(),
             PackageId = a.PackageId
+        };
+
+        private static AppointmentReadDto MapToReadDto(Appointment a, Doctor? doctor = null) => new()
+        {
+            AppointmentId = a.Id,
+            AppointmentCode = a.AppointmentCode,
+            TestPackageId = a.PackageId,
+            PackageId = a.PackageId,
+            DoctorShiftId = null,
+            DoctorId = a.DoctorId,
+            DoctorName = doctor?.FullName ?? string.Empty,
+            Specialty = doctor?.Specialty ?? string.Empty,
+            Status = a.Status.ToString(),
+            CreatedBy = a.PatientId,
+            PatientId = a.PatientId,
+            CreatedAt = a.CreatedAt,
+            AppointmentDate = a.AppointmentDate,
+            AppointmentTime = a.AppointmentDate.Date.Add(a.StartTime),
+            SlotTime = FormatTime(a.StartTime),
+            EndTime = FormatTime(a.EndTime),
+            AppointmentType = a.Type.ToString(),
+            Notes = a.Notes,
+            CollectionAddress = a.CollectionAddress
         };
     }
 }

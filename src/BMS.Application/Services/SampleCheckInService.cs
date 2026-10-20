@@ -1,7 +1,7 @@
 using BMS.Core.Entities;
 using BMS.SampleCheckIn.DTOs;
 using BMS.Application.Interfaces;
-using BMS.Infrastructure.Repositories;
+using BMS.Core.Interfaces;
 
 namespace BMS.Application.Services;
 

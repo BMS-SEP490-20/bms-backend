@@ -1,6 +1,6 @@
 using BMS.Core.Entities;
 
-namespace BMS.TestResults.Services;
+namespace BMS.Application.Services;
 
 /// <summary>BR-LAB-02 reference flags + BR-LAB-03 panic thresholds.</summary>
 public static class PanicEvaluator

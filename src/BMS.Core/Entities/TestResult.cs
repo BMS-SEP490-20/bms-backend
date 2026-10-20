@@ -97,6 +97,9 @@ public class TestResult
     [BsonElement("clinicalComment")]
     public string? ClinicalComment { get; set; }
 
+    [BsonElement("isPanic")]
+    public bool IsPanic { get; set; }
+
     [BsonElement("createdAt")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

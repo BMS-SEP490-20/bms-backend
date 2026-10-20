@@ -1,9 +1,11 @@
-﻿using BMS.Core.Entities;
+using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace BMS.Infrastructure.Repositories
 {
@@ -31,8 +33,13 @@ namespace BMS.Infrastructure.Repositories
             _collection.Indexes.CreateOne(new CreateIndexModel<Appointment>(slotIndex));
         }
 
+        public async Task<List<Appointment>> GetAllAsync(CancellationToken ct = default)
+            => await _collection.Find(_ => true)
+                .SortByDescending(x => x.CreatedAt)
+                .ToListAsync(ct);
+
         public async Task<Appointment?> GetByIdAsync(string id, CancellationToken ct = default)
-            => await _collection.Find(x => x.Id == id).FirstOrDefaultAsync(ct);
+            => await _collection.Find(x => x.Id == id || x.AppointmentCode == id).FirstOrDefaultAsync(ct);
 
         public async Task<Appointment?> GetByCodeAsync(string appointmentCode, CancellationToken ct = default)
             => await _collection.Find(x => x.AppointmentCode == appointmentCode).FirstOrDefaultAsync(ct);
@@ -103,12 +110,24 @@ namespace BMS.Infrastructure.Repositories
         public async Task InsertAsync(Appointment appointment, CancellationToken ct = default)
             => await _collection.InsertOneAsync(appointment, cancellationToken: ct);
 
+        public async Task UpdateAsync(Appointment appointment, CancellationToken ct = default)
+        {
+            appointment.UpdatedAt = DateTime.UtcNow;
+            await _collection.ReplaceOneAsync(x => x.Id == appointment.Id, appointment, cancellationToken: ct);
+        }
+
         public async Task UpdateStatusAsync(string id, AppointmentStatus newStatus, CancellationToken ct = default)
         {
             var update = Builders<Appointment>.Update
                 .Set(x => x.Status, newStatus)
                 .Set(x => x.UpdatedAt, DateTime.UtcNow);
             await _collection.UpdateOneAsync(x => x.Id == id, update, cancellationToken: ct);
+        }
+
+        public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
+        {
+            var result = await _collection.DeleteOneAsync(x => x.Id == id, ct);
+            return result.DeletedCount > 0;
         }
 
         public async Task<List<DoctorShift>> GetDoctorShiftsAsync(
