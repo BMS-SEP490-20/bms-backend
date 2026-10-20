@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using BMS.WalkIn.DTOs;
-using BMS.WalkIn.Services;
+using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

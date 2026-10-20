@@ -1,5 +1,5 @@
 using BMS.Schedule.DTOs;
-using BMS.Schedule.Services;
+using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

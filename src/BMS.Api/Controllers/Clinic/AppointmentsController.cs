@@ -7,8 +7,8 @@ using System.Security.Claims;
 namespace BMS.Api.Controllers.Clinic;
 
 /// <summary>
-/// UC21 – Book Appointment API.
-/// Endpoints used by Patient Web, Patient Mobile and Receptionist Web.
+/// UC21 – Book Appointment & UC13 – Manage Appointments API.
+/// Endpoints used by Patient Web, Patient Mobile and Receptionist/Doctor Web.
 /// </summary>
 [ApiController]
 [Route("api/appointments")]
@@ -25,7 +25,31 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
-    /// Books a new appointment for a patient.
+    /// Gets all appointments with pagination support.
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken ct = default)
+    {
+        var data = await _service.GetAllAsync(ct);
+        var total = data.Count();
+        var items = data.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        return Ok(new
+        {
+            message = "Lấy danh sách cuộc hẹn thành công.",
+            page,
+            pageSize,
+            total,
+            data = items
+        });
+    }
+
+    /// <summary>
+    /// Books a new appointment for a patient (UC21).
     /// </summary>
     /// <param name="request">Patient, doctor, date, slot and selected packages.</param>
     /// <returns>Created appointment with QR token for later check-in.</returns>
@@ -67,13 +91,23 @@ public class AppointmentsController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            // Business rule violations are returned as 400 with message code.
             return BadRequest(new ApiErrorResponse
             {
                 Code = ExtractCode(ex.Message),
                 Message = ex.Message
             });
         }
+    }
+
+    /// <summary>
+    /// Creates an appointment via direct DTO (UC13 Admin/Receptionist manual entry).
+    /// </summary>
+    [HttpPost("create")]
+    [ProducesResponseType(typeof(AppointmentReadDto), StatusCodes.Status201Created)]
+    public async Task<IActionResult> Create([FromBody] AppointmentCreateDto dto, CancellationToken ct)
+    {
+        var result = await _service.CreateAsync(dto, ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.AppointmentId }, result);
     }
 
     /// <summary>
@@ -108,7 +142,7 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
-    /// Gets a single appointment by MongoDB id.
+    /// Gets a single appointment by MongoDB id or AppointmentCode.
     /// </summary>
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(BookAppointmentResponse), StatusCodes.Status200OK)]
@@ -122,9 +156,74 @@ public class AppointmentsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Gets detailed appointment record by MongoDB id.
+    /// </summary>
+    [HttpGet("{id}/detail")]
+    [ProducesResponseType(typeof(AppointmentReadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetDetailById(string id, CancellationToken ct)
+    {
+        var result = await _service.GetDetailByIdAsync(id, ct);
+        if (result == null)
+            return NotFound(new ApiErrorResponse { Code = "MSG-ERR-APPT-06", Message = "Không tìm thấy lịch hẹn." });
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Updates appointment status, notes, or assignment (UC13).
+    /// </summary>
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(string id, [FromBody] AppointmentUpdateDto dto, CancellationToken ct)
+    {
+        var success = await _service.UpdateAsync(id, dto, ct);
+        if (!success)
+            return NotFound(new ApiErrorResponse { Code = "MSG-ERR-APPT-06", Message = "Không tìm thấy lịch hẹn cần cập nhật." });
+
+        return Ok(new { message = "Cập nhật lịch hẹn thành công." });
+    }
+
+    /// <summary>
+    /// Cancels or deletes an appointment (UC13).
+    /// </summary>
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(string id, CancellationToken ct)
+    {
+        var success = await _service.DeleteAsync(id, ct);
+        if (!success)
+            return NotFound(new ApiErrorResponse { Code = "MSG-ERR-APPT-06", Message = "Không tìm thấy lịch hẹn cần xóa." });
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Gets all appointments for a specific patient.
+    /// </summary>
+    [HttpGet("patient/{patientId}")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetByPatientId(
+        string patientId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken ct = default)
+    {
+        var data = await _service.GetByPatientIdAsync(patientId, ct);
+        var total = data.Count();
+        var items = data.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        return Ok(new
+        {
+            message = "Lấy danh sách cuộc hẹn của bệnh nhân thành công.",
+            page,
+            pageSize,
+            total,
+            data = items
+        });
+    }
+
     private static string ExtractCode(string message)
     {
-        // Messages are prefixed with MSG-ERR-APPT-xx:
         var idx = message.IndexOf(':');
         return idx > 0 ? message[..idx].Trim() : "MSG-ERR-APPT-00";
     }

@@ -1,6 +1,9 @@
 using BMS.Core.Entities;
 using MongoDB.Driver;
 using BMS.Core.Interfaces;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace BMS.Infrastructure.Repositories;
 
@@ -15,6 +18,9 @@ public class SampleRepository : ISampleRepository
 
     public async Task<Sample?> FindByCodeAsync(string code, CancellationToken ct = default)
         => await _collection.Find(x => x.Id == code || x.Barcode == code).FirstOrDefaultAsync(ct);
+
+    public async Task CreateAsync(Sample sample, CancellationToken ct = default)
+        => await _collection.InsertOneAsync(sample, cancellationToken: ct);
 
     public async Task UpdateAsync(Sample sample, CancellationToken ct = default)
         => await _collection.ReplaceOneAsync(x => x.Id == sample.Id, sample, cancellationToken: ct);
