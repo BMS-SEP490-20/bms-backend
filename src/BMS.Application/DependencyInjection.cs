@@ -19,6 +19,7 @@ public static class DependencyInjection
         services.AddScoped<IWalkInService, WalkInService>();
         services.AddScoped<ISampleCheckInService, SampleCheckInService>();
         services.AddScoped<IResultService, ResultService>();
+        services.AddScoped<ITestBatchService, TestBatchService>();
 
         return services;
     }
