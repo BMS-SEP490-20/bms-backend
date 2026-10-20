@@ -17,6 +17,7 @@ public class BmsDbContext
     public List<IotDeviceThreshold> IotThresholds { get; } = new();
     public List<IotAlertRecipient> IotAlertRecipients { get; } = new();
     public List<TestResultVerification> TestVerifications { get; } = new();
+    public List<SampleOriginTrace> SampleOriginTraces { get; } = new();
 
     public BmsDbContext()
     {
@@ -292,6 +293,39 @@ public class BmsDbContext
                 new VerificationCheckItem { CheckName = "Reference intervals applied", Status = "OK", StatusType = "ok", Details = "Adult male 18-65y profile · Age-specific" },
                 new VerificationCheckItem { CheckName = "Technical notes complete", Status = "OK", StatusType = "ok", Details = "3 notes attached by Phạm Thu Dung" },
                 new VerificationCheckItem { CheckName = "Rerun results", Status = "Confirmed", StatusType = "ok", Details = "LDL 3.95 on repeat — matches original" }
+            }
+        });
+
+        // Seed initial sample origin trace and custody chain (UC77)
+        SampleOriginTraces.Add(new SampleOriginTrace
+        {
+            Id = "TRACE-261006-0089",
+            SpecimenId = "SPC-261006-A1-0089",
+            OrderId = "ORD-261006-0187",
+            PatientId = "PT-004523",
+            PatientName = "Nguyễn Văn An",
+            CreatedAt = now.AddMinutes(-40),
+            Custody = new ChainOfCustody
+            {
+                Integrity = "Unbroken",
+                BarcodeScansCount = 7,
+                TransportDuration = "12 min (Room 02 → Chem bench)",
+                AnalyzerModel = "BC-01 · Calibrated 07:30",
+                ReagentLot = "LOT-7721 · Exp 31 Dec 2026",
+                QcStatus = "QCF-1142",
+                RerunCount = 1,
+                NotesCount = 3
+            },
+            Nodes = new List<TraceNode>
+            {
+                new TraceNode { NodeType = "Patient", Title = "Nguyễn Văn An", Subtitle = "PT-004523", Code = "PT-004523", Badge = "Patient", BadgeType = "patient" },
+                new TraceNode { NodeType = "Doctor", Title = "Dr. Trần Thị Bình", Subtitle = "Internal Medicine", Code = "DOC-01", Badge = "Doctor", BadgeType = "doctor" },
+                new TraceNode { NodeType = "Order", Title = "ORD-261006-0187", Subtitle = "Lipid + Glucose", Code = "ORD-261006-0187", Badge = "Order", BadgeType = "order" },
+                new TraceNode { NodeType = "Collection", Title = "Phạm Thu Dung", Subtitle = "Lab Room 02 · 08:05", Code = "COL-01", Badge = "Collection", BadgeType = "warn" },
+                new TraceNode { NodeType = "Specimen", Title = "SPC-0089", Subtitle = "SST 4mL", Code = "SPC-261006-A1-0089", Badge = "Specimen", BadgeType = "err" },
+                new TraceNode { NodeType = "Analyzer", Title = "BC-01", Subtitle = "LOT-7721 · BATCH-02", Code = "BC-01", Badge = "Analyzer", BadgeType = "warn" },
+                new TraceNode { NodeType = "Result", Title = "5 values", Subtitle = "HH LDL 3.95", Code = "RES-01", Badge = "Result", BadgeType = "ok" },
+                new TraceNode { NodeType = "Status", Title = "Awaiting entry", Subtitle = "Rerun confirmed", Code = "VERIFIED", Badge = "Status", BadgeType = "patient" }
             }
         });
     }
