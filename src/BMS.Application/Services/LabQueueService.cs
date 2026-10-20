@@ -198,6 +198,11 @@ public class LabQueueService : ILabQueueService
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// UC40 - Record Sample Time (Issue I2-061 | BR-122 / BR-PHL-01 / BR-PHL-02).
+    /// Records blood specimen collection timestamp, associates tube barcode/RFID,
+    /// verifies sample preservation limits, and transitions lifecycle status to Collected.
+    /// </summary>
     public async Task<LabQueueItemDto> RecordSampleCollectionTimeAsync(
         string? idOrBarcode,
         RecordSampleCollectionRequest request,
