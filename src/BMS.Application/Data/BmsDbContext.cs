@@ -7,7 +7,6 @@ public class BmsDbContext
     // Thread-safe in-memory collections for fast startup & testing
     public List<User> Users { get; } = new();
     public List<Sample> Samples { get; } = new();
-    public List<TestReport> TestReports { get; } = new();
 
     public BmsDbContext()
     {
@@ -46,7 +45,7 @@ public class BmsDbContext
                 Id = "USR-DOC-01",
                 Username = "doctor",
                 Email = "doctor@bms.com",
-                FullName = "BS. Bác sĩ Chỉ định",
+                FullName = "BS. Nguyễn Văn An",
                 Role = UserRole.Doctor,
                 PasswordHash = HashPassword("Doctor@123"),
                 EmailConfirmed = true,
@@ -240,8 +239,6 @@ public class BmsDbContext
                 CompletedAt = now.AddMinutes(-20)
             }
         });
-
-        // Diagnostic reports are dynamically compiled or loaded from database
     }
 
     public static string HashPassword(string password)

@@ -31,7 +31,7 @@ public class TestReportDto
     public string CollectionTime { get; set; } = string.Empty;
     public string SpecimenId { get; set; } = string.Empty;
     public string ReferringDoctor { get; set; } = string.Empty;
-    public string Category { get; set; } = "Hematology Results";
+    public string Category { get; set; } = string.Empty;
     public List<TestReportParameterDto> Parameters { get; set; } = new();
     public string ClinicalNotes { get; set; } = string.Empty;
     public string AnalysedBy { get; set; } = string.Empty;
