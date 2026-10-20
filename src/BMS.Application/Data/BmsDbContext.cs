@@ -12,6 +12,7 @@ public class BmsDbContext
     public List<TestOrder> TestOrders { get; } = new();
     public List<SampleCollectionList> SampleCollectionLists { get; } = new();
     public List<TestReport> TestReports { get; } = new();
+    public List<TestNote> TestNotes { get; } = new();
 
     public BmsDbContext()
     {
