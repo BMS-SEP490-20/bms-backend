@@ -2,7 +2,9 @@ using BMS.Application.DTOs.Reception;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
+using BMS.Infrastructure.Data;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,12 +20,30 @@ namespace BMS.Application.Services;
 public class QueueService : IQueueService
 {
     private readonly IQueueRepository _repository;
+    private readonly BmsDbContext _dbContext;
+    private readonly IMongoCollection<User>? _usersCol;
     private readonly ILogger<QueueService> _logger;
 
-    public QueueService(IQueueRepository repository, ILogger<QueueService> logger)
+    public QueueService(
+        IQueueRepository repository,
+        BmsDbContext dbContext,
+        ILogger<QueueService> logger,
+        IMongoDatabase? database = null)
     {
         _repository = repository;
+        _dbContext = dbContext;
         _logger = logger;
+        if (database != null)
+        {
+            try
+            {
+                _usersCol = database.GetCollection<User>("accounts");
+            }
+            catch
+            {
+                _usersCol = null;
+            }
+        }
     }
 
     public async Task<QueueBoardDto> GetLiveQueueBoardAsync(CancellationToken ct = default)
@@ -52,38 +72,49 @@ public class QueueService : IQueueService
             .ToList();
 
         int inQueueNow = currentQueue.Count;
-        int avgWait = currentQueue.Count > 0 ? (int)currentQueue.Average(x => x.WaitTimeMinutes) : 12;
-        int longestWait = currentQueue.Count > 0 ? currentQueue.Max(x => x.WaitTimeMinutes) : 16;
-        int servedToday = rawTickets.Count(t => t.Status == QueueTicketStatus.Completed) + 18; // base served today
+        int avgWait = currentQueue.Count > 0 ? (int)currentQueue.Average(x => x.WaitTimeMinutes) : 0;
+        int longestWait = currentQueue.Count > 0 ? currentQueue.Max(x => x.WaitTimeMinutes) : 0;
+        int servedToday = rawTickets.Count(t => t.Status == QueueTicketStatus.Completed);
 
-        var counters = new List<CounterStatusDto>
+        // Load active reception staff dynamically from database
+        var staffList = new List<string>();
+        if (_usersCol != null)
         {
-            new()
+            try
             {
-                CounterName = "Counter 1",
-                StaffName = "Phạm Thu Dung",
-                Status = "Active",
-                Description = currentQueue.FirstOrDefault(x => x.CounterName == "Counter 1") != null
-                    ? $"Now serving {currentQueue.First(x => x.CounterName == "Counter 1").TicketNumber}"
-                    : "Available"
-            },
-            new()
-            {
-                CounterName = "Counter 2",
-                StaffName = "Lê Minh Châu",
-                Status = "Active",
-                Description = currentQueue.FirstOrDefault(x => x.CounterName == "Counter 2") != null
-                    ? $"Now serving {currentQueue.First(x => x.CounterName == "Counter 2").TicketNumber}"
-                    : "Available"
-            },
-            new()
-            {
-                CounterName = "Counter 3",
-                StaffName = "Vũ Đình Trọng",
-                Status = "Closed",
-                Description = "Opens at 13:00 (PM shift)"
+                var dbStaff = await _usersCol.Find(u => u.Role == UserRole.Receptionist && u.IsActive).ToListAsync(ct);
+                staffList.AddRange(dbStaff.Select(u => u.FullName));
             }
-        };
+            catch { }
+        }
+
+        if (staffList.Count == 0)
+        {
+            staffList.AddRange(_dbContext.Users.Where(u => u.Role == UserRole.Receptionist && u.IsActive).Select(u => u.FullName));
+        }
+
+        if (staffList.Count == 0)
+        {
+            staffList.Add("Lễ tân quầy");
+        }
+
+        var counters = new List<CounterStatusDto>();
+        for (int i = 0; i < staffList.Count; i++)
+        {
+            var counterName = $"Quầy {i + 1}";
+            var staffName = staffList[i];
+            var activeTicket = currentQueue.FirstOrDefault(x => x.CounterName == counterName || x.CounterName == $"Counter {i + 1}");
+
+            counters.Add(new CounterStatusDto
+            {
+                CounterName = counterName,
+                StaffName = staffName,
+                Status = "Active",
+                Description = activeTicket != null
+                    ? $"Đang phục vụ số {activeTicket.TicketNumber}"
+                    : "Đang sẵn sàng"
+            });
+        }
 
         return new QueueBoardDto
         {
@@ -95,7 +126,7 @@ public class QueueService : IQueueService
                 AvgWaitMinutes = avgWait,
                 LongestWaitMinutes = longestWait,
                 ServedToday = servedToday,
-                CountersActive = "2 / 3"
+                CountersActive = $"{counters.Count(c => c.Status == "Active")} / {counters.Count}"
             },
             Counters = counters
         };
