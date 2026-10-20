@@ -157,7 +157,16 @@ public class TestOrderService : ITestOrderService
         {
             try
             {
-                var query = new ServicePackageQuery(Search: null, IsActive: true, Page: 1, PageSize: 100);
+                var query = new ServicePackageQuery(
+                    Keyword: null,
+                    IsActive: true,
+                    MinPrice: null,
+                    MaxPrice: null,
+                    SortBy: "Code",
+                    SortDesc: false,
+                    Page: 1,
+                    PageSize: 100);
+
                 var paged = await _packageRepository.SearchAsync(query);
                 if (paged.Items.Count > 0)
                 {
@@ -213,9 +222,9 @@ public class TestOrderService : ITestOrderService
         }
 
         // Look up patient info if available
-        var patientName = request.PatientName ?? "Nguyễn Văn An";
+        var patientName = request.PatientName ?? "Bệnh nhân";
         var patientGender = request.PatientGender ?? "Nam";
-        var patientAge = request.PatientAge ?? 34;
+        var patientAge = request.PatientAge ?? 0;
 
         if (!string.IsNullOrEmpty(request.PatientId))
         {
@@ -225,6 +234,15 @@ public class TestOrderService : ITestOrderService
                 patientName = user.FullName;
                 patientGender = user.Gender ?? patientGender;
             }
+        }
+
+        // Resolve doctor info
+        string doctorName = request.DoctorName ?? string.Empty;
+        if (string.IsNullOrEmpty(doctorName) && !string.IsNullOrEmpty(request.DoctorId ?? currentUserId))
+        {
+            var docId = request.DoctorId ?? currentUserId;
+            var docUser = await _userRepository.GetByIdAsync(docId!);
+            doctorName = docUser?.FullName ?? "Bác sĩ chỉ định";
         }
 
         // Parse Priority
@@ -288,8 +306,8 @@ public class TestOrderService : ITestOrderService
             PatientName = patientName,
             PatientGender = patientGender,
             PatientAge = patientAge,
-            DoctorId = request.DoctorId ?? currentUserId ?? "USR-DOC-01",
-            DoctorName = request.DoctorName ?? "Dr. Trần Thị Bình",
+            DoctorId = request.DoctorId ?? currentUserId ?? string.Empty,
+            DoctorName = doctorName,
             Priority = priority,
             Status = orderStatus,
             ClinicalIndication = request.ClinicalIndication,
@@ -299,7 +317,7 @@ public class TestOrderService : ITestOrderService
             FastingRequired = fastingRequired,
             FastingHours = maxFastingHours,
             Items = orderItems,
-            CreatedBy = currentUserId ?? "USR-DOC-01",
+            CreatedBy = currentUserId ?? string.Empty,
             CreatedAt = DateTime.UtcNow
         };
 
