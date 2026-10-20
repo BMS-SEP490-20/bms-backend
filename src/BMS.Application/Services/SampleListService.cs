@@ -7,6 +7,7 @@ using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
+using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
@@ -18,81 +19,72 @@ public class SampleListService : ISampleListService
 {
     private readonly ISampleListRepository _listRepository;
     private readonly BmsDbContext _dbContext;
+    private readonly IMongoCollection<Appointment>? _appointmentsCol;
+    private readonly IMongoCollection<Patient>? _patientsCol;
 
-    // Default checked-in appointments pool for intake
-    private static readonly List<CheckedInAppointmentDto> CheckedInPool = new()
-    {
-        new CheckedInAppointmentDto
-        {
-            AppointmentId = "APT-342",
-            PatientId = "USR-PAT-01",
-            PatientName = "Nguyễn Văn An",
-            PackageName = "Lipid + Glucose",
-            Time = "08:00",
-            Tubes = new List<string> { "SST", "NaF" },
-            Priority = "Routine"
-        },
-        new CheckedInAppointmentDto
-        {
-            AppointmentId = "APT-343",
-            PatientId = "USR-PAT-02",
-            PatientName = "Trần Thị Mai",
-            PackageName = "CBC",
-            Time = "08:30",
-            Tubes = new List<string> { "EDTA" },
-            Priority = "Routine"
-        },
-        new CheckedInAppointmentDto
-        {
-            AppointmentId = "APT-344",
-            PatientId = "USR-PAT-03",
-            PatientName = "Lê Hoàng Nam",
-            PackageName = "Thyroid",
-            Time = "09:00",
-            Tubes = new List<string> { "SST" },
-            Priority = "Routine"
-        },
-        new CheckedInAppointmentDto
-        {
-            AppointmentId = "APT-345",
-            PatientId = "USR-PAT-04",
-            PatientName = "Phạm Minh Ơn",
-            PackageName = "Liver",
-            Time = "09:30",
-            Tubes = new List<string> { "SST" },
-            Priority = "Routine"
-        },
-        new CheckedInAppointmentDto
-        {
-            AppointmentId = "APT-346",
-            PatientId = "USR-PAT-05",
-            PatientName = "Võ Thị Phượng",
-            PackageName = "Kidney",
-            Time = "10:00",
-            Tubes = new List<string> { "SST" },
-            Priority = "Routine"
-        },
-        new CheckedInAppointmentDto
-        {
-            AppointmentId = "APT-348",
-            PatientId = "USR-PAT-06",
-            PatientName = "Nguyễn Thị Lan",
-            PackageName = "CBC + Lipid",
-            Time = "11:00",
-            Tubes = new List<string> { "EDTA", "SST" },
-            Priority = "Routine"
-        }
-    };
-
-    public SampleListService(ISampleListRepository listRepository, BmsDbContext dbContext)
+    public SampleListService(ISampleListRepository listRepository, BmsDbContext dbContext, IMongoDatabase? database = null)
     {
         _listRepository = listRepository;
         _dbContext = dbContext;
+        if (database != null)
+        {
+            try
+            {
+                _appointmentsCol = database.GetCollection<Appointment>("appointments");
+                _patientsCol = database.GetCollection<Patient>("patients");
+            }
+            catch
+            {
+                _appointmentsCol = null;
+                _patientsCol = null;
+            }
+        }
     }
 
-    public Task<IEnumerable<CheckedInAppointmentDto>> GetCheckedInAppointmentsAsync()
+    public async Task<IEnumerable<CheckedInAppointmentDto>> GetCheckedInAppointmentsAsync()
     {
-        return Task.FromResult<IEnumerable<CheckedInAppointmentDto>>(CheckedInPool);
+        var result = new List<CheckedInAppointmentDto>();
+
+        if (_appointmentsCol != null)
+        {
+            try
+            {
+                var fb = Builders<Appointment>.Filter;
+                var filter = fb.Or(
+                    fb.Eq(a => a.Status, AppointmentStatus.Confirmed),
+                    fb.Eq(a => a.Status, AppointmentStatus.CheckedIn),
+                    fb.Eq(a => a.Status, AppointmentStatus.Pending)
+                );
+
+                var list = await _appointmentsCol.Find(filter).Limit(30).ToListAsync();
+                foreach (var a in list)
+                {
+                    string patientName = "Bệnh nhân";
+                    if (_patientsCol != null && !string.IsNullOrEmpty(a.PatientId))
+                    {
+                        var pat = await _patientsCol.Find(p => p.Id == a.PatientId).FirstOrDefaultAsync();
+                        if (pat != null && !string.IsNullOrEmpty(pat.FullName)) patientName = pat.FullName;
+                    }
+
+                    result.Add(new CheckedInAppointmentDto
+                    {
+                        AppointmentId = !string.IsNullOrEmpty(a.AppointmentCode) ? a.AppointmentCode : a.Id,
+                        PatientId = a.PatientId,
+                        PatientName = patientName,
+                        PackageName = "Xét nghiệm máu (CBC & Sinh hóa)",
+                        Time = a.StartTime.ToString(@"hh\:mm"),
+                        Tubes = new List<string> { "SST", "EDTA" },
+                        Priority = "Routine"
+                    });
+                }
+            }
+            catch
+            {
+                // Fall back to empty result on DB exception
+            }
+        }
+
+        return result;
     }
 
     public async Task<IEnumerable<SampleListResponseDto>> GetCollectionBatchesAsync(DateTime? date = null)
