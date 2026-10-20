@@ -1,4 +1,5 @@
 using BMS.Application.DTOs.Appointment;
+using BMS.Application.DTOs.Common;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
@@ -190,6 +191,48 @@ namespace BMS.Application.Services
             if (!string.IsNullOrEmpty(entity.DoctorId))
                 doctor = await _repository.GetDoctorAsync(entity.DoctorId, ct);
             return MapToResponse(entity, doctor);
+        }
+
+        // UC23: View Appointments (Filter & Paged)
+        public async Task<PagedResult<AppointmentReadDto>> GetFilteredAsync(
+            AppointmentFilterRequest filter,
+            string? currentUserId,
+            string? currentUserRole,
+            CancellationToken ct = default)
+        {
+            var effectivePatientId = filter.PatientId;
+            if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase))
+            {
+                effectivePatientId = currentUserId;
+            }
+
+            AppointmentStatus? status = null;
+            if (!string.IsNullOrWhiteSpace(filter.Status))
+            {
+                status = ParseStatus(filter.Status);
+            }
+
+            var (items, total) = await _repository.GetFilteredAsync(
+                filter.FromDate,
+                filter.ToDate,
+                filter.DoctorId,
+                status,
+                filter.Keyword,
+                effectivePatientId,
+                filter.Page,
+                filter.PageSize,
+                ct);
+
+            var doctorIds = items.Where(a => !string.IsNullOrEmpty(a.DoctorId)).Select(a => a.DoctorId!).Distinct();
+            var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
+
+            var dtos = items.Select(a =>
+            {
+                doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
+                return MapToReadDto(a, doc);
+            }).ToList();
+
+            return new PagedResult<AppointmentReadDto>(dtos, filter.Page, filter.PageSize, total);
         }
 
         // UC13: Manage Appointments

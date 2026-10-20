@@ -164,6 +164,10 @@ public class Sample : ISupportInitialize
     [BsonIgnoreIfNull]
     public string? RerunReason { get; set; }
 
+    [BsonElement("batch_id")]
+    [BsonIgnoreIfNull]
+    public string? BatchId { get; set; }
+
     [BsonElement("collected_at")]
     public DateTime CollectedAt { get; set; } = DateTime.UtcNow;
 

@@ -85,6 +85,27 @@ public class Invoice
     [BsonElement("transactionReference")]
     public string? TransactionReference { get; set; }
 
+    [BsonElement("patientName")]
+    public string? PatientName { get; set; }
+
+    [BsonElement("patientPhone")]
+    public string? PatientPhone { get; set; }
+
+    [BsonElement("cashierId")]
+    public string? CashierId { get; set; }
+
+    [BsonElement("cashierName")]
+    public string? CashierName { get; set; }
+
+    [BsonElement("receiptNumber")]
+    public string? ReceiptNumber { get; set; }
+
+    [BsonElement("printCount")]
+    public int PrintCount { get; set; } = 0;
+
+    [BsonElement("lastPrintedAt")]
+    public DateTime? LastPrintedAt { get; set; }
+
     [BsonElement("paidAt")]
     public DateTime? PaidAt { get; set; }
 
