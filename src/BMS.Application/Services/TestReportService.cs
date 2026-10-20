@@ -130,9 +130,7 @@ public class TestReportService : ITestReportService
             ? sample.AssignedTechnicianName
             : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : string.Empty);
 
-        var analysedTime = sample != null && sample.ReceivedAt != default
-            ? sample.ReceivedAt
-            : (sample != null && sample.CollectedAt != default ? sample.CollectedAt : DateTime.UtcNow);
+        DateTime analysedTime = sample?.ReceivedAt ?? (sample?.CollectedAt != default && sample?.CollectedAt != null ? sample.CollectedAt : DateTime.UtcNow);
 
         // Load real test parameters from test_results
         var parameters = new List<TestReportParameter>();

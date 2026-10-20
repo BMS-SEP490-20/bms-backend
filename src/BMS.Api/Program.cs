@@ -71,6 +71,10 @@ builder.Services.AddScoped<ITestReportService, TestReportService>();
 // CORS
 // =========================================================
 
+// SignalR Real-Time Queue
+builder.Services.AddSignalR();
+builder.Services.AddScoped<IQueueNotifier, BMS.Api.Services.QueueNotifier>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("BmsFrontend", policy =>
@@ -84,7 +88,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:3000"
             )
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
@@ -138,8 +143,9 @@ app.UseRateLimiter();
 
 app.UseAuthorization();
 
-// Controllers
+// Controllers & Hubs
 app.MapControllers();
+app.MapHub<BMS.Api.Hubs.QueueHub>("/hubs/queue");
 
 // =========================================================
 // HEALTH CHECK
