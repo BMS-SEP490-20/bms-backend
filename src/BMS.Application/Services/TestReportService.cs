@@ -30,45 +30,6 @@ public class TestReportService : ITestReportService
         var report = await _reportRepository.GetByOrderIdAsync(orderId);
         if (report != null) return MapToDto(report);
 
-        // Fallback: Check if report is seeded with matching prefix
-        lock (_dbContext.TestReports)
-        {
-            var fallback = _dbContext.TestReports.FirstOrDefault(r =>
-                r.OrderId.Equals(orderId, StringComparison.OrdinalIgnoreCase) ||
-                orderId.Contains("260927") ||
-                orderId.Contains("0231") ||
-                orderId.Contains("101")
-            );
-            if (fallback != null) return MapToDto(fallback);
-
-            // Return synthesized CBC report for newly created orders
-            var defaultReport = _dbContext.TestReports.FirstOrDefault();
-            if (defaultReport != null)
-            {
-                var clone = new TestReport
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    ReportId = $"RPT-{DateTime.UtcNow:yyMMdd}-{orderId.Replace("ORD-", "")}",
-                    OrderId = orderId,
-                    PatientId = defaultReport.PatientId,
-                    PatientName = defaultReport.PatientName,
-                    DobAgeSex = defaultReport.DobAgeSex,
-                    PackageName = defaultReport.PackageName,
-                    CollectionTime = DateTime.UtcNow.ToString("dd MMM yyyy · HH:mm") + " · Lab Room 02",
-                    SpecimenId = $"SPC-{DateTime.UtcNow:yyMMdd}-A1-0089 · EDTA whole blood",
-                    ReferringDoctor = defaultReport.ReferringDoctor,
-                    Category = defaultReport.Category,
-                    Parameters = defaultReport.Parameters,
-                    ClinicalNotes = defaultReport.ClinicalNotes,
-                    AnalysedBy = defaultReport.AnalysedBy,
-                    ApprovedBy = defaultReport.ApprovedBy,
-                    IssuedAt = DateTime.UtcNow,
-                    VerificationHash = $"BMS-VERIFIED-{Guid.NewGuid():N}".ToUpperInvariant()
-                };
-                return MapToDto(clone);
-            }
-        }
-
         return null;
     }
 
