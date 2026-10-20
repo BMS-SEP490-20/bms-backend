@@ -21,6 +21,7 @@ public class SampleListService : ISampleListService
     private readonly BmsDbContext _dbContext;
     private readonly IMongoCollection<Appointment>? _appointmentsCol;
     private readonly IMongoCollection<Patient>? _patientsCol;
+    private readonly IMongoCollection<ServicePackage>? _packagesCol;
 
     public SampleListService(ISampleListRepository listRepository, BmsDbContext dbContext, IMongoDatabase? database = null)
     {
@@ -32,11 +33,13 @@ public class SampleListService : ISampleListService
             {
                 _appointmentsCol = database.GetCollection<Appointment>("appointments");
                 _patientsCol = database.GetCollection<Patient>("patients");
+                _packagesCol = database.GetCollection<ServicePackage>("service_packages");
             }
             catch
             {
                 _appointmentsCol = null;
                 _patientsCol = null;
+                _packagesCol = null;
             }
         }
     }
@@ -59,11 +62,42 @@ public class SampleListService : ISampleListService
                 var list = await _appointmentsCol.Find(filter).Limit(30).ToListAsync();
                 foreach (var a in list)
                 {
-                    string patientName = "Bệnh nhân";
-                    if (_patientsCol != null && !string.IsNullOrEmpty(a.PatientId))
+                    if (string.IsNullOrEmpty(a.PatientId)) continue;
+
+                    string? patientName = null;
+                    if (_patientsCol != null)
                     {
                         var pat = await _patientsCol.Find(p => p.Id == a.PatientId).FirstOrDefaultAsync();
                         if (pat != null && !string.IsNullOrEmpty(pat.FullName)) patientName = pat.FullName;
+                    }
+
+                    if (string.IsNullOrEmpty(patientName))
+                    {
+                        var user = _dbContext.Users.FirstOrDefault(u => u.Id == a.PatientId);
+                        if (user != null) patientName = user.FullName;
+                    }
+
+                    if (string.IsNullOrEmpty(patientName)) continue;
+
+                    string packageName = !string.IsNullOrEmpty(a.Notes) ? a.Notes : string.Empty;
+                    var tubes = new List<string>();
+
+                    if (_packagesCol != null && !string.IsNullOrEmpty(a.PackageId))
+                    {
+                        var pkg = await _packagesCol.Find(p => p.Id == a.PackageId || p.Code == a.PackageId).FirstOrDefaultAsync();
+                        if (pkg != null)
+                        {
+                            if (!string.IsNullOrEmpty(pkg.Name)) packageName = pkg.Name;
+                            if (pkg.Category?.Contains("Hematology", StringComparison.OrdinalIgnoreCase) == true)
+                                tubes.Add("EDTA");
+                            else
+                                tubes.Add("SST");
+                        }
+                    }
+
+                    if (tubes.Count == 0)
+                    {
+                        tubes.Add("SST");
                     }
 
                     result.Add(new CheckedInAppointmentDto
@@ -71,9 +105,9 @@ public class SampleListService : ISampleListService
                         AppointmentId = !string.IsNullOrEmpty(a.AppointmentCode) ? a.AppointmentCode : a.Id,
                         PatientId = a.PatientId,
                         PatientName = patientName,
-                        PackageName = "Xét nghiệm máu (CBC & Sinh hóa)",
+                        PackageName = packageName,
                         Time = a.StartTime.ToString(@"hh\:mm"),
-                        Tubes = new List<string> { "SST", "EDTA" },
+                        Tubes = tubes,
                         Priority = "Routine"
                     });
                 }
@@ -113,6 +147,22 @@ public class SampleListService : ISampleListService
         var items = new List<SampleCollectionItem>();
         int specimenSequence = 89;
 
+        var collectorId = currentUserId ?? request.CollectorId;
+        if (string.IsNullOrWhiteSpace(collectorId))
+        {
+            throw new UnauthorizedAccessException("Authenticated collector identity is required.");
+        }
+
+        string collectorDisplayName = !string.IsNullOrWhiteSpace(request.CollectorName)
+            ? request.CollectorName
+            : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(collectorDisplayName))
+        {
+            var user = _dbContext.Users.FirstOrDefault(u => u.Id == collectorId);
+            collectorDisplayName = user?.FullName ?? collectorId;
+        }
+
         foreach (var aptId in request.AppointmentIds)
         {
             Appointment? apptDoc = null;
@@ -121,35 +171,66 @@ public class SampleListService : ISampleListService
                 apptDoc = await _appointmentsCol.Find(a => a.Id == aptId || a.AppointmentCode == aptId).FirstOrDefaultAsync();
             }
 
-            string patientId = apptDoc?.PatientId ?? $"PAT-{aptId}";
-            string patientName = "Bệnh nhân";
-            if (_patientsCol != null && apptDoc != null && !string.IsNullOrEmpty(apptDoc.PatientId))
+            if (apptDoc == null || string.IsNullOrWhiteSpace(apptDoc.PatientId))
             {
-                var pat = await _patientsCol.Find(p => p.Id == apptDoc.PatientId).FirstOrDefaultAsync();
+                continue;
+            }
+
+            string patientId = apptDoc.PatientId;
+            string? patientName = null;
+            if (_patientsCol != null)
+            {
+                var pat = await _patientsCol.Find(p => p.Id == patientId).FirstOrDefaultAsync();
                 if (pat != null && !string.IsNullOrEmpty(pat.FullName))
                 {
                     patientName = pat.FullName;
                 }
             }
 
+            if (string.IsNullOrEmpty(patientName))
+            {
+                var user = _dbContext.Users.FirstOrDefault(u => u.Id == patientId);
+                if (user != null) patientName = user.FullName;
+            }
+
+            if (string.IsNullOrEmpty(patientName))
+            {
+                continue;
+            }
+
+            string itemPackageName = !string.IsNullOrEmpty(apptDoc.Notes) ? apptDoc.Notes : string.Empty;
+            var itemTubes = new List<string>();
+
+            if (_packagesCol != null && !string.IsNullOrEmpty(apptDoc.PackageId))
+            {
+                var pkg = await _packagesCol.Find(p => p.Id == apptDoc.PackageId || p.Code == apptDoc.PackageId).FirstOrDefaultAsync();
+                if (pkg != null)
+                {
+                    if (!string.IsNullOrEmpty(pkg.Name)) itemPackageName = pkg.Name;
+                    if (pkg.Category?.Contains("Hematology", StringComparison.OrdinalIgnoreCase) == true)
+                        itemTubes.Add("EDTA");
+                    else
+                        itemTubes.Add("SST");
+                }
+            }
+
+            if (itemTubes.Count == 0)
+            {
+                itemTubes.Add("SST");
+            }
+
             var specimenId = $"SPC-{datePrefix}-{batchCode.Split('-').Last()}-{specimenSequence:D4}";
-
-            var collectorName = !string.IsNullOrWhiteSpace(request.CollectorName)
-                ? request.CollectorName
-                : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Nhân viên lấy mẫu");
-
-            var itemTubes = new List<string> { "SST", "EDTA" };
 
             var item = new SampleCollectionItem
             {
                 SpecimenId = specimenId,
-                AppointmentId = apptDoc?.AppointmentCode ?? aptId,
+                AppointmentId = apptDoc.AppointmentCode ?? aptId,
                 PatientId = patientId,
                 PatientName = patientName,
-                PackageName = "Xét nghiệm máu (CBC & Sinh hóa)",
+                PackageName = itemPackageName,
                 Tubes = itemTubes,
-                CollectorId = request.CollectorId ?? currentUserId ?? string.Empty,
-                CollectorName = collectorName,
+                CollectorId = collectorId,
+                CollectorName = collectorDisplayName,
                 Status = "PendingCollection"
             };
 
@@ -167,10 +248,10 @@ public class SampleListService : ISampleListService
                     {
                         Id = Guid.NewGuid().ToString(),
                         Barcode = tubeBarcode,
-                        TestOrderId = apptDoc?.AppointmentCode ?? aptId,
+                        TestOrderId = apptDoc.AppointmentCode ?? aptId,
                         PatientId = patientId,
                         PatientName = patientName,
-                        TestPackageName = "Xét nghiệm máu (CBC & Sinh hóa)",
+                        TestPackageName = itemPackageName,
                         SampleType = tubeType.Contains("EDTA") ? "Blood" : "Serum",
                         TubeColor = tubeColor,
                         VolumeMl = tubeType.Contains("EDTA") ? 2.0 : 4.0,
@@ -185,17 +266,13 @@ public class SampleListService : ISampleListService
             specimenSequence++;
         }
 
-        var collectorDisplayName = !string.IsNullOrWhiteSpace(request.CollectorName)
-            ? request.CollectorName
-            : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Nhân viên lấy mẫu");
-
         var collectionList = new SampleCollectionList
         {
             BatchCode = batchCode,
             Location = request.Location,
             TargetTime = request.TargetTime,
             ScheduledDate = DateTime.UtcNow.Date,
-            CollectorId = request.CollectorId ?? currentUserId ?? string.Empty,
+            CollectorId = collectorId,
             CollectorName = collectorDisplayName,
             Status = SampleCollectionListStatus.Confirmed,
             Items = items,
@@ -241,7 +318,7 @@ public class SampleListService : ISampleListService
 
     private static string GenerateSvgBarcode(string code)
     {
-        return $"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 60' width='200' height='60'><rect width='100%' height='100%' fill='#ffffff'/><text x='100' y='52' font-family='monospace' font-size='11' text-anchor='middle'>{code}</text><path d='M10,10 h4 v35 h-4 z M18,10 h2 v35 h-2 z M24,10 h6 v35 h-6 z M34,10 h2 v35 h-2 z M40,10 h4 v35 h-4 z M48,10 h8 v35 h-8 z M60,10 h2 v35 h-2 z M66,10 h6 v35 h-6 z M76,10 h4 v35 h-4 z M84,10 h2 v35 h-2 z M90,10 h6 v35 h-6 z M100,10 h8 v35 h-8 z M112,10 h2 v35 h-2 z M118,10 h4 v35 h-4 z M126,10 h6 v35 h-6 z M136,10 h2 v35 h-2 z M142,10 h6 v35 h-6 z M152,10 h4 v35 h-4 z M160,10 h8 v35 h-8 z M172,10 h4 v35 h-4 z M180,10 h2 v35 h-2 z M186,10 h4 v35 h-4 z' fill='#000000'/></svg>";
+        return code;
     }
 
     private static SampleListResponseDto MapToResponseDto(SampleCollectionList list)

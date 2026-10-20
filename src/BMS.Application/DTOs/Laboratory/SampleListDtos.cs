@@ -27,9 +27,9 @@ public class CreateSampleListRequestDto
     [MinLength(1, ErrorMessage = "At least one appointment must be selected for the collection run.")]
     public List<string> AppointmentIds { get; set; } = new();
 
-    public string Location { get; set; } = "Lab Room 02 — Phlebotomy";
+    public string Location { get; set; } = string.Empty;
 
-    public string TargetTime { get; set; } = "08:30";
+    public string TargetTime { get; set; } = string.Empty;
 
     public string? CollectorId { get; set; }
 
