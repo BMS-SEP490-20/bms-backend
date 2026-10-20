@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
+using Microsoft.Extensions.Configuration;
+using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
@@ -18,11 +22,32 @@ public class TestReportService : ITestReportService
 {
     private readonly ITestReportRepository _reportRepository;
     private readonly BmsDbContext _dbContext;
+    private readonly IMongoCollection<Appointment>? _appointmentsCol;
+    private readonly IMongoCollection<TestResult>? _resultsCol;
+    private readonly IConfiguration? _config;
 
-    public TestReportService(ITestReportRepository reportRepository, BmsDbContext dbContext)
+    public TestReportService(
+        ITestReportRepository reportRepository,
+        BmsDbContext dbContext,
+        IMongoDatabase? database = null,
+        IConfiguration? config = null)
     {
         _reportRepository = reportRepository;
         _dbContext = dbContext;
+        _config = config;
+        if (database != null)
+        {
+            try
+            {
+                _appointmentsCol = database.GetCollection<Appointment>("appointments");
+                _resultsCol = database.GetCollection<TestResult>("test_results");
+            }
+            catch
+            {
+                _appointmentsCol = null;
+                _resultsCol = null;
+            }
+        }
     }
 
     public async Task<TestReportDto?> GetReportByOrderIdAsync(string orderId)
@@ -61,17 +86,84 @@ public class TestReportService : ITestReportService
         var reportId = await _reportRepository.GenerateNextReportIdAsync();
         var sample = _dbContext.Samples.FirstOrDefault(s => s.TestOrderId == request.OrderId || s.Barcode == request.OrderId);
 
-        var patientId = sample?.PatientId ?? $"PT-{request.OrderId}";
-        var patientName = !string.IsNullOrWhiteSpace(sample?.PatientName) ? sample.PatientName : "Bệnh nhân";
-        var packageName = !string.IsNullOrWhiteSpace(sample?.TestPackageName) ? sample.TestPackageName : "Phiếu kết quả xét nghiệm";
-        var specimenId = sample != null ? $"{sample.Barcode} · {sample.SampleType}" : $"SPC-{request.OrderId}";
+        Appointment? appt = null;
+        if (_appointmentsCol != null)
+        {
+            try
+            {
+                appt = await _appointmentsCol.Find(a => a.Id == request.OrderId || a.AppointmentCode == request.OrderId).FirstOrDefaultAsync();
+            }
+            catch { }
+        }
+
+        var patientId = sample?.PatientId ?? appt?.PatientId ?? string.Empty;
+        var patientName = !string.IsNullOrWhiteSpace(sample?.PatientName) ? sample.PatientName : string.Empty;
+        if (string.IsNullOrEmpty(patientName) && !string.IsNullOrEmpty(patientId))
+        {
+            var user = _dbContext.Users.FirstOrDefault(u => u.Id == patientId);
+            if (user != null) patientName = user.FullName;
+        }
+
+        var packageName = !string.IsNullOrWhiteSpace(sample?.TestPackageName)
+            ? sample.TestPackageName
+            : (appt?.Notes ?? string.Empty);
+
+        var specimenId = sample != null ? $"{sample.Barcode} · {sample.SampleType}" : string.Empty;
         var collectionTime = sample != null && sample.CollectedAt != default
             ? sample.CollectedAt.ToString("dd MMM yyyy · HH:mm")
-            : DateTime.UtcNow.ToString("dd MMM yyyy · HH:mm");
+            : (appt != null ? appt.AppointmentDate.ToString("dd MMM yyyy") : string.Empty);
+
+        // Referring doctor: Must be the ordering doctor from TestOrder / Appointment
+        string referringDoctor = string.Empty;
+        var docId = appt?.DoctorId;
+        if (!string.IsNullOrEmpty(docId))
+        {
+            var doc = _dbContext.Users.FirstOrDefault(u => u.Id == docId);
+            if (doc != null) referringDoctor = doc.FullName;
+        }
 
         var approver = !string.IsNullOrWhiteSpace(request.ApprovedBy)
             ? request.ApprovedBy
-            : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Bác sĩ xét nghiệm");
+            : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : string.Empty);
+
+        var analyst = !string.IsNullOrWhiteSpace(sample?.AssignedTechnicianName)
+            ? sample.AssignedTechnicianName
+            : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : string.Empty);
+
+        var analysedTime = sample != null && sample.ReceivedAt != default
+            ? sample.ReceivedAt
+            : (sample != null && sample.CollectedAt != default ? sample.CollectedAt : DateTime.UtcNow);
+
+        // Load real test parameters from test_results
+        var parameters = new List<TestReportParameter>();
+        if (_resultsCol != null)
+        {
+            try
+            {
+                var tr = await _resultsCol.Find(r => r.SampleId == request.OrderId || (sample != null && (r.SampleId == sample.Id || r.SampleId == sample.Barcode))).FirstOrDefaultAsync();
+                if (tr != null && tr.Items != null)
+                {
+                    foreach (var item in tr.Items)
+                    {
+                        parameters.Add(new TestReportParameter
+                        {
+                            ParameterName = item.CriterionName,
+                            ResultValue = item.MeasuredValue,
+                            Unit = item.Unit,
+                            ReferenceRange = item.ReferenceInterval,
+                            Flag = item.Flag != ResultFlag.Normal ? item.Flag.ToString() : string.Empty,
+                            IsAbnormal = item.Flag != ResultFlag.Normal
+                        });
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // Real verification hash computed using SHA256
+        using var sha256 = SHA256.Create();
+        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes($"{reportId}|{request.OrderId}|{patientId}|{DateTime.UtcNow:O}"));
+        var verificationHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
 
         var report = new TestReport
         {
@@ -83,17 +175,17 @@ public class TestReportService : ITestReportService
             PackageName = packageName,
             CollectionTime = collectionTime,
             SpecimenId = specimenId,
-            ReferringDoctor = approver,
-            Category = "Hematology Results",
-            ClinicalNotes = request.ClinicalNotes ?? "Kết quả xét nghiệm đã được kiểm duyệt. Đề nghị bác sĩ điều trị đối chiếu lâm sàng.",
-            AnalysedBy = !string.IsNullOrWhiteSpace(sample?.AssignedTechnicianName) ? sample.AssignedTechnicianName : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Kỹ thuật viên xét nghiệm"),
-            AnalysedAt = DateTime.UtcNow.AddHours(-1),
+            ReferringDoctor = referringDoctor,
+            Category = packageName,
+            ClinicalNotes = request.ClinicalNotes ?? string.Empty,
+            AnalysedBy = analyst,
+            AnalysedAt = analysedTime,
             ApprovedBy = approver,
             ApprovedAt = DateTime.UtcNow,
             IssuedAt = DateTime.UtcNow,
-            VerificationHash = $"BMS-ISO15189-{reportId}-VERIFIED",
+            VerificationHash = verificationHash,
             CreatedAt = DateTime.UtcNow,
-            Parameters = new List<TestReportParameter>()
+            Parameters = parameters
         };
 
         var created = await _reportRepository.CreateAsync(report);
@@ -104,6 +196,8 @@ public class TestReportService : ITestReportService
     {
         var reportDto = await GetReportByOrderIdAsync(orderId);
         if (reportDto == null) return null;
+
+        var clinicAddress = _config?["Clinic:Address"] ?? string.Empty;
 
         var html = $@"
 <!DOCTYPE html>
@@ -128,7 +222,7 @@ public class TestReportService : ITestReportService
 </head>
 <body>
     <div class='header'>
-        <div><div class='logo'>BMS Blood Laboratory</div><div>HCMC-Clinic-01 · 123 Nguyen Van Linh, Dist. 7, HCMC</div></div>
+        <div><div class='logo'>BMS Blood Laboratory</div><div>{clinicAddress}</div></div>
         <div class='meta'><div>Report ID: <strong>{reportDto.ReportId}</strong></div><div>Issued: {reportDto.IssuedAt:dd MMM yyyy HH:mm}</div></div>
     </div>
     <div class='grid'>

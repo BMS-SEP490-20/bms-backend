@@ -69,7 +69,7 @@ public class TestReport
     public string ReferringDoctor { get; set; } = string.Empty;
 
     [BsonElement("category")]
-    public string Category { get; set; } = "Hematology Results";
+    public string Category { get; set; } = string.Empty;
 
     [BsonElement("parameters")]
     public List<TestReportParameter> Parameters { get; set; } = new();
