@@ -7,6 +7,7 @@ public class BmsDbContext
     // Thread-safe in-memory collections for fast startup & testing
     public List<User> Users { get; } = new();
     public List<Sample> Samples { get; } = new();
+    public List<TestOrder> TestOrders { get; } = new();
 
     public BmsDbContext()
     {
@@ -237,6 +238,68 @@ public class BmsDbContext
                 CollectedAt = now.AddHours(-3),
                 ReceivedAt = now.AddHours(-2),
                 CompletedAt = now.AddMinutes(-20)
+            }
+        });
+
+        // Seed initial laboratory test orders (UC32)
+        TestOrders.AddRange(new[]
+        {
+            new TestOrder
+            {
+                Id = "ORD-20261020-001",
+                OrderNumber = "ORD-20261020-001",
+                PatientId = "USR-PAT-01",
+                PatientName = "Nguyễn Văn An",
+                PatientGender = "Nam",
+                PatientAge = 34,
+                DoctorId = "USR-DOC-01",
+                DoctorName = "Dr. Trần Thị Bình",
+                Priority = SamplePriority.Normal,
+                Status = TestOrderStatus.Ordered,
+                ClinicalIndication = "Follow-up for elevated LDL cholesterol (3.95 mmol/L, Sep 2026). Also assessing fasting glucose, HbA1c, and liver enzymes.",
+                SpecialInstructions = "Repeat LDL from same analyzer if possible.",
+                ScheduledDate = DateTime.UtcNow.Date,
+                TotalAmount = 740000m,
+                FastingRequired = true,
+                FastingHours = 12,
+                CreatedAt = DateTime.UtcNow.AddHours(-2),
+                CreatedBy = "USR-DOC-01",
+                Items = new List<TestOrderItem>
+                {
+                    new TestOrderItem
+                    {
+                        TestCode = "SP-LIP-02",
+                        TestName = "Lipid Profile Extended",
+                        Category = "Biochemistry",
+                        TubeType = "SST 4mL",
+                        VolumeMl = 4.0,
+                        TurnaroundTime = "~4h",
+                        PreparationNotes = "Fast 12h",
+                        Price = 380000m
+                    },
+                    new TestOrderItem
+                    {
+                        TestCode = "TST-GLU-F",
+                        TestName = "Fasting Glucose",
+                        Category = "Biochemistry",
+                        TubeType = "NaF 2mL",
+                        VolumeMl = 2.0,
+                        TurnaroundTime = "~1h",
+                        PreparationNotes = "Fast 8h",
+                        Price = 80000m
+                    },
+                    new TestOrderItem
+                    {
+                        TestCode = "SP-LFT-01",
+                        TestName = "Liver Function Test",
+                        Category = "Biochemistry",
+                        TubeType = "SST 3mL",
+                        VolumeMl = 3.0,
+                        TurnaroundTime = "~3h",
+                        PreparationNotes = "Fast 8h",
+                        Price = 280000m
+                    }
+                }
             }
         });
     }
