@@ -8,6 +8,7 @@ public class BmsDbContext
     public List<User> Users { get; } = new();
     public List<Sample> Samples { get; } = new();
     public List<AppointmentNotification> AppointmentNotifications { get; } = new();
+    public List<QueueTicket> QueueTickets { get; } = new();
 
     public BmsDbContext()
     {
