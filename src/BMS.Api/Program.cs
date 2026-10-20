@@ -64,6 +64,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.ITestNoteRepository, BMS.Infrastr
 builder.Services.AddScoped<ITestNoteService, TestNoteService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IPatientResultExportService, PatientResultExportService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.IIotThresholdRepository, BMS.Infrastructure.Repositories.IotThresholdRepository>();
+builder.Services.AddScoped<IIotThresholdService, IotThresholdService>();
 
 
 
