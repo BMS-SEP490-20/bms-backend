@@ -1,4 +1,5 @@
 using BMS.Application.DTOs.Appointment;
+using BMS.Application.DTOs.Common;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -27,6 +28,11 @@ namespace BMS.Application.Interfaces
         Task<BookAppointmentResponse?> GetByIdAsync(string appointmentId, CancellationToken ct = default);
 
         // UC13: Manage Appointments (CRUD & Overview)
+        Task<PagedResult<AppointmentReadDto>> GetFilteredAsync(
+            AppointmentFilterRequest filter,
+            string? currentUserId,
+            string? currentUserRole,
+            CancellationToken ct = default);
         Task<IEnumerable<AppointmentReadDto>> GetAllAsync(CancellationToken ct = default);
         Task<AppointmentReadDto?> GetDetailByIdAsync(string id, CancellationToken ct = default);
         Task<AppointmentReadDto> CreateAsync(AppointmentCreateDto dto, CancellationToken ct = default);
