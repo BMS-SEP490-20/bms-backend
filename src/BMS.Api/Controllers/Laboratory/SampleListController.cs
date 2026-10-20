@@ -77,6 +77,9 @@ public class SampleListController : ControllerBase
     /// Confirms and creates a new sample collection list batch for phlebotomy (UC37).
     /// </summary>
     [HttpPost("batches")]
+    [ProducesResponseType(typeof(SampleListResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateBatch([FromBody] CreateSampleListRequestDto request)
     {
         if (!ModelState.IsValid)
@@ -89,15 +92,37 @@ public class SampleListController : ControllerBase
             });
         }
 
-        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var created = await _sampleListService.CreateCollectionListAsync(request, currentUserId);
+        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                            ?? User.FindFirst("sub")?.Value;
 
-        return CreatedAtAction(nameof(GetBatchByCode), new { batchCode = created.BatchCode }, new
+        if (string.IsNullOrEmpty(currentUserId) && string.IsNullOrEmpty(request.CollectorId))
         {
-            success = true,
-            message = $"Sample collection batch '{created.BatchCode}' confirmed successfully.",
-            data = created
-        });
+            return Unauthorized(new
+            {
+                success = false,
+                message = "Vui lòng đăng nhập với tài khoản nhân viên lấy mẫu."
+            });
+        }
+
+        try
+        {
+            var created = await _sampleListService.CreateCollectionListAsync(request, currentUserId);
+
+            return CreatedAtAction(nameof(GetBatchByCode), new { batchCode = created.BatchCode }, new
+            {
+                success = true,
+                message = $"Sample collection batch '{created.BatchCode}' confirmed successfully.",
+                data = created
+            });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new
+            {
+                success = false,
+                message = ex.Message
+            });
+        }
     }
 
     /// <summary>

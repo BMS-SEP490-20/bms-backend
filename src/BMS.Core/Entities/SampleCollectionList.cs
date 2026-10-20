@@ -66,10 +66,10 @@ public class SampleCollectionList
     public string BatchCode { get; set; } = string.Empty;
 
     [BsonElement("location")]
-    public string Location { get; set; } = "Lab Room 02 — Phlebotomy";
+    public string Location { get; set; } = string.Empty;
 
     [BsonElement("target_time")]
-    public string TargetTime { get; set; } = "08:30";
+    public string TargetTime { get; set; } = string.Empty;
 
     [BsonElement("scheduled_date")]
     public DateTime ScheduledDate { get; set; } = DateTime.UtcNow.Date;
