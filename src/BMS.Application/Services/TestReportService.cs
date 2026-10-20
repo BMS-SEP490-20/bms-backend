@@ -59,34 +59,41 @@ public class TestReportService : ITestReportService
         }
 
         var reportId = await _reportRepository.GenerateNextReportIdAsync();
+        var sample = _dbContext.Samples.FirstOrDefault(s => s.TestOrderId == request.OrderId || s.Barcode == request.OrderId);
+
+        var patientId = sample?.PatientId ?? $"PT-{request.OrderId}";
+        var patientName = !string.IsNullOrWhiteSpace(sample?.PatientName) ? sample.PatientName : "Bệnh nhân";
+        var packageName = !string.IsNullOrWhiteSpace(sample?.TestPackageName) ? sample.TestPackageName : "Phiếu kết quả xét nghiệm";
+        var specimenId = sample != null ? $"{sample.Barcode} · {sample.SampleType}" : $"SPC-{request.OrderId}";
+        var collectionTime = sample != null && sample.CollectedAt != default
+            ? sample.CollectedAt.ToString("dd MMM yyyy · HH:mm")
+            : DateTime.UtcNow.ToString("dd MMM yyyy · HH:mm");
+
+        var approver = !string.IsNullOrWhiteSpace(request.ApprovedBy)
+            ? request.ApprovedBy
+            : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Bác sĩ xét nghiệm");
+
         var report = new TestReport
         {
             ReportId = reportId,
             OrderId = request.OrderId,
-            PatientId = "PT-2026-004523",
-            PatientName = "Nguyễn Văn An",
-            DobAgeSex = "12 Mar 1992 · 34y · Male",
-            PackageName = "Complete Blood Count (SP-CBC-01)",
-            CollectionTime = DateTime.UtcNow.ToString("dd MMM yyyy · 08:45 · Lab Room 02"),
-            SpecimenId = $"SPC-{DateTime.UtcNow:yyMMdd}-A1-0087 · EDTA whole blood",
-            ReferringDoctor = "Dr. Trần Thị Bình · Internal Medicine",
+            PatientId = patientId,
+            PatientName = patientName,
+            DobAgeSex = string.Empty,
+            PackageName = packageName,
+            CollectionTime = collectionTime,
+            SpecimenId = specimenId,
+            ReferringDoctor = approver,
             Category = "Hematology Results",
-            ClinicalNotes = request.ClinicalNotes ?? "Mild thrombocytopenia. Recommend repeat CBC in 4 weeks. No urgent intervention required.",
-            AnalysedBy = "Phạm Thu Dung (MLT)",
+            ClinicalNotes = request.ClinicalNotes ?? "Kết quả xét nghiệm đã được kiểm duyệt. Đề nghị bác sĩ điều trị đối chiếu lâm sàng.",
+            AnalysedBy = !string.IsNullOrWhiteSpace(sample?.AssignedTechnicianName) ? sample.AssignedTechnicianName : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Kỹ thuật viên xét nghiệm"),
             AnalysedAt = DateTime.UtcNow.AddHours(-1),
-            ApprovedBy = request.ApprovedBy ?? "Dr. Trần Thị Bình (MD)",
+            ApprovedBy = approver,
             ApprovedAt = DateTime.UtcNow,
             IssuedAt = DateTime.UtcNow,
             VerificationHash = $"BMS-ISO15189-{reportId}-VERIFIED",
             CreatedAt = DateTime.UtcNow,
-            Parameters = new List<TestReportParameter>
-            {
-                new TestReportParameter { ParameterName = "White Blood Cells (WBC)", ResultValue = "7.2", Unit = "×10⁹/L", ReferenceRange = "4.0 – 10.0", Flag = "", IsAbnormal = false },
-                new TestReportParameter { ParameterName = "Red Blood Cells (RBC)", ResultValue = "5.10", Unit = "×10¹²/L", ReferenceRange = "4.50 – 5.90", Flag = "", IsAbnormal = false },
-                new TestReportParameter { ParameterName = "Hemoglobin (HGB)", ResultValue = "14.8", Unit = "g/dL", ReferenceRange = "13.5 – 17.5", Flag = "", IsAbnormal = false },
-                new TestReportParameter { ParameterName = "Hematocrit (HCT)", ResultValue = "44.2", Unit = "%", ReferenceRange = "41.0 – 53.0", Flag = "", IsAbnormal = false },
-                new TestReportParameter { ParameterName = "Platelets (PLT)", ResultValue = "135", Unit = "×10⁹/L", ReferenceRange = "150 – 400", Flag = "L", IsAbnormal = true }
-            }
+            Parameters = new List<TestReportParameter>()
         };
 
         var created = await _reportRepository.CreateAsync(report);
