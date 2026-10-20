@@ -137,16 +137,53 @@ public class TestOrderService : ITestOrderService
         }
     };
 
-    public TestOrderService(ITestOrderRepository orderRepository, IUserRepository userRepository, BmsDbContext dbContext)
+    private readonly IServicePackageRepository? _packageRepository;
+
+    public TestOrderService(
+        ITestOrderRepository orderRepository,
+        IUserRepository userRepository,
+        BmsDbContext dbContext,
+        IServicePackageRepository? packageRepository = null)
     {
         _orderRepository = orderRepository;
         _userRepository = userRepository;
         _dbContext = dbContext;
+        _packageRepository = packageRepository;
     }
 
-    public Task<IEnumerable<TestCatalogItemDto>> GetAvailableCatalogAsync()
+    public async Task<IEnumerable<TestCatalogItemDto>> GetAvailableCatalogAsync()
     {
-        return Task.FromResult<IEnumerable<TestCatalogItemDto>>(CatalogItems);
+        if (_packageRepository != null)
+        {
+            try
+            {
+                var query = new ServicePackageQuery(Search: null, IsActive: true, Page: 1, PageSize: 100);
+                var paged = await _packageRepository.SearchAsync(query);
+                if (paged.Items.Count > 0)
+                {
+                    return paged.Items.Select(pkg => new TestCatalogItemDto
+                    {
+                        Code = pkg.Code,
+                        Name = pkg.Name,
+                        Category = !string.IsNullOrEmpty(pkg.Category) ? pkg.Category : "Laboratory",
+                        TubeType = "SST 4mL",
+                        TubeColor = "Gold",
+                        VolumeMl = 4.0,
+                        TurnaroundTime = "~2-4h",
+                        PreparationNotes = "Fasting required if metabolic test",
+                        FastingRequired = true,
+                        FastingHours = 8,
+                        Price = pkg.Price
+                    });
+                }
+            }
+            catch
+            {
+                // Fall back to in-memory items on DB error
+            }
+        }
+
+        return CatalogItems;
     }
 
     public async Task<IEnumerable<TestOrderResponseDto>> GetOrdersAsync(string? patientId = null, string? doctorId = null, string? status = null)
