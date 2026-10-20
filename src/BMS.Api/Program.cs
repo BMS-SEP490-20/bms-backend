@@ -4,8 +4,10 @@ using BMS.Application;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
 using BMS.Api.DependencyInjection;
+using BMS.Core.Interfaces;
 using BMS.Infrastructure;
 using BMS.Infrastructure.Data;
+using BMS.Infrastructure.Repositories;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +50,8 @@ builder.Services.AddSingleton<BmsDbContext>();
 // Main branch services
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotificationRepository>();
+builder.Services.AddScoped<IAppointmentNotificationService, AppointmentNotificationService>();
 
 // IMPORTANT:
 // Không đăng ký IAuthService lần nữa ở đây nếu
