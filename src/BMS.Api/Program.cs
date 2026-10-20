@@ -52,6 +52,8 @@ builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotificationRepository>();
 builder.Services.AddScoped<IAppointmentNotificationService, AppointmentNotificationService>();
+builder.Services.AddScoped<IQueueRepository, QueueRepository>();
+builder.Services.AddScoped<IQueueService, QueueService>();
 
 // IMPORTANT:
 // Không đăng ký IAuthService lần nữa ở đây nếu
