@@ -151,6 +151,35 @@ public class SampleRerunRequestDto
 
     [StringLength(1000)]
     public string? Notes { get; set; }
+
+    public string? Analyzer { get; set; }
+    public string? Priority { get; set; }
+    public List<string>? Parameters { get; set; }
+}
+
+public class SampleRerunItemDto
+{
+    public string SpecimenId { get; set; } = string.Empty;
+    public string PatientName { get; set; } = string.Empty;
+    public string Parameter { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public string Status { get; set; } = "New";
+    public string? OriginalValue { get; set; }
+    public string? RerunValue { get; set; }
+    public DateTime RequestedAt { get; set; }
+}
+
+public class SampleRerunDetailsDto
+{
+    public string SampleId { get; set; } = string.Empty;
+    public string Barcode { get; set; } = string.Empty;
+    public string PatientId { get; set; } = string.Empty;
+    public string PatientName { get; set; } = string.Empty;
+    public string CurrentResult { get; set; } = string.Empty;
+    public string Flag { get; set; } = string.Empty;
+    public string Analyzer { get; set; } = string.Empty;
+    public string FirstRunTime { get; set; } = string.Empty;
+    public List<string> AvailableParameters { get; set; } = new();
 }
 
 public class QueueFilterDto

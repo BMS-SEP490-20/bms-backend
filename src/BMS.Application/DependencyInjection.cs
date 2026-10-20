@@ -20,6 +20,8 @@ public static class DependencyInjection
         services.AddScoped<ISampleCheckInService, SampleCheckInService>();
         services.AddScoped<IResultService, ResultService>();
         services.AddScoped<IReceiptService, ReceiptService>();
+        services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+        services.AddScoped<IPatientReceptionService, PatientReceptionService>();
 
         return services;
     }
