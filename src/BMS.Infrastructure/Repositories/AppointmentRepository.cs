@@ -166,5 +166,147 @@ namespace BMS.Infrastructure.Repositories
             if (ids.Count == 0) return new List<Doctor>();
             return await _doctorCollection.Find(x => ids.Contains(x.Id)).ToListAsync(ct);
         }
+
+        // UC23: View & Filter Appointments
+        public async Task<(List<Appointment> Items, long TotalCount)> GetFilteredAsync(
+            DateTime? fromDate,
+            DateTime? toDate,
+            string? doctorId,
+            AppointmentStatus? status,
+            string? keyword,
+            string? patientId,
+            int page,
+            int pageSize,
+            CancellationToken ct = default)
+        {
+            var builder = Builders<Appointment>.Filter;
+            var filter = builder.Empty;
+
+            if (!string.IsNullOrWhiteSpace(patientId))
+            {
+                filter &= builder.Eq(x => x.PatientId, patientId);
+            }
+
+            if (!string.IsNullOrWhiteSpace(doctorId))
+            {
+                filter &= builder.Eq(x => x.DoctorId, doctorId);
+            }
+
+            if (status.HasValue)
+            {
+                filter &= builder.Eq(x => x.Status, status.Value);
+            }
+
+            if (fromDate.HasValue)
+            {
+                var start = fromDate.Value.Date;
+                filter &= builder.Gte(x => x.AppointmentDate, start);
+            }
+
+            if (toDate.HasValue)
+            {
+                var end = toDate.Value.Date.AddDays(1).AddTicks(-1);
+                filter &= builder.Lte(x => x.AppointmentDate, end);
+            }
+
+            if (!string.IsNullOrWhiteSpace(keyword))
+            {
+                var escaped = System.Text.RegularExpressions.Regex.Escape(keyword.Trim());
+                var regex = new MongoDB.Bson.BsonRegularExpression(escaped, "i");
+                var kwFilter = builder.Or(
+                    builder.Regex(x => x.AppointmentCode, regex),
+                    builder.Regex(x => x.Notes, regex),
+                    builder.Regex(x => x.CollectionAddress, regex),
+                    builder.Regex(x => x.PatientId, regex)
+                );
+                filter &= kwFilter;
+            }
+
+            var total = await _collection.CountDocumentsAsync(filter, cancellationToken: ct);
+
+            var items = await _collection.Find(filter)
+                .SortByDescending(x => x.AppointmentDate)
+                .ThenByDescending(x => x.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Limit(pageSize)
+                .ToListAsync(ct);
+
+            return (items, total);
+        }
+
+        // UC28: Smart Queue & Doctor Call
+        public async Task<Appointment?> CallNextPatientAtomicAsync(string doctorId, string roomId, CancellationToken ct = default)
+        {
+            var startOfToday = DateTime.UtcNow.Date;
+            var endOfToday = startOfToday.AddDays(1);
+
+            var filter = Builders<Appointment>.Filter.And(
+                Builders<Appointment>.Filter.Eq(x => x.Status, AppointmentStatus.CheckedIn),
+                Builders<Appointment>.Filter.Gte(x => x.AppointmentDate, startOfToday.AddDays(-1)),
+                Builders<Appointment>.Filter.Lt(x => x.AppointmentDate, endOfToday)
+            );
+
+            var sort = Builders<Appointment>.Sort
+                .Ascending(x => x.QueueNumber)
+                .Ascending(x => x.CreatedAt);
+
+            var update = Builders<Appointment>.Update
+                .Set(x => x.Status, AppointmentStatus.InProgress)
+                .Set(x => x.DoctorId, doctorId)
+                .Set(x => x.RoomId, roomId)
+                .Set(x => x.ConsultationStartTime, DateTime.UtcNow)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow);
+
+            var options = new FindOneAndUpdateOptions<Appointment>
+            {
+                Sort = sort,
+                ReturnDocument = ReturnDocument.After
+            };
+
+            return await _collection.FindOneAndUpdateAsync(filter, update, options, ct);
+        }
+
+        public async Task<List<Appointment>> GetTodayQueueAppointmentsAsync(string? roomId, string? doctorId, CancellationToken ct = default)
+        {
+            var startOfToday = DateTime.UtcNow.Date.AddDays(-1);
+            var endOfToday = DateTime.UtcNow.Date.AddDays(1);
+
+            var filterBuilder = Builders<Appointment>.Filter;
+            var filter = filterBuilder.And(
+                filterBuilder.In(x => x.Status, new[] { AppointmentStatus.CheckedIn, AppointmentStatus.InProgress }),
+                filterBuilder.Gte(x => x.AppointmentDate, startOfToday),
+                filterBuilder.Lt(x => x.AppointmentDate, endOfToday)
+            );
+
+            if (!string.IsNullOrWhiteSpace(roomId))
+            {
+                filter &= filterBuilder.Or(
+                    filterBuilder.Eq(x => x.RoomId, roomId),
+                    filterBuilder.Eq(x => x.Status, AppointmentStatus.CheckedIn)
+                );
+            }
+
+            return await _collection.Find(filter)
+                .SortBy(x => x.Status)
+                .ThenBy(x => x.QueueNumber)
+                .ThenBy(x => x.CreatedAt)
+                .ToListAsync(ct);
+        }
+
+        public async Task<bool> HasActiveDoctorShiftTodayAsync(string doctorId, CancellationToken ct = default)
+        {
+            var startOfToday = DateTime.UtcNow.Date;
+            var endOfToday = startOfToday.AddDays(1);
+
+            var count = await _shiftCollection.CountDocumentsAsync(
+                x => x.DoctorId == doctorId
+                     && x.ShiftDate >= startOfToday
+                     && x.ShiftDate < endOfToday
+                     && x.Status != "Cancelled"
+                     && x.Status != "Rejected",
+                cancellationToken: ct);
+
+            return count > 0;
+        }
     }
 }

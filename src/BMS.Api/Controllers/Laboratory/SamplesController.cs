@@ -175,6 +175,31 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         return Ok(new { success = true, message = "Đã gửi yêu cầu chạy lại mẫu xét nghiệm thành công." });
     }
 
+    /// <summary>
+    /// UC47 - Lấy danh sách yêu cầu chạy lại mẫu đang mở (Open Sample Rerun Requests)
+    /// </summary>
+    [HttpGet("reruns")]
+    public async Task<IActionResult> GetRerunRequests()
+    {
+        var reruns = await labQueueService.GetRerunRequestsAsync();
+        return Ok(new { success = true, data = reruns });
+    }
+
+    /// <summary>
+    /// UC47 - Lấy thông tin chi tiết để yêu cầu chạy lại mẫu (Sample Rerun Details & Context)
+    /// </summary>
+    [HttpGet("{id}/rerun-details")]
+    public async Task<IActionResult> GetSampleRerunDetails(string id)
+    {
+        var details = await labQueueService.GetSampleRerunDetailsAsync(id);
+        if (details == null)
+        {
+            return NotFound(new { success = false, message = $"Sample '{id}' not found for rerun requisition." });
+        }
+
+        return Ok(new { success = true, data = details });
+    }
+
     private string? CurrentUserId =>
         User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
 }

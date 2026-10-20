@@ -67,6 +67,21 @@ public class Appointment
     [BsonElement("collectionAddress")]
     public string? CollectionAddress { get; set; }
 
+    [BsonElement("queueNumber")]
+    public int? QueueNumber { get; set; }
+
+    [BsonElement("roomId")]
+    public string? RoomId { get; set; }
+
+    [BsonElement("recallCount")]
+    public int RecallCount { get; set; } = 0;
+
+    [BsonElement("consultationStartTime")]
+    public DateTime? ConsultationStartTime { get; set; }
+
+    [BsonElement("consultationEndTime")]
+    public DateTime? ConsultationEndTime { get; set; }
+
     [BsonElement("createdAt")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
