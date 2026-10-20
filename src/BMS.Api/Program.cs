@@ -58,6 +58,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.ITestOrderRepository, BMS.Infrast
 builder.Services.AddScoped<ITestOrderService, TestOrderService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ISampleListRepository, BMS.Infrastructure.Repositories.SampleListRepository>();
 builder.Services.AddScoped<ISampleListService, SampleListService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ITestReportRepository, BMS.Infrastructure.Repositories.TestReportRepository>();
+builder.Services.AddScoped<ITestReportService, TestReportService>();
 
 // IMPORTANT:
 // Không đăng ký IAuthService lần nữa ở đây nếu
