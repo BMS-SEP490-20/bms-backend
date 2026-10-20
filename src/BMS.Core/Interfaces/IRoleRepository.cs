@@ -26,4 +26,9 @@ public interface IRoleRepository
     Task DeleteAsync(string id, CancellationToken ct = default);
 
     Task EnsureDefaultRolesSeededAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves the numeric Role entity (matching accounts.RoleId in BMS_Database).
+    /// </summary>
+    Task<Role?> GetRoleByIdAsync(int roleId, CancellationToken ct = default);
 }

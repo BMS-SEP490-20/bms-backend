@@ -30,12 +30,14 @@ public static class MongoMappings
         {
             if (_registered) return;
 
+            var flexibleIdSerializer = new FlexibleStringObjectIdSerializer();
+
             BsonClassMap.RegisterClassMap<User>(cm =>
             {
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true); // document có thể có field thừa
                 cm.MapIdMember(x => x.Id)
-                  .SetSerializer(new StringSerializer(BsonType.ObjectId))
+                  .SetSerializer(flexibleIdSerializer)
                   .SetIdGenerator(StringObjectIdGenerator.Instance);
             });
 
@@ -54,9 +56,9 @@ public static class MongoMappings
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
                 cm.MapIdMember(x => x.Id)
-                  .SetSerializer(new StringSerializer(BsonType.ObjectId))
+                  .SetSerializer(flexibleIdSerializer)
                   .SetIdGenerator(StringObjectIdGenerator.Instance);
-                cm.MapMember(x => x.UserId).SetSerializer(new StringSerializer(BsonType.ObjectId));
+                cm.MapMember(x => x.UserId).SetSerializer(flexibleIdSerializer);
             });
 
             BsonClassMap.RegisterClassMap<PasswordResetToken>(cm =>
@@ -64,9 +66,9 @@ public static class MongoMappings
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
                 cm.MapIdMember(x => x.Id)
-                  .SetSerializer(new StringSerializer(BsonType.ObjectId))
+                  .SetSerializer(flexibleIdSerializer)
                   .SetIdGenerator(StringObjectIdGenerator.Instance);
-                cm.MapMember(x => x.UserId).SetSerializer(new StringSerializer(BsonType.ObjectId));
+                cm.MapMember(x => x.UserId).SetSerializer(flexibleIdSerializer);
                 cm.MapMember(x => x.CreatedAt).SetSerializer(new DateTimeSerializer(DateTimeKind.Utc));
                 cm.MapMember(x => x.ExpiresAt).SetSerializer(new DateTimeSerializer(DateTimeKind.Utc));
                 cm.MapMember(x => x.UsedAt).SetSerializer(UtcNullable);
@@ -83,7 +85,7 @@ public static class MongoMappings
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
                 cm.MapIdMember(x => x.Id)
-                  .SetSerializer(new StringSerializer(BsonType.ObjectId))
+                  .SetSerializer(flexibleIdSerializer)
                   .SetIdGenerator(StringObjectIdGenerator.Instance);
                 // Tiền lưu Decimal128 để so sánh/sắp xếp theo giá đúng và không mất độ chính xác
                 cm.MapMember(x => x.Price).SetSerializer(new DecimalSerializer(BsonType.Decimal128));
@@ -105,7 +107,49 @@ public static class MongoMappings
             });
             _registered = true;
         }
+    }
+}
 
+/// <summary>
+/// Serializer cho phép đọc/ghi cả ObjectId (24-hex) lẫn String tuỳ chỉnh mà không lỗi FormatException.
+/// </summary>
+public sealed class FlexibleStringObjectIdSerializer : SerializerBase<string>
+{
+    public override string Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
+    {
+        var type = context.Reader.GetCurrentBsonType();
+        return type switch
+        {
+            BsonType.ObjectId => context.Reader.ReadObjectId().ToString(),
+            BsonType.String => context.Reader.ReadString(),
+            BsonType.Int32 => context.Reader.ReadInt32().ToString(),
+            BsonType.Int64 => context.Reader.ReadInt64().ToString(),
+            BsonType.Null => ReadNull(context),
+            _ => context.Reader.ReadString()
+        };
     }
 
+    public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, string value)
+    {
+        if (value is null)
+        {
+            context.Writer.WriteNull();
+            return;
+        }
+
+        if (ObjectId.TryParse(value, out var oid))
+        {
+            context.Writer.WriteObjectId(oid);
+        }
+        else
+        {
+            context.Writer.WriteString(value);
+        }
+    }
+
+    private static string ReadNull(BsonDeserializationContext context)
+    {
+        context.Reader.ReadNull();
+        return string.Empty;
+    }
 }

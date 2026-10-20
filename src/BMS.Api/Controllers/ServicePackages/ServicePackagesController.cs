@@ -10,6 +10,7 @@ namespace BMS.Api.Controllers.ServicePackages;
 
 [ApiController]
 [Route("api/service-packages")]
+[Route("api/v1/service-packages")]
 [Produces("application/json")]
 [Authorize]
 public sealed class ServicePackagesController(
@@ -18,6 +19,7 @@ public sealed class ServicePackagesController(
 {
     /// <summary>Xem danh sách gói dịch vụ (phân trang).</summary>
     [HttpGet]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResult<ServicePackageDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ServicePackageDto>>> List(
         [FromQuery] ServicePackageListRequest request, CancellationToken ct)
@@ -25,6 +27,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Tìm kiếm gói dịch vụ theo từ khoá (mã/tên/mô tả/xét nghiệm trong gói) và khoảng giá.</summary>
     [HttpGet("search")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResult<ServicePackageDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ServicePackageDto>>> Search(
         [FromQuery] ServicePackageSearchRequest request, CancellationToken ct)
@@ -32,6 +35,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Xem chi tiết một gói dịch vụ.</summary>
     [HttpGet("{id}")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServicePackageDto>> GetById(string id, CancellationToken ct)
@@ -39,7 +43,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Tạo gói dịch vụ mới.</summary>
     [HttpPost]
-    //[HasPermission(Permissions.ManageServicePackage)]
+    [HasPermission(Permissions.ManageServicePackage)]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ServicePackageDto>> Create(
@@ -51,7 +55,7 @@ public sealed class ServicePackagesController(
 
     /// <summary>Cập nhật gói dịch vụ (ghi đè toàn bộ trừ mã gói).</summary>
     [HttpPut("{id}")]
-    //[HasPermission(Permissions.ManageServicePackage)]
+    [HasPermission(Permissions.ManageServicePackage)]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ServicePackageDto>> Update(
@@ -60,9 +64,10 @@ public sealed class ServicePackagesController(
 
     /// <summary>Xoá gói dịch vụ (xoá mềm – dữ liệu cũ vẫn được giữ cho hoá đơn/lịch sử).</summary>
     [HttpDelete("{id}")]
-    //[HasPermission(Permissions.ManageServicePackage)]
+    [HasPermission(Permissions.ManageServicePackage)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
         await packages.DeleteAsync(id, CurrentUserId, ct);
@@ -70,10 +75,17 @@ public sealed class ServicePackagesController(
     }
 
     private string CurrentUserId =>
-        User.FindFirstValue("sub") ?? throw new UnauthorizedAccessException();
+        User.FindFirstValue("sub")
+        ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? throw new UnauthorizedAccessException();
 
     /// <summary>Người có quyền quản lý được thấy cả gói đang ẩn; người khác chỉ thấy gói đang hoạt động.</summary>
     private async Task<bool> CanManageAsync()
-        => (await authorization.AuthorizeAsync(
+    {
+        if (User.Identity?.IsAuthenticated != true)
+            return false;
+
+        return (await authorization.AuthorizeAsync(
                 User, (object?)null, $"{PermissionPolicy.Prefix}{Permissions.ManageServicePackage}")).Succeeded;
+    }
 }

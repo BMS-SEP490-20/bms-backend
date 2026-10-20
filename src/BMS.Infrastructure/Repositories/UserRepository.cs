@@ -97,16 +97,16 @@ public sealed class UserRepository : IUserRepository
             {
                 var filter = Builders<User>.Filter.And(
                     Builders<User>.Filter.Or(
-                        Builders<User>.Filter.Eq(
-                            u => u.Email, keyword),
-                        Builders<User>.Filter.Eq(
-                            u => u.Username, keyword)),
-                    Builders<User>.Filter.Eq(
-                        u => u.IsDeleted, false));
+                        Builders<User>.Filter.Eq("Email", keyword),
+                        Builders<User>.Filter.Eq("email", keyword),
+                        Builders<User>.Filter.Eq("Username", keyword),
+                        Builders<User>.Filter.Eq("username", keyword)),
+                    Builders<User>.Filter.Ne("isDeleted", true));
 
-                return await _context.Users
+                var found = await _context.Users
                     .Find(filter, new FindOptions { Collation = CaseInsensitive })
                     .FirstOrDefaultAsync(ct);
+                if (found != null) return found;
             }
             catch (Exception ex)
             {
@@ -148,14 +148,15 @@ public sealed class UserRepository : IUserRepository
             try
             {
                 var filter = Builders<User>.Filter.And(
-                    Builders<User>.Filter.Eq(
-                        u => u.Email, keyword),
-                    Builders<User>.Filter.Eq(
-                        u => u.IsDeleted, false));
+                    Builders<User>.Filter.Or(
+                        Builders<User>.Filter.Eq("Email", keyword),
+                        Builders<User>.Filter.Eq("email", keyword)),
+                    Builders<User>.Filter.Ne("isDeleted", true));
 
-                return await _context.Users
+                var found = await _context.Users
                     .Find(filter, new FindOptions { Collation = CaseInsensitive })
                     .FirstOrDefaultAsync(ct);
+                if (found != null) return found;
             }
             catch (Exception ex)
             {
@@ -304,23 +305,23 @@ public sealed class UserRepository : IUserRepository
         string id,
         CancellationToken ct = default)
     {
-        if (_context.Users != null)
+        if (_context.Users != null && ObjectId.TryParse(id, out _))
         {
             var filter = Builders<User>.Filter.And(
                 Builders<User>.Filter.Eq(u => u.Id, id),
-                Builders<User>.Filter.Eq(u => u.IsDeleted, false));
+                Builders<User>.Filter.Ne("isDeleted", true));
 
             var updated = await _context.Users.FindOneAndUpdateAsync(
                 filter,
-                Builders<User>.Update.Inc(
-                    u => u.FailedLoginCount, 1),
+                Builders<User>.Update.Inc(u => u.FailedLoginCount, 1),
                 new FindOneAndUpdateOptions<User>
                 {
                     ReturnDocument = ReturnDocument.After
                 },
                 ct);
 
-            return updated?.FailedLoginCount ?? 0;
+            if (updated != null)
+                return updated.FailedLoginCount;
         }
 
         if (!_memoryUsers.TryGetValue(id, out var user)
@@ -338,7 +339,7 @@ public sealed class UserRepository : IUserRepository
         DateTime lockoutEnd,
         CancellationToken ct = default)
     {
-        if (_context.Users != null)
+        if (_context.Users != null && ObjectId.TryParse(id, out _))
         {
             await _context.Users.UpdateOneAsync(
                 Builders<User>.Filter.Eq(u => u.Id, id),
@@ -346,8 +347,6 @@ public sealed class UserRepository : IUserRepository
                     .Set(u => u.LockoutEnd, lockoutEnd)
                     .Set(u => u.FailedLoginCount, 0),
                 cancellationToken: ct);
-
-            return;
         }
 
         if (_memoryUsers.TryGetValue(id, out var user))
@@ -363,7 +362,7 @@ public sealed class UserRepository : IUserRepository
         string? newPasswordHash,
         CancellationToken ct = default)
     {
-        if (_context.Users != null)
+        if (_context.Users != null && ObjectId.TryParse(id, out _))
         {
             var update = Builders<User>.Update
                 .Set(u => u.LastLoginAt, now)
@@ -372,16 +371,15 @@ public sealed class UserRepository : IUserRepository
 
             if (newPasswordHash is not null)
             {
-                update = update.Set(
-                    u => u.PasswordHash, newPasswordHash);
+                update = update
+                    .Set(u => u.Password, newPasswordHash)
+                    .Set(u => u.PasswordHash, newPasswordHash);
             }
 
             await _context.Users.UpdateOneAsync(
                 Builders<User>.Filter.Eq(u => u.Id, id),
                 update,
                 cancellationToken: ct);
-
-            return;
         }
 
         if (_memoryUsers.TryGetValue(id, out var user))
@@ -406,19 +404,21 @@ public sealed class UserRepository : IUserRepository
         string newPasswordHash,
         CancellationToken ct = default)
     {
-        if (_context.Users != null)
+        if (_context.Users != null && ObjectId.TryParse(id, out _))
         {
             var update = Builders<User>.Update
+                .Set(u => u.Password, newPasswordHash)
                 .Set(u => u.PasswordHash, newPasswordHash)
+                .Set(u => u.UpdatedAt, DateTime.UtcNow)
                 .Set(u => u.FailedLoginCount, 0)
-                .Unset(u => u.LockoutEnd);
+                .Unset(u => u.LockoutEnd)
+                .Unset(u => u.PasswordResetOtp)
+                .Unset(u => u.PasswordResetExpiresAt);
 
             await _context.Users.UpdateOneAsync(
                 Builders<User>.Filter.Eq(u => u.Id, id),
                 update,
                 cancellationToken: ct);
-
-            return;
         }
 
         if (_memoryUsers.TryGetValue(id, out var user))
@@ -426,6 +426,8 @@ public sealed class UserRepository : IUserRepository
             user.PasswordHash = newPasswordHash;
             user.FailedLoginCount = 0;
             user.LockoutEnd = null;
+            user.PasswordResetOtp = null;
+            user.PasswordResetExpiresAt = null;
         }
     }
 }

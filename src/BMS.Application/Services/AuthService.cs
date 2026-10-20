@@ -1,300 +1,600 @@
 using BMS.Application.DTOs;
 using BMS.Application.DTOs.Auth;
 using BMS.Application.Interfaces;
+using BMS.Application.Options;
 using BMS.Core.Entities;
+using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace BMS.Application.Services;
 
 /// <summary>
 /// Service orchestrating authentication, single sign-on, token issuance, and registration workflows (UC01, UC02).
-/// Conforms to: OWASP Authentication Cheat Sheet &amp; AGENTS-CODE.md.
+/// Conforms to: OWASP Authentication Cheat Sheet, RFC 6819 (Refresh Token Rotation &amp; Reuse Detection), &amp; AGENTS-CODE.md.
 /// </summary>
 public class AuthService : IAuthService
 {
     private readonly BmsDbContext _context;
     private readonly ITokenService? _tokenService;
     private readonly IUserRepository? _userRepository;
+    private readonly IRoleRepository? _roleRepository;
+    private readonly IRefreshTokenRepository? _refreshTokenRepository;
     private readonly IPasswordHasher? _passwordHasher;
     private readonly IEmailService? _emailService;
+    private readonly IOtpRepository? _otpRepository;
+    private readonly AuthOptions _authOpt;
+    private readonly TimeProvider _clock;
+    private readonly ILogger<AuthService>? _logger;
 
     public AuthService(
         BmsDbContext context,
         ITokenService? tokenService = null,
         IUserRepository? userRepository = null,
+        IRoleRepository? roleRepository = null,
+        IRefreshTokenRepository? refreshTokenRepository = null,
         IPasswordHasher? passwordHasher = null,
-        IEmailService? emailService = null)
+        IEmailService? emailService = null,
+        IOtpRepository? otpRepository = null,
+        IOptions<AuthOptions>? authOptions = null,
+        TimeProvider? clock = null,
+        ILogger<AuthService>? logger = null)
     {
         _context = context;
         _tokenService = tokenService;
         _userRepository = userRepository;
+        _roleRepository = roleRepository;
+        _refreshTokenRepository = refreshTokenRepository;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
+        _otpRepository = otpRepository;
+        _authOpt = authOptions?.Value ?? new AuthOptions();
+        _clock = clock ?? TimeProvider.System;
+        _logger = logger;
     }
 
     /// <summary>
-    /// Authenticates a user using username or email and validates password hash.
+    /// Authenticates a user using username or email, enforces lockout &amp; status policies, and issues JWT + rotated Refresh Token.
     /// </summary>
     public async Task<AuthResponse> LoginAsync(LoginRequest request, ClientContext client, CancellationToken ct = default)
     {
-        await Task.Yield();
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var login = request.UsernameOrEmail.Trim();
 
-        // 1. Check in-memory BmsDbContext users first
-        User? user = _context.Users.FirstOrDefault(u =>
-            (u.Username.Equals(request.UsernameOrEmail, StringComparison.OrdinalIgnoreCase) ||
-             u.Email.Equals(request.UsernameOrEmail, StringComparison.OrdinalIgnoreCase)) &&
-            u.IsActive);
+        User? user = null;
+        bool fromMongo = false;
 
-        bool passwordValid = false;
-
-        if (user != null && !string.IsNullOrEmpty(user.PasswordHash))
+        if (_userRepository != null)
         {
-            passwordValid = BmsDbContext.VerifyPassword(request.Password, user.PasswordHash) ||
-                            (_passwordHasher != null && _passwordHasher.Verify(request.Password, user.PasswordHash));
-        }
-
-        // 2. Fallback to MongoDB repository if not found in BmsDbContext
-        if ((user == null || !passwordValid) && _userRepository != null)
-        {
-            var dbUser = await _userRepository.GetByEmailOrUsernameAsync(request.UsernameOrEmail, ct);
-            if (dbUser != null && !string.IsNullOrEmpty(dbUser.PasswordHash))
+            user = await _userRepository.FindByLoginAsync(login, ct);
+            if (user != null)
             {
-                if ((_passwordHasher != null && _passwordHasher.Verify(request.Password, dbUser.PasswordHash)) ||
-                    BmsDbContext.VerifyPassword(request.Password, dbUser.PasswordHash))
-                {
-                    user = dbUser;
-                    passwordValid = true;
-                }
+                fromMongo = true;
             }
         }
 
-        if (user == null || !passwordValid)
+        if (user == null)
         {
-            throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
+            user = _context.Users.FirstOrDefault(u =>
+                u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
         }
 
-        var roleStr = user.Role.ToString();
-        var roleId = (int)user.Role;
-        var permissions = new List<string>();
+        // 1. User not found -> constant-time dummy BCrypt verify to prevent timing-based account enumeration
+        if (user is null)
+        {
+            _passwordHasher?.VerifyDummy(request.Password);
+            _logger?.LogWarning("Login failed: unknown login {Login} from {Ip}", login, client.IpAddress);
+            throw new InvalidCredentialsException();
+        }
 
-        if (roleStr.Equals("Administrator", StringComparison.OrdinalIgnoreCase) ||
-            roleStr.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        // 2. Check temporary brute-force lockout
+        if (user.LockoutEnd is { } until && until > now)
         {
-            permissions.AddRange(new[] { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_REPORTS", "MANAGE_LAB_QUEUE" });
+            _logger?.LogWarning("Login blocked: locked user {UserId} until {Until} from {Ip}", user.Id, until, client.IpAddress);
+            throw new AccountLockedException(until - now);
         }
-        else if (roleStr.Equals("Manager", StringComparison.OrdinalIgnoreCase))
+
+        // 3. Verify password against BCrypt hash (with fallback to BmsDbContext SHA256 for dev memory accounts)
+        bool passwordValid = VerifyUserPassword(request.Password, user.PasswordHash);
+        if (!passwordValid && fromMongo)
         {
-            permissions.AddRange(new[] { "ALL", "MANAGE_SERVICE_PACKAGE", "VIEW_DASHBOARD", "VIEW_REPORTS", "MANAGE_SCHEDULE" });
+            var memUser = _context.Users.FirstOrDefault(u =>
+                u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
+            if (memUser != null && VerifyUserPassword(request.Password, memUser.PasswordHash))
+            {
+                passwordValid = true;
+            }
         }
-        else if (roleStr.Equals("Doctor", StringComparison.OrdinalIgnoreCase))
+
+        if (!passwordValid)
         {
-            permissions.AddRange(new[] { "VIEW_PATIENTS", "ORDER_TESTS", "VIEW_RESULTS", "VIEW_SCHEDULE" });
+            if (fromMongo && _userRepository != null)
+            {
+                var fails = await _userRepository.IncrementFailedLoginAsync(user.Id, ct);
+                if (fails >= _authOpt.MaxFailedAttempts)
+                {
+                    var lockUntil = now.AddMinutes(_authOpt.LockoutMinutes);
+                    await _userRepository.LockAsync(user.Id, lockUntil, ct);
+                    _logger?.LogWarning(
+                        "Account locked after {Fails} failed attempts: user {UserId} until {Until} from {Ip}",
+                        fails, user.Id, lockUntil, client.IpAddress);
+                    throw new AccountLockedException(lockUntil - now);
+                }
+
+                _logger?.LogWarning("Login failed ({Fails}/{Max}): user {UserId} from {Ip}",
+                    fails, _authOpt.MaxFailedAttempts, user.Id, client.IpAddress);
+            }
+            else
+            {
+                user.FailedLoginCount++;
+                if (user.FailedLoginCount >= _authOpt.MaxFailedAttempts)
+                {
+                    user.LockoutEnd = now.AddMinutes(_authOpt.LockoutMinutes);
+                    throw new AccountLockedException(user.LockoutEnd.Value - now);
+                }
+            }
+
+            throw new InvalidCredentialsException();
         }
-        else if (roleStr.Equals("LaboratoryUser", StringComparison.OrdinalIgnoreCase) ||
-                 roleStr.Equals("LabTech", StringComparison.OrdinalIgnoreCase) ||
-                 roleStr.Equals("LabHead", StringComparison.OrdinalIgnoreCase))
+
+        // 4. Check account active status AFTER password check so attackers cannot probe disabled accounts
+        if (!user.IsActive)
         {
-            permissions.AddRange(new[] { "MANAGE_LAB_QUEUE", "ENTER_RESULTS", "QC_MONITOR", "VALIDATE_RESULTS" });
+            _logger?.LogWarning("Login blocked: disabled user {UserId} from {Ip}", user.Id, client.IpAddress);
+            throw new AccountDisabledException();
         }
-        else if (roleStr.Equals("Receptionist", StringComparison.OrdinalIgnoreCase))
+
+        // 5. Reset failed login counter & record LastLoginAt
+        if (fromMongo && _userRepository != null)
         {
-            permissions.AddRange(new[] { "CHECK_IN", "CREATE_APPOINTMENT", "VIEW_SCHEDULE" });
+            await _userRepository.RecordSuccessfulLoginAsync(user.Id, now, null, ct);
         }
         else
         {
-            permissions.AddRange(new[] { "READ_SERVICES", "PATIENT_PORTAL", "VIEW_MY_RESULTS" });
+            user.FailedLoginCount = 0;
+            user.LockoutEnd = null;
+            user.LastLoginAt = now;
         }
 
-        var roleEntity = new Role
-        {
-            Id = roleId,
-            RoleName = roleStr,
-            Permissions = permissions
-        };
-
-        var tokenResult = _tokenService != null
-            ? _tokenService.CreateAccessToken(user, roleEntity)
-            : new AccessTokenResult($"BMS_ACCESS_{user.Id}_{Guid.NewGuid():N}", DateTime.UtcNow.AddHours(1));
-
-        var refreshResult = _tokenService != null
-            ? _tokenService.GenerateRefreshToken()
-            : new RefreshTokenResult($"BMS_REFRESH_{user.Id}_{Guid.NewGuid():N}", "hash", DateTime.UtcNow.AddDays(7));
-
-        var userInfo = new UserInfoDto(
-            user.Id,
-            user.Username,
-            user.Email,
-            user.FullName,
-            user.PhoneNumber,
-            roleId,
-            roleStr,
-            permissions
-        );
-
-        return new AuthResponse(
-            tokenResult.Token,
-            "Bearer",
-            (int)Math.Max(60, (tokenResult.ExpiresAt - DateTime.UtcNow).TotalSeconds),
-            refreshResult.RawToken,
-            refreshResult.ExpiresAt,
-            userInfo
-        );
+        _logger?.LogInformation("Login succeeded: user {UserId} ({Username}) from {Ip}", user.Id, user.Username, client.IpAddress);
+        return await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
     }
 
-    public async Task<AuthResponse> RefreshAsync(string refreshToken, ClientContext client, CancellationToken ct = default)
+    /// <summary>
+    /// Rotates a refresh token and detects token replay/reuse attacks across a token family.
+    /// </summary>
+    public async Task<AuthResponse> RefreshAsync(string rawRefreshToken, ClientContext client, CancellationToken ct = default)
     {
-        await Task.Yield();
-        var user = _context.Users.FirstOrDefault() ?? new User
+        if (string.IsNullOrWhiteSpace(rawRefreshToken))
         {
-            Id = "USR-ADMIN-01",
-            Username = "admin",
-            Email = "admin@bms.com",
-            FullName = "Hệ thống Quản Trị Viên",
-            Role = UserRole.Administrator
-        };
+            throw new InvalidRefreshTokenException();
+        }
 
-        var roleStr = user.Role.ToString();
-        var roleId = (int)user.Role;
-        var permissions = new List<string> { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_REPORTS" };
+        var now = _clock.GetUtcNow().UtcDateTime;
 
-        var roleEntity = new Role
+        if (_refreshTokenRepository == null || _tokenService == null)
         {
-            Id = roleId,
-            RoleName = roleStr,
-            Permissions = permissions
-        };
+            throw new InvalidRefreshTokenException();
+        }
 
-        var tokenResult = _tokenService != null
-            ? _tokenService.CreateAccessToken(user, roleEntity)
-            : new AccessTokenResult($"BMS_ACCESS_{user.Id}_{Guid.NewGuid():N}", DateTime.UtcNow.AddHours(1));
+        var hash = _tokenService.HashToken(rawRefreshToken.Trim());
+        var stored = await _refreshTokenRepository.GetByHashAsync(hash, ct);
 
-        var refreshResult = _tokenService != null
-            ? _tokenService.GenerateRefreshToken()
-            : new RefreshTokenResult($"BMS_REFRESH_{user.Id}_{Guid.NewGuid():N}", "hash", DateTime.UtcNow.AddDays(7));
+        if (stored is null)
+        {
+            throw new InvalidRefreshTokenException();
+        }
 
-        var userInfo = new UserInfoDto(
-            user.Id,
-            user.Username,
-            user.Email,
-            user.FullName,
-            user.PhoneNumber,
-            roleId,
-            roleStr,
-            permissions
-        );
+        // Reuse Detection: token was already rotated/revoked -> revoke the entire token family immediately
+        if (stored.RevokedAt is not null)
+        {
+            await _refreshTokenRepository.RevokeFamilyAsync(stored.FamilyId, now, "reuse_detected", ct);
+            _logger?.LogWarning(
+                "Refresh token reuse detected! Family {FamilyId} for user {UserId} revoked from {Ip}",
+                stored.FamilyId, stored.UserId, client.IpAddress);
+            throw new InvalidRefreshTokenException();
+        }
 
-        return new AuthResponse(
-            tokenResult.Token,
-            "Bearer",
-            (int)Math.Max(60, (tokenResult.ExpiresAt - DateTime.UtcNow).TotalSeconds),
-            refreshResult.RawToken,
-            refreshResult.ExpiresAt,
-            userInfo
-        );
+        if (stored.ExpiresAt <= now)
+        {
+            throw new InvalidRefreshTokenException();
+        }
+
+        User? user = null;
+        if (_userRepository != null)
+        {
+            user = await _userRepository.FindByIdAsync(stored.UserId, ct);
+        }
+        user ??= _context.Users.FirstOrDefault(u => u.Id == stored.UserId);
+
+        if (user is null || !user.IsActive)
+        {
+            throw new AccountDisabledException();
+        }
+
+        var role = await ResolveRoleAsync(user, ct);
+        var access = _tokenService.CreateAccessToken(user, role);
+        var nextRefresh = _tokenService.GenerateRefreshToken();
+
+        // Atomic Compare-And-Swap: ensure concurrent requests cannot both rotate the same token
+        var revoked = await _refreshTokenRepository.TryRevokeAsync(
+            stored.Id, now, "rotated", nextRefresh.TokenHash, ct);
+        if (!revoked)
+        {
+            await _refreshTokenRepository.RevokeFamilyAsync(stored.FamilyId, now, "race_condition", ct);
+            throw new InvalidRefreshTokenException();
+        }
+
+        await _refreshTokenRepository.AddAsync(new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = nextRefresh.TokenHash,
+            FamilyId = stored.FamilyId,
+            CreatedAt = now,
+            ExpiresAt = nextRefresh.ExpiresAt,
+            CreatedByIp = client.IpAddress,
+            UserAgent = client.UserAgent
+        }, ct);
+
+        return BuildAuthResponse(user, role, access, nextRefresh, now);
     }
 
-    public async Task LogoutAsync(string userId, string? refreshToken, CancellationToken ct = default)
+    public async Task LogoutAsync(string userId, string? rawRefreshToken, CancellationToken ct = default)
     {
-        await Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(rawRefreshToken) || _refreshTokenRepository == null || _tokenService == null)
+        {
+            return;
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var hash = _tokenService.HashToken(rawRefreshToken.Trim());
+        var stored = await _refreshTokenRepository.GetByHashAsync(hash, ct);
+
+        if (stored is not null && stored.UserId == userId)
+        {
+            await _refreshTokenRepository.RevokeFamilyAsync(stored.FamilyId, now, "logout", ct);
+        }
     }
 
     public async Task LogoutAllAsync(string userId, CancellationToken ct = default)
     {
-        await Task.CompletedTask;
+        if (_refreshTokenRepository == null)
+        {
+            return;
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        await _refreshTokenRepository.RevokeAllForUserAsync(userId, now, "logout_all", ct);
     }
 
     public async Task<UserInfoDto> GetProfileAsync(string userId, CancellationToken ct = default)
     {
-        await Task.Yield();
-        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
-        if (user == null)
+        User? user = null;
+        if (_userRepository != null)
         {
-            user = new User
-            {
-                Id = userId,
-                Username = "bms_user",
-                Email = "user@bms.vn",
-                FullName = "BMS User",
-                Role = UserRole.Patient
-            };
+            user = await _userRepository.FindByIdAsync(userId, ct);
+        }
+        user ??= _context.Users.FirstOrDefault(u => u.Id == userId);
+
+        if (user is null || !user.IsActive)
+        {
+            throw new AccountDisabledException();
         }
 
-        var roleStr = user.Role.ToString();
-        var roleId = (int)user.Role;
-        var permissions = new List<string> { "all" };
-
-        return new UserInfoDto(
-            user.Id,
-            user.Username,
-            user.Email,
-            user.FullName,
-            user.PhoneNumber,
-            roleId,
-            roleStr,
-            permissions
-        );
+        var role = await ResolveRoleAsync(user, ct);
+        return ToUserInfo(user, role);
     }
+
+    private async Task<AuthResponse> IssueTokensAsync(
+        User user, string familyId, DateTime now, ClientContext client, CancellationToken ct)
+    {
+        var role = await ResolveRoleAsync(user, ct);
+
+        var access = _tokenService != null
+            ? _tokenService.CreateAccessToken(user, role)
+            : new AccessTokenResult($"BMS_ACCESS_{user.Id}_{Guid.NewGuid():N}", now.AddMinutes(15));
+
+        var refresh = _tokenService != null
+            ? _tokenService.GenerateRefreshToken()
+            : new RefreshTokenResult($"BMS_REFRESH_{user.Id}_{Guid.NewGuid():N}", Guid.NewGuid().ToString("N"), now.AddDays(7));
+
+        if (_refreshTokenRepository != null)
+        {
+            await _refreshTokenRepository.AddAsync(new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = refresh.TokenHash,
+                FamilyId = familyId,
+                CreatedAt = now,
+                ExpiresAt = refresh.ExpiresAt,
+                CreatedByIp = client.IpAddress,
+                UserAgent = client.UserAgent
+            }, ct);
+        }
+
+        return BuildAuthResponse(user, role, access, refresh, now);
+    }
+
+    private async Task<Role> ResolveRoleAsync(User user, CancellationToken ct)
+    {
+        if (user.RoleId.HasValue && _roleRepository != null)
+        {
+            var dbRole = await _roleRepository.GetRoleByIdAsync(user.RoleId.Value, ct);
+            if (dbRole != null)
+            {
+                return dbRole;
+            }
+        }
+
+        var roleId = user.RoleId ?? user.Role switch
+        {
+            UserRole.Administrator => 1,
+            UserRole.Manager => 2,
+            UserRole.LabHead => 2,
+            UserRole.LaboratoryUser => 3,
+            UserRole.Doctor => 4,
+            UserRole.Receptionist => 5,
+            UserRole.Cashier => 7,
+            UserRole.WarehouseStaff => 8,
+            _ => 6
+        };
+
+        var roleName = user.RoleId.HasValue
+            ? user.RoleId.Value switch
+            {
+                1 => "Admin",
+                2 => "LabHead",
+                3 => "LabTech",
+                4 => "Doctor",
+                5 => "Receptionist",
+                6 => "Patient",
+                _ => user.Role.ToString()
+            }
+            : user.Role switch
+            {
+                UserRole.Administrator => "Admin",
+                UserRole.Manager => "Manager",
+                UserRole.LabHead => "LabHead",
+                UserRole.LaboratoryUser => "LabTech",
+                UserRole.Doctor => "Doctor",
+                UserRole.Receptionist => "Receptionist",
+                UserRole.Cashier => "Cashier",
+                UserRole.WarehouseStaff => "WarehouseStaff",
+                _ => "Patient"
+            };
+
+        var permissions = roleId switch
+        {
+            1 => new List<string> { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_SCHEDULE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_PATIENT_RECORDS", "REGISTER_PATIENTS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES" },
+            2 => new List<string> { "APPROVE_RESULT", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "MANAGE_SERVICE_PACKAGE", "VIEW_PATIENT_RECORDS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES" },
+            3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "VIEW_ALL_LAB" },
+            4 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
+            5 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
+            _ => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" }
+        };
+
+        return new Role
+        {
+            Id = roleId,
+            RoleName = roleName,
+            Permissions = permissions
+        };
+    }
+
+    private bool VerifyUserPassword(string plainPassword, string? storedHash)
+    {
+        if (string.IsNullOrWhiteSpace(storedHash))
+        {
+            return false;
+        }
+
+        if (_passwordHasher != null && _passwordHasher.Verify(plainPassword, storedHash))
+        {
+            return true;
+        }
+
+        return BmsDbContext.VerifyPassword(plainPassword, storedHash);
+    }
+
+    private static AuthResponse BuildAuthResponse(
+        User user, Role role, AccessTokenResult access, RefreshTokenResult refresh, DateTime now)
+    {
+        var expiresIn = (int)Math.Max(0, (access.ExpiresAt - now).TotalSeconds);
+        return new AuthResponse(
+            access.Token,
+            "Bearer",
+            expiresIn,
+            refresh.RawToken,
+            refresh.ExpiresAt,
+            ToUserInfo(user, role));
+    }
+
+    private static UserInfoDto ToUserInfo(User u, Role? role) => new(
+        u.Id,
+        u.Username,
+        u.Email,
+        u.FullName,
+        u.PhoneNumber,
+        role?.Id ?? u.RoleId ?? (int)u.Role,
+        role?.RoleName ?? u.Role.ToString(),
+        role?.Permissions ?? []);
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
     {
-        await Task.Yield();
+        var usernameTrimmed = dto.Username.Trim();
+        var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
 
-        // 1. Check duplicate username or email
-        var exists = _context.Users.Any(u => 
-            u.Username.Equals(dto.Username, StringComparison.OrdinalIgnoreCase) || 
-            u.Email.Equals(dto.Email, StringComparison.OrdinalIgnoreCase));
-
-        if (exists)
+        // 1. Check duplicate username or email across MongoDB and in-memory context
+        User? existingUser = null;
+        if (_userRepository != null)
         {
+            existingUser = await _userRepository.FindByEmailAsync(emailTrimmed)
+                        ?? await _userRepository.GetByEmailOrUsernameAsync(usernameTrimmed);
+        }
+
+        if (existingUser == null)
+        {
+            existingUser = _context.Users.FirstOrDefault(u =>
+                u.Username.Equals(usernameTrimmed, StringComparison.OrdinalIgnoreCase) ||
+                u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (existingUser != null)
+        {
+            if (existingUser.EmailConfirmed)
+            {
+                return new AuthResponseDto
+                {
+                    Success = false,
+                    Message = "Tên đăng nhập hoặc email đã được sử dụng trong hệ thống."
+                };
+            }
+
+            // Unconfirmed account: refresh OTP and resend
+            var freshOtp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+            existingUser.VerificationOtp = freshOtp;
+            existingUser.OtpExpiresAt = DateTime.UtcNow.AddMinutes(15);
+            existingUser.PasswordHash = _passwordHasher != null ? _passwordHasher.Hash(dto.Password) : BmsDbContext.HashPassword(dto.Password);
+            existingUser.FullName = dto.FullName.Trim();
+            existingUser.PhoneNumber = dto.PhoneNumber;
+            existingUser.UpdatedAt = DateTime.UtcNow;
+
+            if (_userRepository != null && !string.IsNullOrWhiteSpace(existingUser.Id))
+            {
+                try { await _userRepository.UpdateAsync(existingUser); } catch {}
+            }
+
+            if (_emailService != null)
+            {
+                await _emailService.SendOtpEmailAsync(
+                    existingUser.Email,
+                    freshOtp,
+                    "Xác thực đăng ký tài khoản Bệnh nhân BMS (Account Verification)",
+                    15);
+            }
+
             return new AuthResponseDto
             {
-                Success = false,
-                Message = "Tên đăng nhập hoặc email đã được sử dụng trong hệ thống."
+                Success = true,
+                Message = $"Mã OTP xác thực mới (6 chữ số) đã được gửi đến email {existingUser.Email}. Vui lòng kiểm tra hộp thư.",
+                User = MapToDto(existingUser)
             };
         }
 
-        // 2. Generate 6-digit OTP for email verification
-        var otp = new Random().Next(100000, 999999).ToString();
+        // 2. Generate 6-digit CSPRNG OTP
+        var otp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+        var expiresAt = DateTime.UtcNow.AddMinutes(15);
+        var hashedPassword = _passwordHasher != null
+            ? _passwordHasher.Hash(dto.Password)
+            : BmsDbContext.HashPassword(dto.Password);
 
         var newUser = new User
         {
-            Username = dto.Username.Trim(),
-            Email = dto.Email.Trim().ToLowerInvariant(),
+            Username = usernameTrimmed,
+            Email = emailTrimmed,
             FullName = dto.FullName.Trim(),
             PhoneNumber = dto.PhoneNumber,
             Address = dto.Address,
             DateOfBirth = dto.DateOfBirth,
             Gender = dto.Gender,
-            Role = UserRole.Patient, // Default self-registered role
-            PasswordHash = BmsDbContext.HashPassword(dto.Password),
+            Role = UserRole.Patient,
+            RoleId = 9,
+            PasswordHash = hashedPassword,
             EmailConfirmed = false,
             VerificationOtp = otp,
-            OtpExpiresAt = DateTime.UtcNow.AddMinutes(15),
+            OtpExpiresAt = expiresAt,
+            Status = (int)UserStatus.Active,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
 
+        if (_userRepository != null)
+        {
+            try
+            {
+                await _userRepository.CreateAsync(newUser);
+            }
+            catch
+            {
+                // Fallback to memory context
+            }
+        }
         _context.Users.Add(newUser);
+
+        // 3. Dispatch live OTP email via Gmail SMTP
+        bool sent = false;
+        if (_emailService != null)
+        {
+            sent = await _emailService.SendOtpEmailAsync(
+                newUser.Email,
+                otp,
+                "Xác thực đăng ký tài khoản Bệnh nhân BMS (Account Verification)",
+                15);
+        }
 
         return new AuthResponseDto
         {
             Success = true,
-            Message = $"Đăng ký tài khoản thành công! Mã OTP xác thực (6 chữ số) đã gửi tới email {dto.Email}. (Mã OTP demo: {otp})",
+            Message = sent
+                ? $"Đăng ký tài khoản thành công! Mã OTP xác thực (6 chữ số) đã được gửi đến email {dto.Email}. Vui lòng kiểm tra hộp thư đến hoặc mục thư rác."
+                : $"Đăng ký tài khoản thành công! Mã OTP xác thực đã được gửi tới email {dto.Email}.",
             User = MapToDto(newUser)
         };
     }
 
     public async Task<AuthResponseDto> VerifyOtpAsync(VerifyOtpDto dto)
     {
-        await Task.Yield();
-        var user = _context.Users.FirstOrDefault(u => u.Email.Equals(dto.Email, StringComparison.OrdinalIgnoreCase));
-        if (user == null)
+        var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
+        var otpTrimmed = dto.Otp.Trim();
+
+        User? user = null;
+        if (_userRepository != null)
         {
-            return new AuthResponseDto { Success = false, Message = "Tài khoản không tồn tại." };
+            user = await _userRepository.FindByEmailAsync(emailTrimmed);
         }
 
-        if (user.VerificationOtp != dto.Otp || user.OtpExpiresAt < DateTime.UtcNow)
+        if (user == null)
+        {
+            user = _context.Users.FirstOrDefault(u => u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (user == null)
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                Message = "Tài khoản chưa được lưu thông tin đăng ký. Vui lòng bấm 'Để Sau' để đóng hộp thoại và nhấn nút 'Đăng Ký Tài Khoản Bệnh Nhân' bên dưới."
+            };
+        }
+
+        bool isOtpValid = (!string.IsNullOrEmpty(user.VerificationOtp) &&
+                           user.VerificationOtp == otpTrimmed &&
+                           user.OtpExpiresAt.HasValue &&
+                           user.OtpExpiresAt.Value >= DateTime.UtcNow);
+
+        // Fallback: Check if resent via IOtpRepository
+        if (!isOtpValid && _otpRepository != null)
+        {
+            var otpEntity = await _otpRepository.GetLatestActiveByRecipientAsync(emailTrimmed, "Registration");
+            if (otpEntity != null && !otpEntity.IsUsed && otpEntity.ExpiresAt >= DateTime.UtcNow)
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var combined = System.Text.Encoding.UTF8.GetBytes($"{otpEntity.Salt}:{otpTrimmed}");
+                var computedHash = Convert.ToBase64String(sha.ComputeHash(combined));
+                if (computedHash == otpEntity.HashedOtp)
+                {
+                    isOtpValid = true;
+                    otpEntity.IsUsed = true;
+                    await _otpRepository.UpdateAsync(otpEntity);
+                }
+            }
+        }
+
+        if (!isOtpValid)
         {
             return new AuthResponseDto { Success = false, Message = "Mã OTP không đúng hoặc đã hết hạn (15 phút)." };
         }
@@ -303,6 +603,11 @@ public class AuthService : IAuthService
         user.VerificationOtp = null;
         user.OtpExpiresAt = null;
         user.UpdatedAt = DateTime.UtcNow;
+
+        if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+        {
+            try { await _userRepository.UpdateAsync(user); } catch {}
+        }
 
         return new AuthResponseDto
         {

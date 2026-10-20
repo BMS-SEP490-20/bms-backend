@@ -14,7 +14,11 @@ var builder = WebApplication.CreateBuilder(args);
 // SERVICES
 // =========================================================
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 
 // Shared (once)
 builder.Services.AddEndpointsApiExplorer();
@@ -97,14 +101,15 @@ var app = builder.Build();
 // Forwarded headers should run early in the pipeline.
 app.UseForwardedHeaders();
 
-// Exception handling
+// Exception handling (RFC 7807 ProblemDetails via GlobalExceptionHandler in all environments)
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseBmsSwagger();
 }
 else
 {
-    app.UseExceptionHandler();
     app.UseHsts();
 }
 
