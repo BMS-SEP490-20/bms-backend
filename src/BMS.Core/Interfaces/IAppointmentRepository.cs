@@ -25,5 +25,16 @@ namespace BMS.Core.Interfaces
         Task<List<DoctorShift>> GetShiftsByDateAsync(DateTime date, CancellationToken ct = default);
         Task<Doctor?> GetDoctorAsync(string doctorId, CancellationToken ct = default);
         Task<List<Doctor>> GetDoctorsByIdsAsync(IEnumerable<string> doctorIds, CancellationToken ct = default);
+
+        Task<(List<Appointment> Items, long TotalCount)> GetFilteredAsync(
+            DateTime? fromDate,
+            DateTime? toDate,
+            string? doctorId,
+            AppointmentStatus? status,
+            string? keyword,
+            string? patientId,
+            int page,
+            int pageSize,
+            CancellationToken ct = default);
     }
 }
