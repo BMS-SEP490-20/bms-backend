@@ -54,7 +54,7 @@ public class TestReport
     public string PatientName { get; set; } = string.Empty;
 
     [BsonElement("dob_age_sex")]
-    public string DobAgeSex { get; set; } = "12 Mar 1992 · 34y · Male";
+    public string DobAgeSex { get; set; } = string.Empty;
 
     [BsonElement("package_name")]
     public string PackageName { get; set; } = string.Empty;
@@ -66,7 +66,7 @@ public class TestReport
     public string SpecimenId { get; set; } = string.Empty;
 
     [BsonElement("referring_doctor")]
-    public string ReferringDoctor { get; set; } = "Dr. Trần Thị Bình · Internal Medicine";
+    public string ReferringDoctor { get; set; } = string.Empty;
 
     [BsonElement("category")]
     public string Category { get; set; } = "Hematology Results";
@@ -78,13 +78,13 @@ public class TestReport
     public string ClinicalNotes { get; set; } = string.Empty;
 
     [BsonElement("analysed_by")]
-    public string AnalysedBy { get; set; } = "Phạm Thu Dung (MLT)";
+    public string AnalysedBy { get; set; } = string.Empty;
 
     [BsonElement("analysed_at")]
     public DateTime AnalysedAt { get; set; } = DateTime.UtcNow;
 
     [BsonElement("approved_by")]
-    public string ApprovedBy { get; set; } = "Dr. Trần Thị Bình (MD)";
+    public string ApprovedBy { get; set; } = string.Empty;
 
     [BsonElement("approved_at")]
     public DateTime ApprovedAt { get; set; } = DateTime.UtcNow;
