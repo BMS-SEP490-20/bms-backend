@@ -14,6 +14,8 @@ public class BmsDbContext
     public List<TestReport> TestReports { get; } = new();
     public List<TestNote> TestNotes { get; } = new();
     public List<Invoice> Invoices { get; } = new();
+    public List<IotDeviceThreshold> IotThresholds { get; } = new();
+    public List<IotAlertRecipient> IotAlertRecipients { get; } = new();
 
     public BmsDbContext()
     {
@@ -248,6 +250,25 @@ public class BmsDbContext
         });
 
         // Phlebotomy collection lists are dynamically persisted to MongoDB or loaded at runtime
+
+        // Seed default IoT thresholds (UC67)
+        IotThresholds.AddRange(new[]
+        {
+            new IotDeviceThreshold { DeviceId = "TEMP-001", DeviceName = "Fridge Temperature Sensor 1", Location = "Fridge R-01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "TEMP-002", DeviceName = "Fridge Temperature Sensor 2", Location = "Fridge R-02", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "TEMP-003", DeviceName = "Freezer Temperature Sensor", Location = "Freezer F-01", SensorType = "Temperature", Unit = "°C", LowAlert = -25.0, HighAlert = -15.0, IntervalSeconds = 60, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "TEMP-004", DeviceName = "Ambient Lab Temperature", Location = "Lab Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 18.0, HighAlert = 26.0, IntervalSeconds = 120, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "HUM-001", DeviceName = "Cold Storage Humidity", Location = "Cold Storage", SensorType = "Humidity", Unit = "%", LowAlert = 30.0, HighAlert = 60.0, IntervalSeconds = 60, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "HUM-002", DeviceName = "Lab Room Humidity", Location = "Lab Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 30.0, HighAlert = 60.0, IntervalSeconds = 120, Status = "Active" }
+        });
+
+        // Seed default IoT alert recipients (UC67)
+        IotAlertRecipients.AddRange(new[]
+        {
+            new IotAlertRecipient { FullName = "Trần Minh Tuấn", Role = "Manager", Email = "tuan.tran@bms.health", Phone = "+84 901 234 567", Channels = new() { "Push", "Email" } },
+            new IotAlertRecipient { FullName = "Võ Minh Khoa", Role = "Cold storage lead", Email = "khoa.vo@bms.health", Phone = "+84 902 345 678", Channels = new() { "Push", "Email", "SMS" } },
+            new IotAlertRecipient { FullName = "Phạm Thu Dung", Role = "Lab lead", Email = "dung.pham@bms.health", Phone = "+84 903 456 789", Channels = new() { "Push", "Email" } }
+        });
     }
 
     public static string HashPassword(string password)
