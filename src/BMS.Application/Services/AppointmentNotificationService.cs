@@ -4,6 +4,7 @@ using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,19 +24,35 @@ public class AppointmentNotificationService : IAppointmentNotificationService
     private readonly IEmailService _emailService;
     private readonly BmsDbContext _dbContext;
     private readonly ILogger<AppointmentNotificationService> _logger;
+    private readonly IMongoCollection<User>? _usersCol;
+    private readonly IMongoCollection<Patient>? _patientsCol;
 
     public AppointmentNotificationService(
         IAppointmentRepository appointmentRepository,
         IAppointmentNotificationRepository notificationRepository,
         IEmailService emailService,
         BmsDbContext dbContext,
-        ILogger<AppointmentNotificationService> logger)
+        ILogger<AppointmentNotificationService> logger,
+        IMongoDatabase? database = null)
     {
         _appointmentRepository = appointmentRepository;
         _notificationRepository = notificationRepository;
         _emailService = emailService;
         _dbContext = dbContext;
         _logger = logger;
+        if (database != null)
+        {
+            try
+            {
+                _usersCol = database.GetCollection<User>("accounts");
+                _patientsCol = database.GetCollection<Patient>("patients");
+            }
+            catch
+            {
+                _usersCol = null;
+                _patientsCol = null;
+            }
+        }
     }
 
     public async Task<AppointmentConfirmationDto?> GetConfirmationAsync(string appointmentIdOrCode, CancellationToken ct = default)
@@ -43,51 +60,59 @@ public class AppointmentNotificationService : IAppointmentNotificationService
         var appt = await _appointmentRepository.GetByIdAsync(appointmentIdOrCode, ct)
                    ?? await _appointmentRepository.GetByCodeAsync(appointmentIdOrCode, ct);
 
-        // Fallback for mock demo IDs if not found in db
-        if (appt == null && (appointmentIdOrCode.Contains("0342") || appointmentIdOrCode.Equals("mock-appt-01", StringComparison.OrdinalIgnoreCase)))
-        {
-            appt = new Appointment
-            {
-                Id = "mock-appt-01",
-                AppointmentCode = "APT-261010-0342",
-                PatientId = "USR-PAT-01",
-                DoctorId = "USR-DOC-01",
-                PackageId = "PKG-LIPID-01",
-                AppointmentDate = new DateTime(2026, 10, 10),
-                StartTime = new TimeSpan(8, 0, 0),
-                EndTime = new TimeSpan(8, 30, 0),
-                Status = AppointmentStatus.Confirmed,
-                Notes = "Lipid Profile standard collection",
-                CreatedAt = DateTime.UtcNow.AddHours(-2)
-            };
-        }
-
         if (appt == null)
         {
             return null;
         }
 
-        // Resolve Patient info
-        string patientName = "Nguyễn Văn An";
-        string patientEmail = "an.nguyen@example.com";
-        string patientPhone = "0901234567";
+        // Resolve Patient info from DB
+        string patientName = "Bệnh nhân";
+        string patientEmail = string.Empty;
+        string patientPhone = string.Empty;
 
-        var user = _dbContext.Users.FirstOrDefault(u => u.Id == appt.PatientId);
-        if (user != null)
+        if (_usersCol != null && !string.IsNullOrEmpty(appt.PatientId))
         {
-            patientName = user.FullName;
-            patientEmail = user.Email;
-            patientPhone = user.PhoneNumber ?? patientPhone;
+            try
+            {
+                var u = await _usersCol.Find(x => x.Id == appt.PatientId).FirstOrDefaultAsync(ct);
+                if (u != null)
+                {
+                    patientName = u.FullName;
+                    patientEmail = u.Email;
+                    patientPhone = u.PhoneNumber ?? string.Empty;
+                }
+            }
+            catch { }
         }
 
-        // Resolve Doctor info
-        string doctorName = "BS. Nguyễn Văn An";
+        if (string.IsNullOrEmpty(patientEmail))
+        {
+            var user = _dbContext.Users.FirstOrDefault(u => u.Id == appt.PatientId);
+            if (user != null)
+            {
+                patientName = user.FullName;
+                patientEmail = user.Email;
+                patientPhone = user.PhoneNumber ?? string.Empty;
+            }
+        }
+
+        // Resolve Doctor info from DB
+        string doctorName = "Chưa chỉ định bác sĩ";
         if (!string.IsNullOrEmpty(appt.DoctorId))
         {
             var doctor = await _appointmentRepository.GetDoctorAsync(appt.DoctorId, ct);
             if (doctor != null)
             {
                 doctorName = doctor.FullName;
+            }
+            else if (_usersCol != null)
+            {
+                try
+                {
+                    var docUser = await _usersCol.Find(u => u.Id == appt.DoctorId).FirstOrDefaultAsync(ct);
+                    if (docUser != null) doctorName = docUser.FullName;
+                }
+                catch { }
             }
             else
             {
@@ -104,17 +129,17 @@ public class AppointmentNotificationService : IAppointmentNotificationService
         var deliveryStatus = new NotificationDeliveryStatusDto
         {
             EmailSent = emailNotif != null,
-            EmailSentAt = emailNotif?.SentAt.ToString("HH:mm") ?? "11:46",
-            PushSent = true,
-            PushSentAt = pushNotif?.SentAt.ToString("HH:mm") ?? "11:46",
+            EmailSentAt = emailNotif != null ? emailNotif.SentAt.ToString("HH:mm") : string.Empty,
+            PushSent = pushNotif != null,
+            PushSentAt = pushNotif != null ? pushNotif.SentAt.ToString("HH:mm") : string.Empty,
             SmsConfigured = false
         };
 
         var dateFormatted = appt.AppointmentDate.ToString("dddd, dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
         var timeFormatted = appt.StartTime.ToString(@"hh\:mm");
-        var packageName = !string.IsNullOrEmpty(appt.Notes) && appt.Notes.Contains("Lipid") 
-            ? "Lipid Profile — Standard" 
-            : "Tổng phân tích tế bào máu & Sinh hóa";
+        var packageName = !string.IsNullOrEmpty(appt.Notes)
+            ? appt.Notes
+            : "Gói khám & xét nghiệm";
 
         var fastingLastMealDate = appt.AppointmentDate.AddDays(-1).ToString("dddd dd MMM", System.Globalization.CultureInfo.InvariantCulture);
         var fastingInstructions = $"Do not eat or drink anything except water for 12 hours before your collection. Last meal by 20:00 on {fastingLastMealDate}.";
@@ -161,17 +186,17 @@ public class AppointmentNotificationService : IAppointmentNotificationService
             PatientName = patientName,
             PatientEmail = patientEmail,
             PatientPhone = patientPhone,
-            PackageId = appt.PackageId ?? "PKG-DEFAULT",
+            PackageId = appt.PackageId ?? string.Empty,
             PackageName = packageName,
-            Price = 250000m,
+            Price = 0m,
             DoctorId = appt.DoctorId,
             DoctorName = doctorName,
             AppointmentDate = appt.AppointmentDate,
             DateFormatted = dateFormatted,
             TimeFormatted = timeFormatted,
-            Location = "Lab Room 02 · HQ",
+            Location = "Phòng khám BMS",
             Status = appt.Status.ToString(),
-            PaymentStatus = "Paid · VNPay",
+            PaymentStatus = appt.Status == AppointmentStatus.Confirmed ? "Confirmed" : appt.Status.ToString(),
             FastingInstructions = fastingInstructions,
             QrCodeData = qrCodePayload,
             DeliveryStatus = deliveryStatus,
