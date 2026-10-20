@@ -140,15 +140,15 @@ public class QueueService : IQueueService
         var ticket = new QueueTicket
         {
             TicketNumber = ticketNumber,
-            PatientId = request.PatientId ?? Guid.NewGuid().ToString(),
-            PatientName = !string.IsNullOrWhiteSpace(request.PatientName) ? request.PatientName : "Khách vãng lai",
-            PatientCode = !string.IsNullOrWhiteSpace(request.PatientCode) ? request.PatientCode : $"PT-{Random.Shared.Next(100000, 999999)}",
-            PackageName = !string.IsNullOrWhiteSpace(request.PackageName) ? request.PackageName : "Tổng quát",
+            PatientId = request.PatientId ?? string.Empty,
+            PatientName = request.PatientName ?? string.Empty,
+            PatientCode = request.PatientCode ?? string.Empty,
+            PackageName = request.PackageName ?? string.Empty,
             IsWalkIn = request.IsWalkIn,
             Priority = request.Priority,
             Status = QueueTicketStatus.Waiting,
             CheckedInAt = now,
-            EstimatedWaitMinutes = 12
+            EstimatedWaitMinutes = 0
         };
 
         await _repository.InsertAsync(ticket, ct);

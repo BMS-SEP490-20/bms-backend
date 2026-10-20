@@ -237,6 +237,7 @@ public class BmsDbContext
                 AssignedTechnicianName = "KTV. Lê Thị Bình",
                 CollectedAt = now.AddHours(-3),
                 ReceivedAt = now.AddHours(-2),
+                CompletedAt = now.AddMinutes(-20)
             }
         });
     }

@@ -38,7 +38,7 @@ public class CounterStatusDto
 public class QueueBoardDto
 {
     public List<QueueTicketDto> CurrentQueue { get; set; } = new();
-    public string NextNumber { get; set; } = "Q-019";
+    public string NextNumber { get; set; } = string.Empty;
     public QueueStatsDto Stats { get; set; } = new();
     public List<CounterStatusDto> Counters { get; set; } = new();
 }
@@ -55,7 +55,7 @@ public class IssueTicketRequestDto
 
 public class CallTicketRequestDto
 {
-    public string CounterName { get; set; } = "Counter 1";
+    public string CounterName { get; set; } = string.Empty;
 }
 
 public class UpdateTicketStatusRequestDto
