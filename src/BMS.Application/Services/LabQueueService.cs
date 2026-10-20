@@ -101,6 +101,7 @@ public class LabQueueService : ILabQueueService
     private IMongoCollection<BsonDocument>? AppointmentsCol => _db?.GetCollection<BsonDocument>("appointments");
     private IMongoCollection<User>? AccountsCol => _db?.GetCollection<User>("accounts");
     private IMongoCollection<BsonDocument>? RfidLogsCol => _db?.GetCollection<BsonDocument>("rfid_tracking_logs");
+    private IMongoCollection<TestResult>? TestResultsCol => _db?.GetCollection<TestResult>("test_results");
 
     /// <summary>
     /// Retrieves filtered, prioritized specimen list for clinical laboratory technicians.
@@ -688,6 +689,33 @@ public class LabQueueService : ILabQueueService
         return true;
     }
 
+    private async Task<(string? paramName, string? value, string? flag, string? analyzer, List<string> availableParams)> ResolveSampleTestResultDetailsAsync(Sample s)
+    {
+        if (TestResultsCol != null)
+        {
+            try
+            {
+                var tr = await TestResultsCol.Find(r => r.SampleId == s.Id || r.SampleId == s.Barcode || (!string.IsNullOrEmpty(s.TestOrderId) && r.SampleId == s.TestOrderId)).FirstOrDefaultAsync();
+                if (tr != null && tr.Items != null && tr.Items.Count > 0)
+                {
+                    var targetItem = tr.Items.FirstOrDefault(i => i.Flag != ResultFlag.Normal) ?? tr.Items.First();
+                    var flagStr = targetItem.Flag switch
+                    {
+                        ResultFlag.CriticalPanic => "CRITICAL",
+                        ResultFlag.High => "H",
+                        ResultFlag.Low => "L",
+                        _ => string.Empty
+                    };
+                    var available = tr.Items.Select(i => i.CriterionName).Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList();
+                    return (targetItem.CriterionName, targetItem.MeasuredValue, flagStr, s.LabRoom, available);
+                }
+            }
+            catch { }
+        }
+
+        return (null, null, null, s.LabRoom, new List<string>());
+    }
+
     public async Task<List<SampleRerunItemDto>> GetRerunRequestsAsync()
     {
         var result = new List<SampleRerunItemDto>();
@@ -703,14 +731,15 @@ public class LabQueueService : ILabQueueService
 
                 foreach (var s in dbReruns)
                 {
+                    var (paramName, originalVal, _, _, _) = await ResolveSampleTestResultDetailsAsync(s);
                     result.Add(new SampleRerunItemDto
                     {
-                        SpecimenId = !string.IsNullOrEmpty(s.Barcode) ? s.Barcode : $"SPC-{s.Id}",
+                        SpecimenId = !string.IsNullOrEmpty(s.Barcode) ? s.Barcode : s.Id,
                         PatientName = s.PatientName,
-                        Parameter = s.TestPackageName?.Contains("Lipid") == true ? "LDL" : (s.TestPackageName?.Contains("CBC") == true ? "PLT" : "ALT"),
-                        Reason = !string.IsNullOrEmpty(s.RerunReason) ? s.RerunReason : "Clinical recheck",
+                        Parameter = paramName ?? string.Empty,
+                        Reason = s.RerunReason ?? string.Empty,
                         Status = "In progress",
-                        OriginalValue = "3.95",
+                        OriginalValue = originalVal ?? string.Empty,
                         RerunValue = null,
                         RequestedAt = s.UpdatedAt ?? s.CollectedAt
                     });
@@ -724,22 +753,23 @@ public class LabQueueService : ILabQueueService
 
         lock (_context.Samples)
         {
-            var memoryReruns = _context.Samples
-                .Where(s => s.Status == SampleStatus.RerunRequested && !result.Any(r => r.SpecimenId == s.Barcode || r.SpecimenId == $"SPC-{s.Id}"))
-                .Select(s => new SampleRerunItemDto
-                {
-                    SpecimenId = s.Barcode.Length > 8 ? s.Barcode : $"SPC-{s.Id}",
-                    PatientName = s.PatientName,
-                    Parameter = s.TestPackageName.Contains("Lipid") ? "LDL" : (s.TestPackageName.Contains("CBC") ? "PLT" : "ALT"),
-                    Reason = !string.IsNullOrEmpty(s.RerunReason) ? s.RerunReason : "Delta",
-                    Status = "New",
-                    OriginalValue = s.TestPackageName.Contains("Lipid") ? "3.95" : (s.TestPackageName.Contains("CBC") ? "135" : "48"),
-                    RerunValue = null,
-                    RequestedAt = s.UpdatedAt ?? DateTime.UtcNow
-                })
-                .ToList();
+            foreach (var s in _context.Samples.Where(s => s.Status == SampleStatus.RerunRequested))
+            {
+                var specId = !string.IsNullOrEmpty(s.Barcode) ? s.Barcode : s.Id;
+                if (result.Any(r => r.SpecimenId == specId)) continue;
 
-            result.AddRange(memoryReruns);
+                result.Add(new SampleRerunItemDto
+                {
+                    SpecimenId = specId,
+                    PatientName = s.PatientName,
+                    Parameter = string.Empty,
+                    Reason = s.RerunReason ?? string.Empty,
+                    Status = "New",
+                    OriginalValue = string.Empty,
+                    RerunValue = null,
+                    RequestedAt = s.UpdatedAt ?? s.CollectedAt
+                });
+            }
         }
 
         return result;
@@ -753,17 +783,23 @@ public class LabQueueService : ILabQueueService
             return null;
         }
 
+        var (paramName, originalVal, flagStr, analyzer, availableParams) = await ResolveSampleTestResultDetailsAsync(sample);
+
+        string currentResult = !string.IsNullOrEmpty(paramName) && !string.IsNullOrEmpty(originalVal)
+            ? $"{paramName} = {originalVal}"
+            : string.Empty;
+
         return new SampleRerunDetailsDto
         {
             SampleId = sample.Id,
             Barcode = sample.Barcode,
             PatientId = sample.PatientId,
             PatientName = sample.PatientName,
-            CurrentResult = sample.TestPackageName?.Contains("Lipid") == true ? "LDL = 3.95 mmol/L" : $"{sample.TestPackageName} = Elevated",
-            Flag = "HH",
-            Analyzer = !string.IsNullOrEmpty(sample.LabRoom) ? sample.LabRoom : "BC-01 · Bench 1",
-            FirstRunTime = sample.CollectedAt != default ? sample.CollectedAt.ToString("HH:mm") : DateTime.UtcNow.ToString("HH:mm"),
-            AvailableParameters = new List<string> { "LDL Cholesterol", "Total Cholesterol", "HDL", "Triglycerides" }
+            CurrentResult = currentResult,
+            Flag = flagStr ?? string.Empty,
+            Analyzer = analyzer ?? string.Empty,
+            FirstRunTime = sample.CollectedAt != default ? sample.CollectedAt.ToString("HH:mm") : string.Empty,
+            AvailableParameters = availableParams
         };
     }
 
