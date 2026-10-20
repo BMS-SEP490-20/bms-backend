@@ -68,6 +68,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.IIotThresholdRepository, BMS.Infr
 builder.Services.AddScoped<IIotThresholdService, IotThresholdService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultVerificationRepository, BMS.Infrastructure.Repositories.TestResultVerificationRepository>();
 builder.Services.AddScoped<ITestResultVerificationService, TestResultVerificationService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ISampleOriginTraceRepository, BMS.Infrastructure.Repositories.SampleOriginTraceRepository>();
+builder.Services.AddScoped<ISampleOriginTraceService, SampleOriginTraceService>();
 
 
 
