@@ -10,6 +10,7 @@ public class BmsDbContext
     public List<AppointmentNotification> AppointmentNotifications { get; } = new();
     public List<QueueTicket> QueueTickets { get; } = new();
     public List<TestOrder> TestOrders { get; } = new();
+    public List<SampleCollectionList> SampleCollectionLists { get; } = new();
 
     public BmsDbContext()
     {
@@ -242,6 +243,8 @@ public class BmsDbContext
                 CompletedAt = now.AddMinutes(-20)
             }
         });
+
+        // Phlebotomy collection lists are dynamically persisted to MongoDB or loaded at runtime
     }
 
     public static string HashPassword(string password)
