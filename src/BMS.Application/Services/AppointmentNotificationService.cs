@@ -216,8 +216,31 @@ public class AppointmentNotificationService : IAppointmentNotificationService
         }
 
         var user = _dbContext.Users.FirstOrDefault(u => u.Id == appt.PatientId);
-        string email = user?.Email ?? "patient@example.com";
-        string name = user?.FullName ?? "Quý khách";
+        if (user == null || string.IsNullOrWhiteSpace(user.Email))
+        {
+            _logger.LogWarning("[UC22 Notify] Patient user or recipient email missing for appointment {Id}. Recording failed notification.", appointmentId);
+            var failedNotif = new AppointmentNotification
+            {
+                AppointmentId = appt.Id,
+                AppointmentCode = appt.AppointmentCode,
+                PatientId = appt.PatientId,
+                RecipientEmail = user?.Email,
+                RecipientPhone = user?.PhoneNumber,
+                Title = "Gửi thông báo thất bại: Thiếu email bệnh nhân",
+                Message = "Không thể gửi thông báo do không tìm thấy tài khoản hoặc địa chỉ email hợp lệ của bệnh nhân.",
+                Type = request.Type,
+                Channel = request.Channel,
+                IsSent = false,
+                SentAt = DateTime.UtcNow,
+                IsRead = false,
+                FastingInstructions = "Nhịn ăn 12 tiếng trước khi lấy mẫu máu."
+            };
+            await _notificationRepository.InsertAsync(failedNotif, ct);
+            return false;
+        }
+
+        string email = user.Email;
+        string name = user.FullName;
 
         string title = request.Type switch
         {
@@ -235,7 +258,7 @@ public class AppointmentNotificationService : IAppointmentNotificationService
             AppointmentCode = appt.AppointmentCode,
             PatientId = appt.PatientId,
             RecipientEmail = email,
-            RecipientPhone = user?.PhoneNumber,
+            RecipientPhone = user.PhoneNumber,
             Title = title,
             Message = message,
             Type = request.Type,
@@ -257,7 +280,7 @@ public class AppointmentNotificationService : IAppointmentNotificationService
                 appt.AppointmentCode,
                 "Tổng phân tích tế bào máu & Sinh hóa",
                 $"{appt.AppointmentDate:dd/MM/yyyy} {appt.StartTime:hh\\:mm}",
-                "Lab Room 02 · HQ",
+                string.Empty,
                 "Nhịn ăn tối thiểu 12 tiếng trước giờ lấy mẫu.",
                 ct);
         }

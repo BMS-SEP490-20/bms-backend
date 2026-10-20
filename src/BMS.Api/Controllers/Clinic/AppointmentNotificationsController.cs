@@ -89,12 +89,24 @@ public class AppointmentNotificationsController : ControllerBase
         [FromQuery] string? patientId,
         CancellationToken ct)
     {
-        var currentUserId = patientId
-                            ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
-                            ?? User.FindFirstValue("sub")
-                            ?? "USR-PAT-01";
+        var authUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                            ?? User.FindFirstValue("sub");
 
-        var list = await _notificationService.GetPatientNotificationsAsync(currentUserId, ct);
+        if (string.IsNullOrEmpty(authUserId))
+        {
+            return Unauthorized(new
+            {
+                success = false,
+                message = "Vui lòng đăng nhập để xem thông báo."
+            });
+        }
+
+        // If user is a Patient, caller's identity cannot be overridden by query param
+        string targetPatientId = User.IsInRole("Patient")
+            ? authUserId
+            : (!string.IsNullOrWhiteSpace(patientId) ? patientId : authUserId);
+
+        var list = await _notificationService.GetPatientNotificationsAsync(targetPatientId, ct);
         return Ok(new
         {
             success = true,
