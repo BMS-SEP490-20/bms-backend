@@ -27,4 +27,6 @@ public interface ILabQueueService
 
     Task<bool> UpdateStatusAsync(string id, UpdateSampleStatusDto dto);
     Task<bool> RequestRerunAsync(string id, SampleRerunRequestDto dto);
+    Task<List<SampleRerunItemDto>> GetRerunRequestsAsync();
+    Task<SampleRerunDetailsDto?> GetSampleRerunDetailsAsync(string id);
 }

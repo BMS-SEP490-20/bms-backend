@@ -19,4 +19,17 @@ public interface IEmailService
         string purposeDescription,
         int expiryMinutes = 5,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Dispatches an HTML email confirming an appointment booking with details and fasting guidelines (UC22).
+    /// </summary>
+    Task<bool> SendAppointmentConfirmationEmailAsync(
+        string toEmail,
+        string patientName,
+        string appointmentCode,
+        string packageName,
+        string appointmentDateTime,
+        string location,
+        string fastingNotes,
+        CancellationToken ct = default);
 }
