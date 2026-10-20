@@ -46,9 +46,9 @@ public class AppointmentConfirmationDto
     public DateTime AppointmentDate { get; set; }
     public string DateFormatted { get; set; } = string.Empty;
     public string TimeFormatted { get; set; } = string.Empty;
-    public string Location { get; set; } = "Lab Room 02 · HQ";
-    public string Status { get; set; } = "Confirmed";
-    public string PaymentStatus { get; set; } = "Paid · VNPay";
+    public string Location { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string PaymentStatus { get; set; } = string.Empty;
     public string FastingInstructions { get; set; } = "Do not eat or drink anything except water for 12 hours before your collection.";
     public string QrCodeData { get; set; } = string.Empty;
     public NotificationDeliveryStatusDto DeliveryStatus { get; set; } = new();
