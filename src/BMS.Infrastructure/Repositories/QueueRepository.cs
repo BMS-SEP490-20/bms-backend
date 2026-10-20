@@ -82,7 +82,7 @@ public class QueueRepository : IQueueRepository
     public async Task<string> GetNextTicketNumberAsync(CancellationToken ct = default)
     {
         var list = await GetTodayQueueAsync(ct);
-        int maxSeq = 0; // Starts from Q-001 when empty
+        int maxSeq = 0;
         foreach (var t in list)
         {
             if (t.TicketNumber.StartsWith("Q-") && int.TryParse(t.TicketNumber[2..], out var seq))

@@ -38,12 +38,22 @@ public class QueueController : ControllerBase
     }
 
     /// <summary>
-    /// UC27 – Issues the next sequential queue ticket (e.g., Q-019).
+    /// UC27 – Issues the next sequential queue ticket.
     /// </summary>
     [HttpPost("issue")]
     [ProducesResponseType(typeof(QueueTicketDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> IssueTicket([FromBody] IssueTicketRequestDto request, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(request.PatientName) && string.IsNullOrWhiteSpace(request.PatientId))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = "Vui lòng cung cấp thông tin bệnh nhân (PatientName hoặc PatientId)."
+            });
+        }
+
         var result = await _queueService.IssueTicketAsync(request, ct);
         return CreatedAtAction(nameof(GetLiveQueue), new { id = result.Id }, new
         {

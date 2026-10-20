@@ -35,7 +35,7 @@ public class QueueTicket
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("ticketNumber")]
-    public string TicketNumber { get; set; } = string.Empty; // e.g. Q-012, Q-019
+    public string TicketNumber { get; set; } = string.Empty;
 
     [BsonElement("patientId")]
     public string PatientId { get; set; } = string.Empty;
@@ -44,7 +44,7 @@ public class QueueTicket
     public string PatientName { get; set; } = string.Empty;
 
     [BsonElement("patientCode")]
-    public string PatientCode { get; set; } = string.Empty; // e.g. PT-012056
+    public string PatientCode { get; set; } = string.Empty;
 
     [BsonElement("packageName")]
     public string PackageName { get; set; } = string.Empty;
@@ -59,7 +59,7 @@ public class QueueTicket
     public QueueTicketStatus Status { get; set; } = QueueTicketStatus.Waiting;
 
     [BsonElement("counterName")]
-    public string? CounterName { get; set; } // e.g. Counter 1, Counter 2
+    public string? CounterName { get; set; }
 
     [BsonElement("checkedInAt")]
     public DateTime CheckedInAt { get; set; } = DateTime.UtcNow;
