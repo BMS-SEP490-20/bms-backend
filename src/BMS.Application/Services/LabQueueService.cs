@@ -712,7 +712,7 @@ public class LabQueueService : ILabQueueService
                         Status = "In progress",
                         OriginalValue = "3.95",
                         RerunValue = null,
-                        RequestedAt = s.UpdatedAt ?? s.CollectedAt ?? DateTime.UtcNow
+                        RequestedAt = s.UpdatedAt ?? s.CollectedAt
                     });
                 }
             }
@@ -762,7 +762,7 @@ public class LabQueueService : ILabQueueService
             CurrentResult = sample.TestPackageName?.Contains("Lipid") == true ? "LDL = 3.95 mmol/L" : $"{sample.TestPackageName} = Elevated",
             Flag = "HH",
             Analyzer = !string.IsNullOrEmpty(sample.LabRoom) ? sample.LabRoom : "BC-01 · Bench 1",
-            FirstRunTime = sample.CollectedAt.HasValue ? sample.CollectedAt.Value.ToString("HH:mm") : "09:38",
+            FirstRunTime = sample.CollectedAt != default ? sample.CollectedAt.ToString("HH:mm") : DateTime.UtcNow.ToString("HH:mm"),
             AvailableParameters = new List<string> { "LDL Cholesterol", "Total Cholesterol", "HDL", "Triglycerides" }
         };
     }
