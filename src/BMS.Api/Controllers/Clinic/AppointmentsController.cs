@@ -25,26 +25,45 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
-    /// Gets all appointments with pagination support.
+    /// Gets all appointments with filtering and pagination support (UC23).
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10,
+        [FromQuery] AppointmentFilterRequest filter,
         CancellationToken ct = default)
     {
-        var data = await _service.GetAllAsync(ct);
-        var total = data.Count();
-        var items = data.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new ApiErrorResponse
+            {
+                Code = "MSG-ERR-VAL-01",
+                Message = "Tham số bộ lọc không hợp lệ.",
+                Errors = ModelState
+                    .Where(x => x.Value?.Errors.Count > 0)
+                    .ToDictionary(
+                        k => k.Key,
+                        v => v.Value!.Errors.Select(e => e.ErrorMessage).ToArray())
+            });
+        }
+
+        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                            ?? User.FindFirstValue("sub")
+                            ?? string.Empty;
+        var role = User.FindFirstValue(ClaimTypes.Role)
+                   ?? User.FindFirstValue("role")
+                   ?? string.Empty;
+
+        var result = await _service.GetFilteredAsync(filter, currentUserId, role, ct);
 
         return Ok(new
         {
             message = "Lấy danh sách cuộc hẹn thành công.",
-            page,
-            pageSize,
-            total,
-            data = items
+            page = result.Page,
+            pageSize = result.PageSize,
+            total = result.TotalItems,
+            totalPages = result.TotalPages,
+            data = result.Items
         });
     }
 
@@ -147,11 +166,19 @@ public class AppointmentsController : ControllerBase
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(BookAppointmentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetById(string id, CancellationToken ct)
     {
         var result = await _service.GetByIdAsync(id, ct);
         if (result == null)
             return NotFound(new ApiErrorResponse { Code = "MSG-ERR-APPT-06", Message = "Không tìm thấy lịch hẹn." });
+
+        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase) && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid();
+        }
 
         return Ok(result);
     }
@@ -162,11 +189,19 @@ public class AppointmentsController : ControllerBase
     [HttpGet("{id}/detail")]
     [ProducesResponseType(typeof(AppointmentReadDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetDetailById(string id, CancellationToken ct)
     {
         var result = await _service.GetDetailByIdAsync(id, ct);
         if (result == null)
             return NotFound(new ApiErrorResponse { Code = "MSG-ERR-APPT-06", Message = "Không tìm thấy lịch hẹn." });
+
+        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase) && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid();
+        }
 
         return Ok(result);
     }
