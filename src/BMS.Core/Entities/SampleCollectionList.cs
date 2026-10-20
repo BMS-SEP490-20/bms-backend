@@ -75,10 +75,10 @@ public class SampleCollectionList
     public DateTime ScheduledDate { get; set; } = DateTime.UtcNow.Date;
 
     [BsonElement("collector_id")]
-    public string CollectorId { get; set; } = "USR-LAB-01";
+    public string CollectorId { get; set; } = string.Empty;
 
     [BsonElement("collector_name")]
-    public string CollectorName { get; set; } = "Phạm Thu Dung";
+    public string CollectorName { get; set; } = string.Empty;
 
     [BsonElement("status")]
     public SampleCollectionListStatus Status { get; set; } = SampleCollectionListStatus.Confirmed;
