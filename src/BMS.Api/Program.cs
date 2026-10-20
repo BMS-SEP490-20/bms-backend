@@ -50,6 +50,8 @@ builder.Services.AddSingleton<BmsDbContext>();
 // Main branch services
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotificationRepository>();
+builder.Services.AddScoped<IAppointmentNotificationService, AppointmentNotificationService>();
 builder.Services.AddScoped<IQueueRepository, QueueRepository>();
 builder.Services.AddScoped<IQueueService, QueueService>();
 
