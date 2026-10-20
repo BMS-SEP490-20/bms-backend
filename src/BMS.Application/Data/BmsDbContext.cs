@@ -16,6 +16,7 @@ public class BmsDbContext
     public List<Invoice> Invoices { get; } = new();
     public List<IotDeviceThreshold> IotThresholds { get; } = new();
     public List<IotAlertRecipient> IotAlertRecipients { get; } = new();
+    public List<TestResultVerification> TestVerifications { get; } = new();
 
     public BmsDbContext()
     {
@@ -268,6 +269,30 @@ public class BmsDbContext
             new IotAlertRecipient { FullName = "Trần Minh Tuấn", Role = "Manager", Email = "tuan.tran@bms.health", Phone = "+84 901 234 567", Channels = new() { "Push", "Email" } },
             new IotAlertRecipient { FullName = "Võ Minh Khoa", Role = "Cold storage lead", Email = "khoa.vo@bms.health", Phone = "+84 902 345 678", Channels = new() { "Push", "Email", "SMS" } },
             new IotAlertRecipient { FullName = "Phạm Thu Dung", Role = "Lab lead", Email = "dung.pham@bms.health", Phone = "+84 903 456 789", Channels = new() { "Push", "Email" } }
+        });
+
+        // Seed initial technical test verification checklist (UC72)
+        TestVerifications.Add(new TestResultVerification
+        {
+            Id = "VERIF-261006-0089",
+            SpecimenId = "SPC-261006-A1-0089",
+            OrderId = "ORD-261006-0187",
+            PackageName = "Lipid Profile",
+            PatientId = "PT-2026-004523",
+            PatientName = "Nguyễn Văn An",
+            Status = "PendingVerification",
+            CreatedAt = now.AddMinutes(-45),
+            Checklist = new List<VerificationCheckItem>
+            {
+                new VerificationCheckItem { CheckName = "Patient identity confirmed", Status = "OK", StatusType = "ok", Details = "Nguyễn Văn An matches order ORD-261006-0187" },
+                new VerificationCheckItem { CheckName = "Analyzer QC passed", Status = "Flag", StatusType = "warn", Details = "QCF-1142 active (1-3s) on BC-01 — under review" },
+                new VerificationCheckItem { CheckName = "Reagent lot valid", Status = "OK", StatusType = "ok", Details = "LOT-7721 · Expires 31 Dec 2026" },
+                new VerificationCheckItem { CheckName = "Delta check vs. baseline", Status = "Flag", StatusType = "warn", Details = "LDL +0.42 mmol/L vs. Jun 2026 — rerun confirmed same value" },
+                new VerificationCheckItem { CheckName = "Panic / critical values", Status = "None", StatusType = "ok", Details = "No critical values detected in this specimen" },
+                new VerificationCheckItem { CheckName = "Reference intervals applied", Status = "OK", StatusType = "ok", Details = "Adult male 18-65y profile · Age-specific" },
+                new VerificationCheckItem { CheckName = "Technical notes complete", Status = "OK", StatusType = "ok", Details = "3 notes attached by Phạm Thu Dung" },
+                new VerificationCheckItem { CheckName = "Rerun results", Status = "Confirmed", StatusType = "ok", Details = "LDL 3.95 on repeat — matches original" }
+            }
         });
     }
 
