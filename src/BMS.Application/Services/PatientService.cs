@@ -18,6 +18,11 @@ public sealed class PatientService(
     TimeProvider clock,
     ILogger<PatientService> logger) : IPatientService
 {
+    /// <summary>
+    /// UC25 - Create Guest Profile (Issue I2-016 | BR-077 / BR-REC-01).
+    /// Creates a guest/walk-in patient profile with CCCD duplicate prevention,
+    /// demographic collision checks, and standard PAT-xxx code generation.
+    /// </summary>
     public async Task<PatientInformationDto> CreateGuestProfileAsync(
         CreateGuestProfileRequest request,
         string? createdByUserId,
@@ -112,6 +117,11 @@ public sealed class PatientService(
         return MapToDto(entity, [], [], now);
     }
 
+    /// <summary>
+    /// UC30 - View Patient Information (Issue I2-031 | BR-092 / BR-IAM-02).
+    /// Retrieves full clinical patient demographic profile, vital signs history, and access control audit.
+    /// Non-staff callers are strictly restricted to their own patient records.
+    /// </summary>
     public async Task<PatientInformationDto> GetPatientInformationAsync(
         string idOrCode,
         string? requesterUserId,
