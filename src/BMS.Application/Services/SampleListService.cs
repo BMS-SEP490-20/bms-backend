@@ -115,36 +115,48 @@ public class SampleListService : ISampleListService
 
         foreach (var aptId in request.AppointmentIds)
         {
-            var appt = CheckedInPool.FirstOrDefault(a => a.AppointmentId.Equals(aptId, StringComparison.OrdinalIgnoreCase))
-                ?? new CheckedInAppointmentDto
+            Appointment? apptDoc = null;
+            if (_appointmentsCol != null)
+            {
+                apptDoc = await _appointmentsCol.Find(a => a.Id == aptId || a.AppointmentCode == aptId).FirstOrDefaultAsync();
+            }
+
+            string patientId = apptDoc?.PatientId ?? $"PAT-{aptId}";
+            string patientName = "Bệnh nhân";
+            if (_patientsCol != null && apptDoc != null && !string.IsNullOrEmpty(apptDoc.PatientId))
+            {
+                var pat = await _patientsCol.Find(p => p.Id == apptDoc.PatientId).FirstOrDefaultAsync();
+                if (pat != null && !string.IsNullOrEmpty(pat.FullName))
                 {
-                    AppointmentId = aptId,
-                    PatientId = $"PAT-{aptId}",
-                    PatientName = $"Patient {aptId}",
-                    PackageName = "Routine Blood Panel",
-                    Time = "08:30",
-                    Tubes = new List<string> { "SST" }
-                };
+                    patientName = pat.FullName;
+                }
+            }
 
             var specimenId = $"SPC-{datePrefix}-{batchCode.Split('-').Last()}-{specimenSequence:D4}";
+
+            var collectorName = !string.IsNullOrWhiteSpace(request.CollectorName)
+                ? request.CollectorName
+                : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Nhân viên lấy mẫu");
+
+            var itemTubes = new List<string> { "SST", "EDTA" };
 
             var item = new SampleCollectionItem
             {
                 SpecimenId = specimenId,
-                AppointmentId = appt.AppointmentId,
-                PatientId = appt.PatientId,
-                PatientName = appt.PatientName,
-                PackageName = appt.PackageName,
-                Tubes = appt.Tubes,
-                CollectorId = request.CollectorId ?? currentUserId ?? "USR-LAB-01",
-                CollectorName = request.CollectorName ?? "Phạm Thu Dung",
+                AppointmentId = apptDoc?.AppointmentCode ?? aptId,
+                PatientId = patientId,
+                PatientName = patientName,
+                PackageName = "Xét nghiệm máu (CBC & Sinh hóa)",
+                Tubes = itemTubes,
+                CollectorId = request.CollectorId ?? currentUserId ?? string.Empty,
+                CollectorName = collectorName,
                 Status = "PendingCollection"
             };
 
             items.Add(item);
 
             // Register biological tube sample in active lab samples collection
-            foreach (var tubeType in appt.Tubes)
+            foreach (var tubeType in itemTubes)
             {
                 var tubeBarcode = $"{specimenId}-{tubeType}";
                 var tubeColor = tubeType.Contains("EDTA") ? "Lavender" : (tubeType.Contains("NaF") ? "Green" : "Gold");
@@ -155,10 +167,10 @@ public class SampleListService : ISampleListService
                     {
                         Id = Guid.NewGuid().ToString(),
                         Barcode = tubeBarcode,
-                        TestOrderId = appt.AppointmentId,
-                        PatientId = appt.PatientId,
-                        PatientName = appt.PatientName,
-                        TestPackageName = appt.PackageName,
+                        TestOrderId = apptDoc?.AppointmentCode ?? aptId,
+                        PatientId = patientId,
+                        PatientName = patientName,
+                        TestPackageName = "Xét nghiệm máu (CBC & Sinh hóa)",
                         SampleType = tubeType.Contains("EDTA") ? "Blood" : "Serum",
                         TubeColor = tubeColor,
                         VolumeMl = tubeType.Contains("EDTA") ? 2.0 : 4.0,
@@ -173,18 +185,22 @@ public class SampleListService : ISampleListService
             specimenSequence++;
         }
 
+        var collectorDisplayName = !string.IsNullOrWhiteSpace(request.CollectorName)
+            ? request.CollectorName
+            : (!string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "Nhân viên lấy mẫu");
+
         var collectionList = new SampleCollectionList
         {
             BatchCode = batchCode,
             Location = request.Location,
             TargetTime = request.TargetTime,
             ScheduledDate = DateTime.UtcNow.Date,
-            CollectorId = request.CollectorId ?? currentUserId ?? "USR-LAB-01",
-            CollectorName = request.CollectorName ?? "Phạm Thu Dung",
+            CollectorId = request.CollectorId ?? currentUserId ?? string.Empty,
+            CollectorName = collectorDisplayName,
             Status = SampleCollectionListStatus.Confirmed,
             Items = items,
             CreatedAt = DateTime.UtcNow,
-            CreatedBy = currentUserId ?? "USR-LAB-01"
+            CreatedBy = currentUserId ?? string.Empty
         };
 
         var created = await _listRepository.CreateAsync(collectionList);
