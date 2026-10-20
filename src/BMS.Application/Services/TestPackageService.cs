@@ -53,6 +53,11 @@ public class TestPackageService : ITestPackageService
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// UC20 - Search Test Packages (Issue I2-001 | BR-062).
+    /// Provides multi-field keyword matching across package name, code, description, and included test criteria.
+    /// Supports pagination, price range filters, and category sorting.
+    /// </summary>
     public async Task<PagedResult<TestPackageDto>> SearchTestPackagesAsync(
         TestPackageSearchRequest request,
         bool includeInactive = false,
