@@ -60,7 +60,7 @@ public class DashboardService : IDashboardService
                             PackageName = "Gói xét nghiệm Tổng quát Định kỳ 14 chỉ số",
                             AppointmentTime = DateTime.UtcNow.AddDays(1).Date.AddHours(8).AddMinutes(30),
                             Status = "Đã xác nhận",
-                            DoctorName = "BS. Chuyên Khoa"
+                            DoctorName = "BS. Nguyễn Văn An"
                         }
                     },
                     RecentResults = new List<DashboardResultItemDto>
