@@ -62,6 +62,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.ITestReportRepository, BMS.Infras
 builder.Services.AddScoped<ITestReportService, TestReportService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestNoteRepository, BMS.Infrastructure.Repositories.TestNoteRepository>();
 builder.Services.AddScoped<ITestNoteService, TestNoteService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+
 
 
 // IMPORTANT:

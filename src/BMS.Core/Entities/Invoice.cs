@@ -23,7 +23,10 @@ public enum PaymentMethod
     Cash = 1,
     VNPay = 2,
     BankTransfer = 3,
-    CreditCard = 4
+    CreditCard = 4,
+    MoMo = 5,
+    BankingQR = 6,
+    Reception = 7
 }
 
 /// <summary>
