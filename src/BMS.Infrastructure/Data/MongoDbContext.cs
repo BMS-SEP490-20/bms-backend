@@ -75,6 +75,16 @@ public class MongoDbContext
         _database?.GetCollection<ReferenceIntervalEntity>("reference_intervals");
 
     /// <summary>
+    /// Collection persisting database backup snapshots and archives ("backup_records", UC80).
+    /// </summary>
+    public IMongoCollection<BackupRecord>? BackupRecords =>
+        _database?.GetCollection<BackupRecord>("backup_records");
+
+    /// <summary>
+    /// Collection persisting restore audit logs ("restore_audit_logs", UC80).
+    /// </summary>
+    public IMongoCollection<RestoreAuditLog>? RestoreAuditLogs =>
+        _database?.GetCollection<RestoreAuditLog>("restore_audit_logs");
     /// Collection persisting laboratory test result notifications ("test_result_notifications", UC60).
     /// </summary>
     public IMongoCollection<BMS.Core.Entities.TestResultNotification>? TestResultNotifications =>
