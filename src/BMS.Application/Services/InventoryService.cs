@@ -3,6 +3,9 @@ using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
+using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace BMS.Application.Services;
 
@@ -10,6 +13,41 @@ namespace BMS.Application.Services;
 public sealed class InventoryService(IInventoryRepository repository, TimeProvider clock) : IInventoryService
 {
     private DateTime Today => clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).Date;
+
+    public async Task<InventoryItemDto> CreateAsync(CreateInventoryDto request, string actorId, string actorName, CancellationToken ct = default)
+    {
+        ValidateValues(request, actorId);
+        var code = request.Code.Trim().ToUpperInvariant();
+        var lot = request.LotNumber.Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(request.Unit))
+            throw new DomainValidationException("INVALID_INVENTORY", "Đơn vị tính không được để trống.");
+        // A deterministic ID prevents concurrent creates of the same normalized code/lot without migrating legacy IDs.
+        var id = "REA-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code + "\0" + lot)));
+        var item = new Reagent { Id = id, Code = code, LotNumber = lot, Unit = request.Unit.Trim(),
+            Name = request.Name.Trim(), Manufacturer = request.Manufacturer.Trim(), Quantity = request.Quantity,
+            MinimumStock = request.MinimumStock, ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate!.Value.Date, DateTimeKind.Utc) };
+        item.Changes.Add(Change("CREATE", actorId, actorName, request.Reason, null, item));
+        if (!await repository.CreateAsync(item, ct))
+            throw new InventoryConflictException("Mã hóa chất và số lô này đã tồn tại. Vui lòng kiểm tra danh sách kho.");
+        return Map(item, Today);
+    }
+
+    private static void ValidateValues(InventoryValuesDto request, string actorId)
+    {
+        if (string.IsNullOrWhiteSpace(actorId)) throw new ForbiddenAccessException();
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(request, new ValidationContext(request), results, true) ||
+            string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Manufacturer) ||
+            (request.Reason?.Trim().Length ?? 0) < 5 ||
+            decimal.Round(request.Quantity, 3) != request.Quantity || decimal.Round(request.MinimumStock, 3) != request.MinimumStock)
+            throw new DomainValidationException("INVALID_INVENTORY", "Thông tin không hợp lệ: nhập đủ thông tin, lý do tối thiểu 5 ký tự; số lượng không âm và tối đa 3 chữ số thập phân.");
+    }
+
+    private InventoryChange Change(string action, string actorId, string actorName, string reason, Reagent? before, Reagent? after) =>
+        new() { Action = action, ActorId = actorId, ActorName = actorName, Reason = reason.Trim(), At = clock.GetUtcNow().UtcDateTime,
+            Before = Snapshot(before), After = Snapshot(after) };
+    private static InventorySnapshot? Snapshot(Reagent? item) => item is null ? null :
+        new(item.Name, item.Manufacturer, item.Quantity, item.MinimumStock, item.ExpiryDate);
 
     public async Task<InventoryListDto> ListAsync(InventoryFilterDto filter, CancellationToken ct = default)
     {
@@ -36,7 +74,9 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
         var (transactions, total) = await repository.GetTransactionsAsync(item.Code, ct);
         var today = Today;
         return new(Map(item, today), transactions.Select(x => new InventoryTransactionDto(x.Id,
-            x.Type, x.Quantity, x.UnitPrice, x.Department, x.Timestamp)).ToList(), total, today);
+            x.Type, x.Quantity, x.UnitPrice, x.Department, x.Timestamp)).ToList(), total, today,
+            item.Changes.OrderByDescending(x => x.At).Select(x => new InventoryChangeDto(x.Action, x.ActorName,
+                x.Reason, x.At, x.Before?.Quantity, x.After?.Quantity)).ToList());
     }
 
     private static InventoryItemDto Map(Reagent item, DateTime today)
@@ -46,6 +86,6 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
         var status = expiry is null ? "UNKNOWN_EXPIRY" : expiry < today ? "EXPIRED"
             : expiry < today.AddDays(30) ? "EXPIRING_SOON" : "AVAILABLE";
         return new(item.Id, item.Code, item.Name, item.Manufacturer, item.LotNumber,
-            item.Quantity, item.Unit, item.MinimumStock, expiry, status, item.Quantity <= item.MinimumStock);
+            item.Quantity, item.Unit, item.MinimumStock, expiry, status, item.Quantity <= item.MinimumStock, item.Revision);
     }
 }

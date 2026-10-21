@@ -6,7 +6,7 @@ using MongoDB.Driver;
 
 namespace BMS.Infrastructure.Repositories;
 
-/// <summary>Reads existing reagents and inventory_transactions; never seeds or changes stock.</summary>
+/// <summary>Persists existing reagent lots; embedded audit entries preserve stock change evidence.</summary>
 public sealed class InventoryRepository : IInventoryRepository
 {
     private readonly IMongoCollection<Reagent> _reagents;
@@ -58,6 +58,16 @@ public sealed class InventoryRepository : IInventoryRepository
         var soonCount = await _reagents.CountDocumentsAsync(filter & soon, cancellationToken: ct);
         var expiredCount = await _reagents.CountDocumentsAsync(filter & expired, cancellationToken: ct);
         return new(items, total, lowCount, soonCount, expiredCount);
+    }
+
+    public async Task<bool> CreateAsync(Reagent item, CancellationToken ct = default)
+    {
+        var f = Builders<Reagent>.Filter;
+        var duplicate = f.Regex(x => x.Code, new BsonRegularExpression("^" + Regex.Escape(item.Code) + "$", "i")) &
+            f.Regex(x => x.LotNumber, new BsonRegularExpression("^" + Regex.Escape(item.LotNumber) + "$", "i"));
+        if (await _reagents.Find(duplicate).AnyAsync(ct)) return false;
+        try { await _reagents.InsertOneAsync(item, cancellationToken: ct); return true; }
+        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey) { return false; }
     }
 
     public Task<Reagent?> GetAsync(string id, CancellationToken ct = default) =>

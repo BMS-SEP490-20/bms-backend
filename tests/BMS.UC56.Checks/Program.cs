@@ -123,7 +123,17 @@ try
         Assert((await http.GetAsync("/api/inventory?expiryFrom=bad-date")).StatusCode == HttpStatusCode.BadRequest);
         Assert((await http.GetAsync("/api/inventory/missing")).StatusCode == HttpStatusCode.NotFound);
         Assert((await http.GetAsync("/api/inventory/today")).StatusCode == HttpStatusCode.OK);
-        Assert((await http.PostAsJsonAsync("/api/inventory", new { })).StatusCode == HttpStatusCode.MethodNotAllowed);
+        Assert((await http.PostAsJsonAsync("/api/inventory", new { })).StatusCode == HttpStatusCode.Forbidden);
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "WarehouseStaff");
+        Assert((await http.PostAsJsonAsync("/api/inventory", new { })).StatusCode == HttpStatusCode.BadRequest);
+        var create = NewLot("HTTP-CREATE");
+        var createdResponse = await http.PostAsJsonAsync("/api/inventory", create);
+        Assert(createdResponse.StatusCode == HttpStatusCode.Created);
+        var created = await createdResponse.Content.ReadFromJsonAsync<InventoryItemDto>();
+        Assert(created != null && (await http.GetAsync(createdResponse.Headers.Location)).StatusCode == HttpStatusCode.OK);
+        Assert((await http.PostAsJsonAsync("/api/inventory", create)).StatusCode == HttpStatusCode.Conflict);
+        create.Quantity = -1;
+        Assert((await http.PostAsJsonAsync("/api/inventory", create)).StatusCode == HttpStatusCode.BadRequest);
         await app.StopAsync();
     });
     await Check("existing BMS schema can be read without modifying stock", async () => {
@@ -136,6 +146,29 @@ try
             Assert(detail?.Item.Id == all.Items[0].Id);
         }
         Console.WriteLine($"Existing inventory: {all.Total} lots read successfully.");
+    });
+    await Check("create validates values and stores opening balance with audit atomically", async () => {
+        var request = NewLot("SERVICE-CREATE");
+        var created = await service.CreateAsync(request, "warehouse-1", "Warehouse One");
+        var stored = await repository.GetAsync(created.Id);
+        Assert(stored!.Changes.Single().ActorId == "warehouse-1" && stored.Changes.Single().After!.Quantity == request.Quantity);
+        Assert(stored.Changes.Single().Before == null && created.Revision == 0);
+        var bad = NewLot("BAD"); bad.Quantity = -1;
+        await Reject(() => service.CreateAsync(bad, "warehouse-1", "Warehouse One"));
+        bad = NewLot("BAD"); bad.Reason = "  ";
+        await Reject(() => service.CreateAsync(bad, "warehouse-1", "Warehouse One"));
+        bad = NewLot("BAD"); bad.Quantity = 0.0001m;
+        await Reject(() => service.CreateAsync(bad, "warehouse-1", "Warehouse One"));
+    });
+    await Check("concurrent create prevents normalized code and lot duplicates", async () => {
+        var results = await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ => {
+            try { await service.CreateAsync(NewLot("CONCURRENT"), "warehouse-1", "Warehouse One"); return true; }
+            catch (InventoryConflictException) { return false; }
+        }));
+        Assert(results.Count(x => x) == 1);
+        var request = NewLot("CONCURRENT"); request.Code = request.Code.ToLowerInvariant();
+        try { await service.CreateAsync(request, "warehouse-1", "Warehouse One"); throw new Exception("Expected duplicate conflict."); }
+        catch (InventoryConflictException) { }
     });
     Console.WriteLine($"UC56: {passed} checks passed.");
 }
@@ -151,6 +184,8 @@ Reagent Lot(string id, string code, DateTime? expiry, decimal qty, decimal min) 
     Id = id, Code = code, Name = "Hóa chất " + id, Manufacturer = "Alpha", LotNumber = "LOT-" + id,
     ExpiryDate = expiry, Quantity = qty, MinimumStock = min, Unit = "Hộp"
 };
+CreateInventoryDto NewLot(string code) => new() { Code = code, LotNumber = "LOT-NEW", Unit = "Hộp", Name = "Test reagent",
+    Manufacturer = "Test manufacturer", Quantity = 10, MinimumStock = 2, ExpiryDate = today.AddDays(90), Reason = "Initial stock check" };
 async Task Check(string name, Func<Task> action) { await action(); passed++; Console.WriteLine($"PASS {name}"); }
 static void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed."); }
 static async Task Reject(Func<Task> action) { try { await action(); } catch (DomainValidationException) { return; } throw new Exception("Expected validation failure."); }
