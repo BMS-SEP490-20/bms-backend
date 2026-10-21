@@ -70,13 +70,15 @@ builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultVerificationRepository
 builder.Services.AddScoped<ITestResultVerificationService, TestResultVerificationService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ISampleOriginTraceRepository, BMS.Infrastructure.Repositories.SampleOriginTraceRepository>();
 builder.Services.AddScoped<ISampleOriginTraceService, SampleOriginTraceService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.IMedicalAssessmentRepository, BMS.Infrastructure.Repositories.MedicalAssessmentRepository>();
+builder.Services.AddScoped<IMedicalAssessmentService, MedicalAssessmentService>();
 
 
 
 // IMPORTANT:
-// Không đăng ký IAuthService lần nữa ở đây nếu
-// AddAuthModule(), AddApplicationServices() hoặc
-// AddInfrastructureServices() đã đăng ký dịch vụ này.
+// KhÃƒÂ´ng Ã„â€˜Ã„Æ’ng kÃƒÂ½ IAuthService lÃ¡ÂºÂ§n nÃ¡Â»Â¯a Ã¡Â»Å¸ Ã„â€˜ÃƒÂ¢y nÃ¡ÂºÂ¿u
+// AddAuthModule(), AddApplicationServices() hoÃ¡ÂºÂ·c
+// AddInfrastructureServices() Ã„â€˜ÃƒÂ£ Ã„â€˜Ã„Æ’ng kÃƒÂ½ dÃ¡Â»â€¹ch vÃ¡Â»Â¥ nÃƒÂ y.
 
 
 // =========================================================
