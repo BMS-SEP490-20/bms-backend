@@ -1,0 +1,28 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace BMS.Application.DTOs.Inventory;
+
+/// <summary>UC56 list filters. ExpiryFrom/To are inclusive expiry dates, not movement dates.</summary>
+public sealed class InventoryFilterDto
+{
+    [StringLength(100)] public string? Search { get; set; }
+    [RegularExpression("^(LOW_STOCK|EXPIRING_SOON|EXPIRED|AVAILABLE|UNKNOWN_EXPIRY)$")]
+    public string? Status { get; set; }
+    public DateTime? ExpiryFrom { get; set; }
+    public DateTime? ExpiryTo { get; set; }
+    [Range(1, 10000)] public int Page { get; set; } = 1;
+    [Range(1, 100)] public int PageSize { get; set; } = 20;
+}
+
+/// <summary>A reagent lot with expiry warnings calculated by the server on the current clinic day.</summary>
+public sealed record InventoryItemDto(string Id, string Code, string Name, string Manufacturer,
+    string LotNumber, decimal Quantity, string Unit, decimal MinimumStock, DateTime? ExpiryDate,
+    string ExpiryStatus, bool IsLowStock);
+public sealed record InventorySummaryDto(long Total, long LowStock, long ExpiringSoon, long Expired);
+public sealed record InventoryListDto(List<InventoryItemDto> Items, InventorySummaryDto Summary,
+    int Page, int PageSize, long Total, int TotalPages, DateTime AsOfDate);
+public sealed record InventoryTransactionDto(string? Id, string Type, decimal Quantity,
+    decimal? UnitPrice, string Department, DateTime? Timestamp);
+/// <summary>Movement history is shared by reagent code because existing transactions do not store a lot number.</summary>
+public sealed record InventoryDetailDto(InventoryItemDto Item, List<InventoryTransactionDto> Transactions,
+    long TransactionCount, DateTime AsOfDate);
