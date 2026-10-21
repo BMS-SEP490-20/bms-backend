@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -199,17 +199,18 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
         }
 
+        bool isRemoved = false;
         lock (_dbContext.IotAlertRecipients)
         {
             var idx = _dbContext.IotAlertRecipients.FindIndex(r => r.Id == recipientId);
             if (idx >= 0)
             {
                 _dbContext.IotAlertRecipients.RemoveAt(idx);
-                return await Task.FromResult(true);
+                isRemoved = true;
             }
         }
 
-        return await Task.FromResult(false);
+        return await Task.FromResult(isRemoved);
     }
 
     public async Task<bool> ResetDefaultsAsync()

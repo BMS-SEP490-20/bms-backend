@@ -4,7 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using BMS.Application.Data;
+using BMS.Infrastructure.Data;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
@@ -237,7 +237,7 @@ public class PatientResultExportService : IPatientResultExportService
     <div class=""header"">
         <div>
             <div class=""logo-mark"">BMS HEALTHCARE</div>
-            <div class=""clinic-sub"">{clinicName} · {clinicAddress} · Hotline: {hotline}</div>
+            <div class=""clinic-sub"">{clinicName} Ã‚Â· {clinicAddress} Ã‚Â· Hotline: {hotline}</div>
         </div>
         <div class=""meta-box"">
             <div>Order No: <strong>{result.OrderCode}</strong></div>
@@ -261,7 +261,7 @@ public class PatientResultExportService : IPatientResultExportService
     </div>
 
     <div style=""display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"">
-        <h3 style=""margin:0; font-size:15px; color:#0f172a;"">{result.PackageName} — Laboratory Results</h3>
+        <h3 style=""margin:0; font-size:15px; color:#0f172a;"">{result.PackageName} Ã¢â‚¬â€ Laboratory Results</h3>
         {(result.AbnormalCount > 0 ? $@"<span class=""badge badge-err"">{result.AbnormalCount} abnormal results flagged</span>" : @"<span class=""badge"" style=""background:#dcfce7;color:#15803d;"">All results within reference range</span>")}
     </div>
 
@@ -283,7 +283,7 @@ public class PatientResultExportService : IPatientResultExportService
                 <td class=""num {(p.Flag == "HH" ? "t-crit" : (p.Flag == "H" ? "t-warn" : ""))}"">{p.Value}</td>
                 <td>{p.Unit}</td>
                 <td>{p.ReferenceRange}</td>
-                <td class=""num"">{p.DeltaPrevious ?? "—"}</td>
+                <td class=""num"">{p.DeltaPrevious ?? "Ã¢â‚¬â€"}</td>
                 <td style=""text-align:center""><span class=""flag flag-{p.Flag}"">{p.Flag}</span></td>
             </tr>"))}
         </tbody>
@@ -296,7 +296,7 @@ public class PatientResultExportService : IPatientResultExportService
     <div class=""assessment-box"">
         <div class=""assessment-title"">Doctor's Clinical Assessment</div>
         <div style=""font-size:12.5px; line-height:1.6;"">{result.DoctorAssessment}</div>
-        <div style=""margin-top:8px; font-size:11.5px; color:#64748b;"">— {result.ApprovedByDoctor} · {result.DoctorSpecialty} · {result.ReleasedDate}</div>
+        <div style=""margin-top:8px; font-size:11.5px; color:#64748b;"">Ã¢â‚¬â€ {result.ApprovedByDoctor} Ã‚Â· {result.DoctorSpecialty} Ã‚Â· {result.ReleasedDate}</div>
     </div>
 
     <div class=""signatures"">
@@ -411,14 +411,14 @@ public class PatientResultExportService : IPatientResultExportService
             DobAgeSex = report.DobAgeSex,
             CollectionTime = report.CollectionTime,
             ReleasedDate = report.IssuedAt.ToString("dd MMM yyyy HH:mm"),
-            ApprovedByDoctor = string.IsNullOrWhiteSpace(report.ApprovedBy) ? "Dr. Trần Thị Bình" : report.ApprovedBy,
+            ApprovedByDoctor = string.IsNullOrWhiteSpace(report.ApprovedBy) ? "Dr. TrÃ¡ÂºÂ§n ThÃ¡Â»â€¹ BÃƒÂ¬nh" : report.ApprovedBy,
             DoctorSpecialty = "Internal Medicine",
             DoctorAssessment = string.IsNullOrWhiteSpace(report.ClinicalNotes) ?
                 "Results compiled and evaluated. Regular physician consultation recommended for ongoing monitoring." :
                 report.ClinicalNotes,
             OverallStatus = "Released",
             AbnormalCount = abnormalCount,
-            ReferenceIntervalNotes = "Adult reference intervals per ISO 15189 · Fasting 12h confirmed",
+            ReferenceIntervalNotes = "Adult reference intervals per ISO 15189 Ã‚Â· Fasting 12h confirmed",
             Parameters = parameters,
             VerificationHash = report.VerificationHash,
             ShareToken = token,
@@ -440,7 +440,7 @@ public class PatientResultExportService : IPatientResultExportService
             FlagSeverity = "normal"
         }).ToList();
 
-        var hash = ComputeSha256($"{order.OrderNumber}-{order.PatientId}-{order.OrderDate:O}");
+        var hash = ComputeSha256($"{order.OrderNumber}-{order.PatientId}-{order.CreatedAt:O}");
         var token = Guid.NewGuid().ToString("N");
 
         return new PatientTestResultDetailDto
@@ -451,15 +451,15 @@ public class PatientResultExportService : IPatientResultExportService
             Category = "Biochemistry",
             PatientId = order.PatientId,
             PatientName = order.PatientName,
-            DobAgeSex = $"{order.PatientAge}y · {order.PatientGender}",
-            CollectionTime = order.OrderDate.ToString("dd MMM yyyy HH:mm"),
-            ReleasedDate = order.OrderDate.AddHours(4).ToString("dd MMM yyyy HH:mm"),
-            ApprovedByDoctor = string.IsNullOrWhiteSpace(order.DoctorName) ? "Dr. Trần Thị Bình" : order.DoctorName,
+            DobAgeSex = $"{order.PatientAge}y Ã‚Â· {order.PatientGender}",
+            CollectionTime = order.CreatedAt.ToString("dd MMM yyyy HH:mm"),
+            ReleasedDate = order.CreatedAt.AddHours(4).ToString("dd MMM yyyy HH:mm"),
+            ApprovedByDoctor = string.IsNullOrWhiteSpace(order.DoctorName) ? "Dr. TrÃ¡ÂºÂ§n ThÃ¡Â»â€¹ BÃƒÂ¬nh" : order.DoctorName,
             DoctorSpecialty = "Internal Medicine",
             DoctorAssessment = "Evaluation in progress. Preliminary clinical markers indicate stable parameters.",
             OverallStatus = "Released",
             AbnormalCount = 0,
-            ReferenceIntervalNotes = "Adult male reference intervals · Fasting verified",
+            ReferenceIntervalNotes = "Adult male reference intervals Ã‚Â· Fasting verified",
             Parameters = parameters,
             VerificationHash = hash,
             ShareToken = token,
@@ -471,11 +471,11 @@ public class PatientResultExportService : IPatientResultExportService
     {
         var parameters = new List<PatientResultParameterDto>
         {
-            new() { ParameterName = "LDL Cholesterol", Value = "3.95", Unit = "mmol/L", ReferenceRange = "< 2.58", DeltaPrevious = "+0.42 ↑", Flag = "HH", IsAbnormal = true, FlagSeverity = "critical" },
-            new() { ParameterName = "Total Cholesterol", Value = "5.42", Unit = "mmol/L", ReferenceRange = "< 5.17", DeltaPrevious = "+0.28 ↑", Flag = "H", IsAbnormal = true, FlagSeverity = "warning" },
+            new() { ParameterName = "LDL Cholesterol", Value = "3.95", Unit = "mmol/L", ReferenceRange = "< 2.58", DeltaPrevious = "+0.42 Ã¢â€ â€˜", Flag = "HH", IsAbnormal = true, FlagSeverity = "critical" },
+            new() { ParameterName = "Total Cholesterol", Value = "5.42", Unit = "mmol/L", ReferenceRange = "< 5.17", DeltaPrevious = "+0.28 Ã¢â€ â€˜", Flag = "H", IsAbnormal = true, FlagSeverity = "warning" },
             new() { ParameterName = "HDL Cholesterol", Value = "1.28", Unit = "mmol/L", ReferenceRange = "> 1.04", DeltaPrevious = "+0.02", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" },
             new() { ParameterName = "Triglycerides", Value = "1.65", Unit = "mmol/L", ReferenceRange = "< 1.70", DeltaPrevious = "-0.12", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" },
-            new() { ParameterName = "VLDL (calculated)", Value = "0.75", Unit = "mmol/L", ReferenceRange = "< 1.04", DeltaPrevious = "—", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" }
+            new() { ParameterName = "VLDL (calculated)", Value = "0.75", Unit = "mmol/L", ReferenceRange = "< 1.04", DeltaPrevious = "Ã¢â‚¬â€", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" }
         };
 
         var hash = ComputeSha256($"ORD-260927-0231-PT-004523-20260928");
@@ -488,16 +488,16 @@ public class PatientResultExportService : IPatientResultExportService
             PackageName = "Lipid Profile",
             Category = "Clinical Biochemistry",
             PatientId = "PT-004523",
-            PatientName = "Nguyễn Văn An",
+            PatientName = "NguyÃ¡Â»â€¦n VÃ„Æ’n An",
             DobAgeSex = "Male 34y",
             CollectionTime = "27 Sep 2026 08:45",
             ReleasedDate = "28 Sep 2026 10:12",
-            ApprovedByDoctor = "Dr. Trần Thị Bình",
+            ApprovedByDoctor = "Dr. TrÃ¡ÂºÂ§n ThÃ¡Â»â€¹ BÃƒÂ¬nh",
             DoctorSpecialty = "Internal Medicine",
             DoctorAssessment = "LDL cholesterol is elevated at 3.95 mmol/L and has increased by +0.42 since June 2026. This confirms sustained hyperlipidemia. Please schedule a follow-up consultation to discuss lifestyle adjustments (dietary intervention, exercise target 150 min/week) and evaluate whether statin therapy is indicated.",
             OverallStatus = "Released",
             AbnormalCount = 2,
-            ReferenceIntervalNotes = "Adult male 18-65y · Fasting 12h confirmed",
+            ReferenceIntervalNotes = "Adult male 18-65y Ã‚Â· Fasting 12h confirmed",
             Parameters = parameters,
             VerificationHash = hash,
             ShareToken = token,
@@ -521,11 +521,11 @@ public class PatientResultExportService : IPatientResultExportService
 
     private static string? CalculateSimulatedDelta(string paramName, string value)
     {
-        if (paramName.Contains("LDL", StringComparison.OrdinalIgnoreCase)) return "+0.42 ↑";
-        if (paramName.Contains("Total Cholesterol", StringComparison.OrdinalIgnoreCase)) return "+0.28 ↑";
+        if (paramName.Contains("LDL", StringComparison.OrdinalIgnoreCase)) return "+0.42 Ã¢â€ â€˜";
+        if (paramName.Contains("Total Cholesterol", StringComparison.OrdinalIgnoreCase)) return "+0.28 Ã¢â€ â€˜";
         if (paramName.Contains("HDL", StringComparison.OrdinalIgnoreCase)) return "+0.02";
         if (paramName.Contains("Triglycerides", StringComparison.OrdinalIgnoreCase)) return "-0.12";
-        return "—";
+        return "Ã¢â‚¬â€";
     }
 
     private static string ComputeSha256(string raw)

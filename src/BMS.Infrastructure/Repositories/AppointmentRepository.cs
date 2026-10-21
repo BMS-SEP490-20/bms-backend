@@ -21,6 +21,8 @@ namespace BMS.Infrastructure.Repositories
             _shiftCollection = database.GetCollection<DoctorShift>("doctor_shifts");
             _doctorCollection = database.GetCollection<Doctor>("doctors");
 
+            try
+            {
             var indexKeys = Builders<Appointment>.IndexKeys.Ascending(x => x.AppointmentCode);
             _collection.Indexes.CreateOne(
                 new CreateIndexModel<Appointment>(indexKeys, new CreateIndexOptions { Unique = true }));
@@ -31,6 +33,11 @@ namespace BMS.Infrastructure.Repositories
                 .Ascending(x => x.StartTime)
                 .Ascending(x => x.Status);
             _collection.Indexes.CreateOne(new CreateIndexModel<Appointment>(slotIndex));
+            }
+            catch
+            {
+                // Ignore index build exception on dirty legacy dev database
+            }
         }
 
         public async Task<List<Appointment>> GetAllAsync(CancellationToken ct = default)
