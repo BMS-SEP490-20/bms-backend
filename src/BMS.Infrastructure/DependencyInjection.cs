@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<ITestBatchRepository, TestBatchRepository>();
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
+        services.AddScoped<IMedicalNoteRepository, MedicalNoteRepository>();
         services.AddScoped<IMedicalAssessmentRepository, MedicalAssessmentRepository>();
         services.AddScoped<IBackupRepository, BackupRepository>();
 
