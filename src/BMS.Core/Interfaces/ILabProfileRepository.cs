@@ -13,6 +13,8 @@ public interface ILabProfileRepository
     Task<bool> HasProfileAsync(string id, CancellationToken ct = default);
     Task<bool> InsertAsync(LabUserProfile profile, CancellationToken ct = default);
     Task<LabUserProfile?> UpdateAsync(string id, long expectedRevision, LabProfileSnapshot details, LabProfileAudit audit, CancellationToken ct = default);
+    Task<bool> HasCurrentAssignmentsAsync(string id, DateTime clinicDayStartUtc, CancellationToken ct = default);
+    Task<bool> DeleteAsync(string id, long expectedRevision, LabProfileAudit audit, CancellationToken ct = default);
 }
 
 public sealed record LabProfileSearch(string? Search, string? RoomId, DateTime? CreatedFrom, DateTime? CreatedTo, int Page, int PageSize);

@@ -22,6 +22,8 @@ public sealed class LabUserProfile
     public DateTime? UpdatedAt { get; set; }
     [BsonElement("is_deleted")]
     public bool IsDeleted { get; set; }
+    [BsonElement("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
     [BsonElement("audit")]
     public List<LabProfileAudit> Audit { get; set; } = [];
 }

@@ -46,5 +46,13 @@ public sealed class LabProfilesController(ILabProfileService service) : Controll
     public async Task<IActionResult> Update(string id, UpdateLabProfileDto input, CancellationToken ct)
         => Ok(await service.UpdateAsync(id, input, Actor(), ct));
 
+    /// <summary>Archives a profile with audit, preserving its account and historical assignments.</summary>
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(string id, [FromBody] DeleteLabProfileDto input, CancellationToken ct)
+    {
+        await service.DeleteAsync(id, input, Actor(), ct);
+        return NoContent();
+    }
+
     private LabProfileActor Actor() => new(User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "", User.Identity?.Name ?? "");
 }

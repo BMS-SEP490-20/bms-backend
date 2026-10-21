@@ -44,9 +44,16 @@ public sealed class LabProfileService(ILabProfileRepository repository, TimeProv
         if (account.HasProfile) throw new LabProfileConflictException("Tài khoản đã có hồ sơ Lab, kể cả hồ sơ đã lưu trữ.");
         var rooms = await ValidateRoom(details.AssignedRoom, ct);
         var now = clock.GetUtcNow().UtcDateTime;
-        var profile = new LabUserProfile { Id = account.Id, FullName = details.FullName, Qualification = details.Qualification,
-            AssignedRoom = details.AssignedRoom, CreatedAt = now, UpdatedAt = now,
-            Audit = [new("Create", actor.Id, actor.Name, now, input.Reason.Trim(), null, details)] };
+        var profile = new LabUserProfile
+        {
+            Id = account.Id,
+            FullName = details.FullName,
+            Qualification = details.Qualification,
+            AssignedRoom = details.AssignedRoom,
+            CreatedAt = now,
+            UpdatedAt = now,
+            Audit = [new("Create", actor.Id, actor.Name, now, input.Reason.Trim(), null, details)]
+        };
         if (!await repository.InsertAsync(profile, ct)) throw new LabProfileConflictException("Tài khoản vừa được tạo hồ sơ. Vui lòng tải lại.");
         return Map(profile, rooms);
     }
@@ -63,6 +70,22 @@ public sealed class LabProfileService(ILabProfileRepository repository, TimeProv
             new(current.FullName, current.Qualification, current.AssignedRoom), details);
         var updated = await repository.UpdateAsync(current.Id, input.ExpectedRevision!.Value, details, audit, ct) ?? throw Stale();
         return Map(updated, rooms);
+    }
+    public async Task DeleteAsync(string id, DeleteLabProfileDto input, LabProfileActor actor, CancellationToken ct = default)
+    {
+        ValidateId(id); ValidateActor(actor); ValidateRevision(input.ExpectedRevision);
+        if (string.IsNullOrWhiteSpace(input.Reason) || input.Reason.Trim().Length < 5 || input.Reason.Length > 500)
+            throw new DomainValidationException("INVALID_LAB_PROFILE_REASON", "Lý do xóa phải có từ 5 đến 500 ký tự.");
+        var current = await repository.GetAsync(id.Trim(), ct) ?? throw new LabProfileNotFoundException();
+        if (current.Revision != input.ExpectedRevision) throw Stale();
+        var now = clock.GetUtcNow().UtcDateTime;
+        var clinicDayStart = DateTime.SpecifyKind(now.AddHours(7).Date.AddHours(-7), DateTimeKind.Utc);
+        // This dependency read is not a cross-collection transaction; assignment writers must coordinate separately.
+        if (await repository.HasCurrentAssignmentsAsync(current.Id, clinicDayStart, ct))
+            throw new LabProfileConflictException("Nhân viên còn phân công Lab trong ngày/tương lai hoặc chưa rõ ngày. Hãy xử lý phân công trước khi xóa.");
+        var audit = new LabProfileAudit("Delete", actor.Id, actor.Name, now, input.Reason.Trim(),
+            new(current.FullName, current.Qualification, current.AssignedRoom), null);
+        if (!await repository.DeleteAsync(current.Id, input.ExpectedRevision!.Value, audit, ct)) throw Stale();
     }
     private static LabProfileConflictException Stale() => new("Hồ sơ đã được thay đổi. Hãy tải lại dữ liệu trước khi thử lại.");
     private static void ValidateRevision(long? revision)

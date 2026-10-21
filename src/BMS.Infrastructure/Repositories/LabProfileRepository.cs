@@ -6,22 +6,26 @@ using MongoDB.Driver;
 
 namespace BMS.Infrastructure.Repositories;
 
-/// <summary>Reads the existing Lab profile and room collections without simulated fallback data.</summary>
+/// <summary>Uses existing Lab collections; professional changes and audit append share one document write.</summary>
 public sealed class LabProfileRepository : ILabProfileRepository
 {
     private readonly IMongoCollection<LabUserProfile> _profiles;
     private readonly IMongoCollection<BsonDocument> _rooms;
     private readonly IMongoCollection<BsonDocument> _accounts;
+    private readonly IMongoCollection<BsonDocument> _assignments;
 
     public LabProfileRepository(IMongoDatabase database)
     {
         _profiles = database.GetCollection<LabUserProfile>("lab_user_profiles");
         _rooms = database.GetCollection<BsonDocument>("lab_rooms");
         _accounts = database.GetCollection<BsonDocument>("accounts");
+        _assignments = database.GetCollection<BsonDocument>("lab_assignments");
         _profiles.Indexes.CreateMany([
             new(Builders<LabUserProfile>.IndexKeys.Ascending(x => x.AssignedRoom).Ascending(x => x.FullName).Ascending(x => x.Id)),
             new(Builders<LabUserProfile>.IndexKeys.Ascending(x => x.CreatedAt).Ascending(x => x.Id))
         ]);
+        _accounts.Indexes.CreateOne(new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("RoleId").Ascending("Status").Ascending("FullName").Ascending("_id")));
+        _assignments.Indexes.CreateOne(new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("lab_user_id").Ascending("shift_date").Ascending("status")));
     }
 
     private static BsonDocument Identity(string field, string id) => ObjectId.TryParse(id, out var oid)
@@ -116,5 +120,21 @@ public sealed class LabProfileRepository : ILabProfileRepository
             .Set(x => x.Qualification, details.Qualification).Set(x => x.AssignedRoom, details.AssignedRoom)
             .Set(x => x.UpdatedAt, audit.At).Inc(x => x.Revision, 1).Push(x => x.Audit, audit),
             new FindOneAndUpdateOptions<LabUserProfile> { ReturnDocument = ReturnDocument.After }, ct)!;
+    }
+    public Task<bool> HasCurrentAssignmentsAsync(string id, DateTime clinicDayStartUtc, CancellationToken ct = default)
+    {
+        var f = Builders<BsonDocument>.Filter;
+        // Unknown/missing shift dates remain blocking until the assignment is corrected or closed.
+        var terminal = new BsonRegularExpression("^(Cancelled|Canceled|Completed|Closed|Inactive)$", "i");
+        return _assignments.Find(Identity("lab_user_id", id) & f.Not(f.Regex("status", terminal)) &
+            f.Ne("is_deleted", true) & f.Ne("isDeleted", true) &
+            (f.Gte("shift_date", clinicDayStartUtc) | f.Not(f.Type("shift_date", BsonType.DateTime)))).AnyAsync(ct);
+    }
+    public async Task<bool> DeleteAsync(string id, long expectedRevision, LabProfileAudit audit, CancellationToken ct = default)
+    {
+        var u = Builders<LabUserProfile>.Update;
+        var result = await _profiles.UpdateOneAsync(CurrentVersion(id, expectedRevision), u.Set(x => x.IsDeleted, true)
+            .Set(x => x.DeletedAt, audit.At).Set(x => x.UpdatedAt, audit.At).Inc(x => x.Revision, 1).Push(x => x.Audit, audit), cancellationToken: ct);
+        return result.ModifiedCount == 1;
     }
 }

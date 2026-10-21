@@ -37,3 +37,10 @@ public sealed class UpdateLabProfileDto
     [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = "";
     [Required, Range(typeof(long), "0", "9223372036854775806")] public long? ExpectedRevision { get; set; }
 }
+
+/// <summary>Logical deletion requires the version viewed and a traceable reason.</summary>
+public sealed class DeleteLabProfileDto
+{
+    [Required, Range(typeof(long), "0", "9223372036854775806")] public long? ExpectedRevision { get; set; }
+    [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = "";
+}
