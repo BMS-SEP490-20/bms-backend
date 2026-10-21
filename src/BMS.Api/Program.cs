@@ -72,6 +72,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.ISampleOriginTraceRepository, BMS
 builder.Services.AddScoped<ISampleOriginTraceService, SampleOriginTraceService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.IMedicalAssessmentRepository, BMS.Infrastructure.Repositories.MedicalAssessmentRepository>();
 builder.Services.AddScoped<IMedicalAssessmentService, MedicalAssessmentService>();
+// builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultNotificationRepository, BMS.Infrastructure.Repositories.TestResultNotificationRepository>();
+// builder.Services.AddScoped<ITestResultNotificationService, TestResultNotificationService>();
 
 
 
