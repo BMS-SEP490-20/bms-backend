@@ -7,6 +7,8 @@ public interface IInventoryRepository
 {
     /// <summary>Inserts a lot or reports an existing normalized code/lot identity.</summary>
     Task<bool> CreateAsync(Reagent item, CancellationToken ct = default);
+    /// <summary>Atomically updates one revision and appends its audit; null means a concurrent change.</summary>
+    Task<Reagent?> UpdateAsync(Reagent item, long expectedRevision, InventoryChange change, CancellationToken ct = default);
     /// <summary>Filters and pages lots; counts refer to the complete filtered set, not the current page.</summary>
     Task<InventoryPage> ListAsync(InventorySearch search, DateTime today, CancellationToken ct = default);
     Task<Reagent?> GetAsync(string id, CancellationToken ct = default);

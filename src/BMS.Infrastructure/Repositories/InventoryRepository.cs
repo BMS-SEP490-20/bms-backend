@@ -73,6 +73,18 @@ public sealed class InventoryRepository : IInventoryRepository
     public Task<Reagent?> GetAsync(string id, CancellationToken ct = default) =>
         _reagents.Find(x => x.Id == id).FirstOrDefaultAsync(ct)!;
 
+    public Task<Reagent?> UpdateAsync(Reagent item, long expectedRevision, InventoryChange change, CancellationToken ct = default)
+    {
+        var f = Builders<Reagent>.Filter;
+        // Legacy documents have no revision; treat them as revision zero until their first mutation.
+        var revision = expectedRevision == 0 ? f.Or(f.Eq(x => x.Revision, 0), f.Exists("revision", false)) : f.Eq(x => x.Revision, expectedRevision);
+        var update = Builders<Reagent>.Update.Set(x => x.Name, item.Name).Set(x => x.Manufacturer, item.Manufacturer)
+            .Set(x => x.Quantity, item.Quantity).Set(x => x.MinimumStock, item.MinimumStock).Set(x => x.ExpiryDate, item.ExpiryDate)
+            .Inc(x => x.Revision, 1).Push(x => x.Changes, change);
+        return _reagents.FindOneAndUpdateAsync(f.Eq(x => x.Id, item.Id) & revision, update,
+            new FindOneAndUpdateOptions<Reagent> { ReturnDocument = ReturnDocument.After }, ct)!;
+    }
+
     public async Task<(List<InventoryTransaction> Items, long Total)> GetTransactionsAsync(string reagentCode, CancellationToken ct = default)
     {
         var filter = Builders<InventoryTransaction>.Filter.Eq(x => x.ReagentCode, reagentCode);
