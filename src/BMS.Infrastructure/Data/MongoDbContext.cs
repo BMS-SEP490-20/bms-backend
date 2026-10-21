@@ -75,6 +75,12 @@ public class MongoDbContext
         _database?.GetCollection<ReferenceIntervalEntity>("reference_intervals");
 
     /// <summary>
+    /// Collection persisting specimen lifecycle history, event logs and storage coordinates ("specimen_histories", UC70).
+    /// </summary>
+    public IMongoCollection<SpecimenHistoryRecord>? SpecimenHistories =>
+        _database?.GetCollection<SpecimenHistoryRecord>("specimen_histories");
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
