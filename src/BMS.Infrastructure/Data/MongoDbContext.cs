@@ -75,6 +75,11 @@ public class MongoDbContext
         _database?.GetCollection<ReferenceIntervalEntity>("reference_intervals");
 
     /// <summary>
+    /// Collection persisting laboratory test result notifications ("test_result_notifications", UC60).
+    /// </summary>
+    public IMongoCollection<BMS.Core.Entities.TestResultNotification>? TestResultNotifications =>
+        _database?.GetCollection<BMS.Core.Entities.TestResultNotification>("test_result_notifications");
+
     /// Collection persisting specimen lifecycle history, event logs and storage coordinates ("specimen_histories", UC70).
     /// </summary>
     public IMongoCollection<SpecimenHistoryRecord>? SpecimenHistories =>
