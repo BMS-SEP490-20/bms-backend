@@ -85,6 +85,15 @@ public class MongoDbContext
     /// </summary>
     public IMongoCollection<RestoreAuditLog>? RestoreAuditLogs =>
         _database?.GetCollection<RestoreAuditLog>("restore_audit_logs");
+    /// Collection persisting laboratory test result notifications ("test_result_notifications", UC60).
+    /// </summary>
+    public IMongoCollection<BMS.Core.Entities.TestResultNotification>? TestResultNotifications =>
+        _database?.GetCollection<BMS.Core.Entities.TestResultNotification>("test_result_notifications");
+
+    /// Collection persisting specimen lifecycle history, event logs and storage coordinates ("specimen_histories", UC70).
+    /// </summary>
+    public IMongoCollection<SpecimenHistoryRecord>? SpecimenHistories =>
+        _database?.GetCollection<SpecimenHistoryRecord>("specimen_histories");
 
     /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
