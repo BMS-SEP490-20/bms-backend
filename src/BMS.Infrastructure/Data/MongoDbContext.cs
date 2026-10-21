@@ -69,6 +69,12 @@ public class MongoDbContext
         _database?.GetCollection<TestCriterionEntity>("test_criteria");
 
     /// <summary>
+    /// Collection persisting biological reference intervals master data ("reference_intervals", UC57).
+    /// </summary>
+    public IMongoCollection<ReferenceIntervalEntity>? ReferenceIntervals =>
+        _database?.GetCollection<ReferenceIntervalEntity>("reference_intervals");
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
