@@ -22,7 +22,17 @@ public sealed class LabUserProfile
     public DateTime? UpdatedAt { get; set; }
     [BsonElement("is_deleted")]
     public bool IsDeleted { get; set; }
+    [BsonElement("audit")]
+    public List<LabProfileAudit> Audit { get; set; } = [];
 }
 
 /// <summary>Minimal reference data from the existing lab_rooms collection.</summary>
 public sealed record LabProfileRoom(string Id, string Code, string Name);
+
+/// <summary>Safe account projection; credential and contact fields are never loaded.</summary>
+public sealed record LabProfileAccount(string Id, string FullName, string Username, bool HasProfile);
+public sealed record LabProfileActor(string Id, string Name);
+/// <summary>Immutable professional-detail snapshot stored with the mutation.</summary>
+public sealed record LabProfileSnapshot(string FullName, string Qualification, string AssignedRoom);
+public sealed record LabProfileAudit(string Action, string ActorId, string ActorName, DateTime At,
+    string Reason, LabProfileSnapshot? Before, LabProfileSnapshot? After);

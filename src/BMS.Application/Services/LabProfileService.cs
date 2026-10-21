@@ -7,7 +7,7 @@ using BMS.Core.Interfaces;
 namespace BMS.Application.Services;
 
 /// <summary>UC61 profile use cases, scoped to professional details rather than login credentials.</summary>
-public sealed class LabProfileService(ILabProfileRepository repository) : ILabProfileService
+public sealed class LabProfileService(ILabProfileRepository repository, TimeProvider clock) : ILabProfileService
 {
     public async Task<LabProfileListDto> ListAsync(LabProfileFilterDto filter, CancellationToken ct = default)
     {
@@ -28,6 +28,45 @@ public sealed class LabProfileService(ILabProfileRepository repository) : ILabPr
     }
 
     public Task<List<LabProfileRoom>> RoomsAsync(CancellationToken ct = default) => repository.RoomsAsync(ct);
+    public async Task<LabProfileAccountsDto> AccountsAsync(string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        if (search?.Length > 100 || page < 1 || page > 10000 || pageSize < 1 || pageSize > 100)
+            throw new DomainValidationException("INVALID_LAB_ACCOUNT_FILTER", "Bộ lọc tài khoản không hợp lệ.");
+        var (items, total) = await repository.AccountsAsync(search?.Trim(), page, pageSize, ct);
+        return new(items, total, page, pageSize, (int)Math.Ceiling((double)total / pageSize));
+    }
+    public async Task<LabProfileDto> CreateAsync(CreateLabProfileDto input, LabProfileActor actor, CancellationToken ct = default)
+    {
+        ValidateId(input.AccountId); ValidateActor(actor);
+        var details = ValidateDetails(input.FullName, input.Qualification, input.AssignedRoom, input.Reason);
+        var account = await repository.EligibleAccountAsync(input.AccountId.Trim(), ct)
+            ?? throw new DomainValidationException("INVALID_LAB_ACCOUNT", "Chọn tài khoản Lab đang hoạt động (kỹ thuật viên hoặc trưởng Lab).");
+        if (account.HasProfile) throw new LabProfileConflictException("Tài khoản đã có hồ sơ Lab, kể cả hồ sơ đã lưu trữ.");
+        var rooms = await ValidateRoom(details.AssignedRoom, ct);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var profile = new LabUserProfile { Id = account.Id, FullName = details.FullName, Qualification = details.Qualification,
+            AssignedRoom = details.AssignedRoom, CreatedAt = now, UpdatedAt = now,
+            Audit = [new("Create", actor.Id, actor.Name, now, input.Reason.Trim(), null, details)] };
+        if (!await repository.InsertAsync(profile, ct)) throw new LabProfileConflictException("Tài khoản vừa được tạo hồ sơ. Vui lòng tải lại.");
+        return Map(profile, rooms);
+    }
+    private static void ValidateActor(LabProfileActor actor)
+    {
+        if (string.IsNullOrWhiteSpace(actor.Id)) throw new ForbiddenAccessException("Không xác định được người thực hiện.");
+    }
+    private static LabProfileSnapshot ValidateDetails(string fullName, string qualification, string room, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(fullName) || fullName.Length > 200 || string.IsNullOrWhiteSpace(qualification) || qualification.Length > 500 ||
+            string.IsNullOrWhiteSpace(room) || room.Length > 100 || string.IsNullOrWhiteSpace(reason) || reason.Trim().Length < 5 || reason.Length > 500)
+            throw new DomainValidationException("INVALID_LAB_PROFILE", "Họ tên (tối đa 200), chuyên môn (tối đa 500), phòng và lý do (5–500 ký tự) là bắt buộc.");
+        return new(fullName.Trim(), qualification.Trim(), room.Trim());
+    }
+    private async Task<List<LabProfileRoom>> ValidateRoom(string room, CancellationToken ct)
+    {
+        var rooms = await repository.RoomsAsync(ct);
+        if (!rooms.Any(r => r.Id == room)) throw new DomainValidationException("INVALID_LAB_ROOM", "Phòng Lab không tồn tại hoặc không còn hoạt động.");
+        return rooms;
+    }
     private static void ValidateId(string id)
     {
         if (string.IsNullOrWhiteSpace(id) || id.Length > 100) throw new DomainValidationException("INVALID_LAB_PROFILE_ID", "Mã hồ sơ không hợp lệ.");

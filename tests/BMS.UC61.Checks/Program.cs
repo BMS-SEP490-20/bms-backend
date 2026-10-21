@@ -8,6 +8,7 @@ using BMS.Application.DTOs.LabProfiles;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
 using BMS.Core.Exceptions;
+using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication;
@@ -38,7 +39,7 @@ try
         new BsonDocument { { "_id", "staff-c" }, { "full_name", "Test C" }, { "qualification", "Hematology" }, { "assigned_room", "ROOM-A" }, { "created_at", new DateTime(2026,10,23,0,0,0,DateTimeKind.Utc) } },
         new BsonDocument { { "_id", "archived" }, { "full_name", "Archived" }, { "is_deleted", true } }
     });
-    var service = new LabProfileService(repository);
+    var service = new LabProfileService(repository, TimeProvider.System);
     await Check("reads legacy ObjectId/string profiles without inventing timestamps", async () => {
         var legacy = await service.GetAsync(a.ToString());
         Assert(legacy?.Revision == 0 && legacy.CreatedAt == null && legacy.RoomName == "Test hematology room");
@@ -67,7 +68,7 @@ try
     await Check("HTTP read contracts enforce management authorization and validation", async () => {
         var builder = WebApplication.CreateBuilder(); builder.WebHost.UseUrls("http://127.0.0.1:0"); builder.Logging.ClearProviders();
         builder.Services.AddControllers().AddApplicationPart(typeof(LabProfilesController).Assembly);
-        builder.Services.AddSingleton<ILabProfileRepository>(repository); builder.Services.AddScoped<ILabProfileService, LabProfileService>();
+        builder.Services.AddSingleton<ILabProfileRepository>(repository); builder.Services.AddSingleton(TimeProvider.System); builder.Services.AddScoped<ILabProfileService, LabProfileService>();
         builder.Services.AddAuthentication("UC61").AddScheme<AuthenticationSchemeOptions, LabProfileAuth>("UC61", _ => { });
         builder.Services.AddAuthorization(); builder.Services.AddExceptionHandler<GlobalExceptionHandler>(); builder.Services.AddProblemDetails();
         await using var app = builder.Build(); app.UseExceptionHandler(); app.UseAuthentication(); app.UseAuthorization(); app.MapControllers(); await app.StartAsync();
@@ -86,13 +87,58 @@ try
         Assert((await http.GetAsync("/api/lab-profiles/missing")).StatusCode == HttpStatusCode.NotFound);
         Assert((await http.GetAsync("/api/lab-profiles?pageSize=101")).StatusCode == HttpStatusCode.BadRequest);
         Assert((await http.GetAsync("/api/lab-profiles?createdFrom=bad-date")).StatusCode == HttpStatusCode.BadRequest);
+        await database.GetCollection<BsonDocument>("accounts").InsertOneAsync(new BsonDocument { { "_id", "http-lab" }, { "FullName", "HTTP fixture" }, { "Username", "httpfixture" }, { "RoleId", "3" }, { "Status", "Active" } });
+        var input = new CreateLabProfileDto { AccountId = "http-lab", FullName = "HTTP professional", Qualification = "Lab", AssignedRoom = "ROOM-A", Reason = "Create via HTTP" };
+        Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Created);
+        Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Conflict);
+        Assert((await http.PostAsJsonAsync("/api/lab-profiles", new { fullName = "missing fields" })).StatusCode == HttpStatusCode.BadRequest);
+        http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", "LabTechnician");
+        Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Forbidden);
         await app.StopAsync();
     });
     await Check("existing BMS profile schema can be read without changing staff data", async () => {
-        var live = new LabProfileService(new LabProfileRepository(client.GetDatabase("BMS_Database")));
+        var live = new LabProfileService(new LabProfileRepository(client.GetDatabase("BMS_Database")), TimeProvider.System);
         var result = await live.ListAsync(new());
         if (result.Items.Count > 0) Assert(await live.GetAsync(result.Items[0].Id) != null);
         Console.WriteLine($"Existing Lab profiles read: {result.Total}.");
+    });
+    var accounts = database.GetCollection<BsonDocument>("accounts");
+    var newId = ObjectId.GenerateNewId().ToString();
+    foreach (var (id, role, status) in new[] { (newId, "3", "Active"), (a.ToString(), "4", "Active"), (b.ToString(), "3", "Active"),
+        ("not-lab", "2", "Active"), ("inactive-lab", "3", "Inactive"), ("archived", "4", "Active"), ("race-lab", "4", "Active") })
+        await accounts.InsertOneAsync(new BsonDocument { { "_id", ObjectId.TryParse(id, out var oid) ? oid : id }, { "RoleId", role },
+            { "Status", status }, { "FullName", "Fixture " + id }, { "Username", "fixture" }, { "Password", "fixture-secret-never-return" } });
+    var actor = new LabProfileActor("manager-check", "Test manager");
+    CreateLabProfileDto Create(string id) => new() { AccountId = id, FullName = "New professional", Qualification = "Lab specialist", AssignedRoom = "ROOM-A", Reason = "Create professional record" };
+    await Check("safe paged account options include reserved profiles and exclude inactive/non-Lab staff", async () => {
+        var options = await service.AccountsAsync(null, 1, 100);
+        Assert(options.Total == 6 && options.Items.Any(x => x.Id == a.ToString() && x.HasProfile));
+        Assert(options.Items.Any(x => x.Id == b.ToString() && x.HasProfile));
+        Assert(options.Items.Any(x => x.Id == "archived" && x.HasProfile));
+        Assert(!System.Text.Json.JsonSerializer.Serialize(options).Contains("fixture-secret"));
+        Assert((await service.AccountsAsync(newId, 1, 1)).Total == 1);
+    });
+    await Check("creation validates account/room/details and preserves existing accounts", async () => {
+        await Reject(() => service.CreateAsync(Create("not-lab"), actor));
+        await Reject(() => service.CreateAsync(Create("inactive-lab"), actor));
+        var invalid = Create(newId); invalid.AssignedRoom = "missing"; await Reject(() => service.CreateAsync(invalid, actor));
+        invalid = Create(newId); invalid.Reason = "   x  "; await Reject(() => service.CreateAsync(invalid, actor));
+        await Conflict(() => service.CreateAsync(Create(a.ToString()), actor));
+        await Conflict(() => service.CreateAsync(Create(b.ToString()), actor));
+        await Conflict(() => service.CreateAsync(Create("archived"), actor));
+        var before = await accounts.Find(new BsonDocument("_id", ObjectId.Parse(newId))).FirstAsync();
+        var created = await service.CreateAsync(Create(newId), actor);
+        var raw = await profiles.Find(new BsonDocument("_id", ObjectId.Parse(newId))).FirstAsync();
+        Assert(created.Id == newId && created.Revision == 0 && created.CreatedAt.HasValue && raw["audit"].AsBsonArray.Count == 1);
+        Assert(raw["audit"][0]["ActorId"] == actor.Id);
+        Assert(before.Equals(await accounts.Find(new BsonDocument("_id", ObjectId.Parse(newId))).FirstAsync()));
+    });
+    await Check("concurrent creates reserve one account identity", async () => {
+        var attempts = await Task.WhenAll(Enumerable.Range(0, 2).Select(async _ => {
+            try { await service.CreateAsync(Create("race-lab"), actor); return true; } catch (LabProfileConflictException) { return false; }
+        }));
+        Assert(attempts.Count(x => x) == 1);
+        Assert(await profiles.CountDocumentsAsync(new BsonDocument("_id", "race-lab")) == 1);
     });
     Console.WriteLine($"UC61: {passed} checks passed.");
 }
@@ -104,13 +150,14 @@ finally
 async Task Check(string name, Func<Task> action) { await action(); passed++; Console.WriteLine($"PASS {name}"); }
 static void Assert(bool value) { if (!value) throw new Exception("Assertion failed."); }
 static async Task Reject(Func<Task> action) { try { await action(); } catch (DomainValidationException) { return; } throw new Exception("Expected validation error."); }
+static async Task Conflict(Func<Task> action) { try { await action(); } catch (LabProfileConflictException) { return; } throw new Exception("Expected conflict."); }
 sealed class LabProfileAuth(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     protected override Task<AuthenticateResult> HandleAuthenticateAsync() {
         var role = Request.Headers["X-Role"].ToString();
         if (string.IsNullOrEmpty(role)) return Task.FromResult(AuthenticateResult.NoResult());
-        var identity = new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, "manager-check"), new Claim(ClaimTypes.Role, role), new Claim(ClaimTypes.Name, "Test manager") }, Scheme.Name);
+        var identity = new ClaimsIdentity(new[] { new Claim("sub", "manager-check"), new Claim(ClaimTypes.Role, role), new Claim(ClaimTypes.Name, "Test manager") }, Scheme.Name);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
     }
 }
