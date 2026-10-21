@@ -24,7 +24,27 @@ public sealed class Reagent
     public decimal MinimumStock { get; set; }
     [BsonElement("expiry_date")]
     public DateTime? ExpiryDate { get; set; }
+    [BsonElement("revision")]
+    public long Revision { get; set; }
+    [BsonElement("changes")]
+    public List<InventoryChange> Changes { get; set; } = new();
 }
+
+/// <summary>Audit stored with the lot so a stock change and its evidence commit atomically.</summary>
+public sealed class InventoryChange
+{
+    public string Action { get; set; } = string.Empty;
+    public string ActorId { get; set; } = string.Empty;
+    public string ActorName { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public DateTime At { get; set; }
+    public InventorySnapshot? Before { get; set; }
+    public InventorySnapshot? After { get; set; }
+}
+
+/// <summary>Stock and metadata captured before/after an inventory operation.</summary>
+public sealed record InventorySnapshot(string Name, string Manufacturer, decimal Quantity,
+    decimal MinimumStock, DateTime? ExpiryDate);
 
 /// <summary>Existing reagent-level stock movement, not a per-lot receipt.</summary>
 [BsonIgnoreExtraElements]

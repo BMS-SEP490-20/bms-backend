@@ -2,9 +2,11 @@ using BMS.Core.Entities;
 
 namespace BMS.Core.Interfaces;
 
-/// <summary>Read-only access to existing inventory collections.</summary>
+/// <summary>Access to existing inventory lots and movement history.</summary>
 public interface IInventoryRepository
 {
+    /// <summary>Inserts a lot or reports an existing normalized code/lot identity.</summary>
+    Task<bool> CreateAsync(Reagent item, CancellationToken ct = default);
     /// <summary>Filters and pages lots; counts refer to the complete filtered set, not the current page.</summary>
     Task<InventoryPage> ListAsync(InventorySearch search, DateTime today, CancellationToken ct = default);
     Task<Reagent?> GetAsync(string id, CancellationToken ct = default);
