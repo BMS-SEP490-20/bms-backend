@@ -16,3 +16,14 @@ public sealed class LabProfileFilterDto
 public sealed record LabProfileDto(string Id, string FullName, string Qualification, string AssignedRoom,
     string RoomName, long Revision, DateTime? CreatedAt, DateTime? UpdatedAt);
 public sealed record LabProfileListDto(List<LabProfileDto> Items, long Total, int Page, int PageSize, int TotalPages);
+
+/// <summary>Professional details only; creating a profile never creates a login account.</summary>
+public sealed class CreateLabProfileDto
+{
+    [Required, StringLength(100)] public string AccountId { get; set; } = "";
+    [Required, StringLength(200)] public string FullName { get; set; } = "";
+    [Required, StringLength(500)] public string Qualification { get; set; } = "";
+    [Required, StringLength(100)] public string AssignedRoom { get; set; } = "";
+    [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = "";
+}
+public sealed record LabProfileAccountsDto(List<BMS.Core.Entities.LabProfileAccount> Items, long Total, int Page, int PageSize, int TotalPages);

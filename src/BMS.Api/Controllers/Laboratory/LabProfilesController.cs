@@ -1,5 +1,7 @@
 using BMS.Application.DTOs.LabProfiles;
 using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -26,4 +28,18 @@ public sealed class LabProfilesController(ILabProfileService service) : Controll
     /// <summary>Returns existing active Lab room references, without modifying assignments.</summary>
     [HttpGet("rooms")]
     public async Task<IActionResult> Rooms(CancellationToken ct) => Ok(await service.RoomsAsync(ct));
+
+    /// <summary>Searches safe references to active Lab accounts; existing profiles remain reserved.</summary>
+    [HttpGet("accounts")]
+    public async Task<IActionResult> Accounts([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        => Ok(await service.AccountsAsync(search, page, pageSize, ct));
+
+    /// <summary>Creates professional details for an existing account, without altering credentials.</summary>
+    [HttpPost]
+    public async Task<IActionResult> Create(CreateLabProfileDto input, CancellationToken ct)
+    {
+        var result = await service.CreateAsync(input, Actor(), ct);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+    private LabProfileActor Actor() => new(User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "", User.Identity?.Name ?? "");
 }
