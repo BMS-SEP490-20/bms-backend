@@ -12,6 +12,7 @@ public static class DependencyInjection
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<ITestCriterionService, TestCriterionService>();
+        services.AddScoped<IReferenceIntervalService, ReferenceIntervalService>();
         services.AddScoped<IPatientService, PatientService>();
         services.AddScoped<IShiftService, ShiftService>();
         services.AddScoped<IScheduleService, ScheduleService>();
