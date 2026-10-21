@@ -66,6 +66,21 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
     private static InventorySnapshot? Snapshot(Reagent? item) => item is null ? null :
         new(item.Name, item.Manufacturer, item.Quantity, item.MinimumStock, item.ExpiryDate);
 
+    public async Task DeleteAsync(string id, DeleteInventoryDto request, string actorId, string actorName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(actorId)) throw new ForbiddenAccessException();
+        if (string.IsNullOrWhiteSpace(id) || id.Length > 100 || request.ExpectedRevision < 0 ||
+            (request.Reason?.Trim().Length ?? 0) < 5 || request.Reason!.Length > 500)
+            throw new DomainValidationException("INVALID_INVENTORY_DELETE", "Nhập lý do xóa từ 5 đến 500 ký tự và phiên bản hợp lệ.");
+        var before = await repository.GetAsync(id, ct) ?? throw new InventoryNotFoundException();
+        if (before.Revision != request.ExpectedRevision)
+            throw new InventoryConflictException("Lô đã được thay đổi. Vui lòng tải lại trước khi xóa.");
+        if (before.Quantity != 0)
+            throw new InventoryConflictException("Chỉ được xóa lô có tồn kho bằng 0. Vui lòng kiểm kê và điều chỉnh tồn trước.");
+        if (!await repository.DeleteAsync(id, request.ExpectedRevision, Change("DELETE", actorId, actorName, request.Reason, before, null), ct))
+            throw new InventoryConflictException("Lô vừa được thay đổi. Vui lòng tải lại trước khi xóa.");
+    }
+
     public async Task<InventoryListDto> ListAsync(InventoryFilterDto filter, CancellationToken ct = default)
     {
         if (filter.Page < 1 || filter.Page > 10000 || filter.PageSize < 1 || filter.PageSize > 100 ||

@@ -28,7 +28,7 @@ public sealed class InventoryRepository : IInventoryRepository
     public async Task<InventoryPage> ListAsync(InventorySearch search, DateTime today, CancellationToken ct = default)
     {
         var f = Builders<Reagent>.Filter;
-        var filter = f.Empty;
+        var filter = f.Ne(x => x.IsDeleted, true);
         if (!string.IsNullOrWhiteSpace(search.Search))
         {
             // Treat input as literal text, never as a caller-supplied regular expression.
@@ -71,7 +71,8 @@ public sealed class InventoryRepository : IInventoryRepository
     }
 
     public Task<Reagent?> GetAsync(string id, CancellationToken ct = default) =>
-        _reagents.Find(x => x.Id == id).FirstOrDefaultAsync(ct)!;
+        _reagents.Find(Builders<Reagent>.Filter.Eq(x => x.Id, id) &
+            Builders<Reagent>.Filter.Ne(x => x.IsDeleted, true)).FirstOrDefaultAsync(ct)!;
 
     public Task<Reagent?> UpdateAsync(Reagent item, long expectedRevision, InventoryChange change, CancellationToken ct = default)
     {
@@ -81,8 +82,19 @@ public sealed class InventoryRepository : IInventoryRepository
         var update = Builders<Reagent>.Update.Set(x => x.Name, item.Name).Set(x => x.Manufacturer, item.Manufacturer)
             .Set(x => x.Quantity, item.Quantity).Set(x => x.MinimumStock, item.MinimumStock).Set(x => x.ExpiryDate, item.ExpiryDate)
             .Inc(x => x.Revision, 1).Push(x => x.Changes, change);
-        return _reagents.FindOneAndUpdateAsync(f.Eq(x => x.Id, item.Id) & revision, update,
+        return _reagents.FindOneAndUpdateAsync(f.Eq(x => x.Id, item.Id) & f.Ne(x => x.IsDeleted, true) & revision, update,
             new FindOneAndUpdateOptions<Reagent> { ReturnDocument = ReturnDocument.After }, ct)!;
+    }
+
+    public async Task<bool> DeleteAsync(string id, long expectedRevision, InventoryChange change, CancellationToken ct = default)
+    {
+        var f = Builders<Reagent>.Filter;
+        var revision = expectedRevision == 0 ? f.Or(f.Eq(x => x.Revision, 0), f.Exists("revision", false)) : f.Eq(x => x.Revision, expectedRevision);
+        // Stock must still be zero at the write boundary, not only when the confirmation was opened.
+        var filter = f.Eq(x => x.Id, id) & f.Ne(x => x.IsDeleted, true) & f.Eq(x => x.Quantity, 0) & revision;
+        var update = Builders<Reagent>.Update.Set(x => x.IsDeleted, true).Set(x => x.DeletedAt, change.At)
+            .Inc(x => x.Revision, 1).Push(x => x.Changes, change);
+        return (await _reagents.UpdateOneAsync(filter, update, cancellationToken: ct)).ModifiedCount == 1;
     }
 
     public async Task<(List<InventoryTransaction> Items, long Total)> GetTransactionsAsync(string reagentCode, CancellationToken ct = default)
