@@ -74,6 +74,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.IMedicalAssessmentRepository, BMS
 builder.Services.AddScoped<IMedicalAssessmentService, MedicalAssessmentService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultNotificationRepository, BMS.Infrastructure.Repositories.TestResultNotificationRepository>();
 builder.Services.AddScoped<ITestResultNotificationService, TestResultNotificationService>();
+// builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultNotificationRepository, BMS.Infrastructure.Repositories.TestResultNotificationRepository>();
+// builder.Services.AddScoped<ITestResultNotificationService, TestResultNotificationService>();
 
 
 
