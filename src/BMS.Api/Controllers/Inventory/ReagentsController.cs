@@ -1,27 +1,70 @@
+using BMS.Application.DTOs.Inventory;
+using BMS.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace BMS.Api.Controllers.Inventory;
 
 /// <summary>
-/// Controller managing laboratory chemical reagents and consumable inventory (UC26 / Iteration 3).
-/// Conforms to: Production Standards &amp; AGENTS-CODE.md.
+/// UC56 inventory API; stock mutations are restricted to warehouse and management staff.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class ReagentsController : ControllerBase
+[Route("api/inventory")]
+[Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff,LabHead,LabTech,LabTechnician,LaboratoryUser,LabUser")]
+public sealed class ReagentsController(IInventoryService service) : ControllerBase
 {
+    private string? ActorId => User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+    private string ActorName => User.FindFirstValue("name") ?? User.FindFirstValue(ClaimTypes.Name) ?? "Nhân viên kho";
+
+    /// <summary>Creates a lot with its opening stock and an immutable audit entry.</summary>
+    [HttpPost]
+    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    [ProducesResponseType(typeof(InventoryItemDto), StatusCodes.Status201Created)]
+    public async Task<IActionResult> Create([FromBody] CreateInventoryDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
+        var item = await service.CreateAsync(request, ActorId, ActorName, ct);
+        return CreatedAtAction(nameof(GetById), new { id = item.Id }, item);
+    }
+
+    /// <summary>Updates one lot revision and records both the previous and resulting stock values.</summary>
+    [HttpPut("{id}")]
+    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    public async Task<IActionResult> Update(string id, [FromBody] UpdateInventoryDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
+        return Ok(await service.UpdateAsync(id, request, ActorId, ActorName, ct));
+    }
+
+    /// <summary>Soft deletes an empty lot at the viewed revision; historical evidence is retained.</summary>
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Delete(string id, [FromBody] DeleteInventoryDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
+        await service.DeleteAsync(id, request, ActorId, ActorName, ct);
+        return NoContent();
+    }
     /// <summary>
     /// Retrieves reagent stock levels and lot expiration tracking.
     /// </summary>
     [HttpGet]
-    public IActionResult GetReagents()
+    [ProducesResponseType(typeof(InventoryListDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetReagents([FromQuery] InventoryFilterDto filter, CancellationToken ct)
     {
-        return Ok(new
-        {
-            success = true,
-            status = "Scheduled",
-            milestone = "Iteration 3",
-            message = "Lab reagents inventory endpoint is scheduled for Iteration 3."
-        });
+        return Ok(await service.ListAsync(filter, ct));
+    }
+
+    /// <summary>Returns a lot and the latest 20 movements for its reagent code.</summary>
+    [HttpGet("{id}")]
+    [ProducesResponseType(typeof(InventoryDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetById(string id, CancellationToken ct)
+    {
+        var item = await service.GetAsync(id, ct);
+        return item is null ? NotFound(new { message = "Không tìm thấy vật tư hoặc lô hóa chất." }) : Ok(item);
     }
 }
