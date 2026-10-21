@@ -1,0 +1,332 @@
+﻿{
+  "info": {
+    "_postman_id": "bms-uc50-medical-assessment",
+    "name": "BMS - UC50 Add Medical Assessment API Collection",
+    "description": "Collection kiểm thử đầy đủ Use Case UC50 (Add Medical Assessment) bao gồm: Auth, Create, Query, Details, Patient History, Patient Encounters, Update, Finalize, Soft Delete và Clinical Validations.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "assessmentId",
+      "value": "ASM-261021-0001",
+      "type": "string"
+    },
+    {
+      "key": "patientId",
+      "value": "USR-PAT-01",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "1.1 Login as Doctor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.accessToken) {
+                    pm.collectionVariables.set('token', jsonData.accessToken);
+                  } else if (jsonData.token) {",
+                  "    pm.collectionVariables.set('token', jsonData.token);",
+                  "} else if (jsonData.data && jsonData.data.token) {",
+                  "    pm.collectionVariables.set('token', jsonData.data.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"doctor\",\n  \"password\": \"Doctor@123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Medical Assessment (UC50)",
+      "item": [
+        {
+          "name": "2.1 Add Medical Assessment (Draft)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('assessmentId', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patientId\": \"{{patientId}}\",\n  \"patientName\": \"Bệnh Nhân Võ Gia Huy\",\n  \"patientDob\": \"1995-05-20T00:00:00Z\",\n  \"patientGender\": \"Male\",\n  \"encounterId\": \"ENC-261021-001\",\n  \"encounterType\": \"ClinicVisit\",\n  \"doctorId\": \"USR-DOC-01\",\n  \"doctorName\": \"BS. Nguyễn Văn An\",\n  \"department\": \"Khoa Khám Bệnh\",\n  \"chiefComplaint\": \"Mệt mỏi nhiều ngày, sụt cân và khát nước liên tục\",\n  \"clinicalSymptoms\": \"Bệnh nhân sụt 3kg trong 1 tháng, ăn nhiều nhưng nhanh đói, tiểu đêm 3 lần.\",\n  \"vitals\": {\n    \"heartRate\": 76,\n    \"systolicBp\": 125,\n    \"diastolicBp\": 80,\n    \"temperature\": 36.6,\n    \"spo2\": 98,\n    \"heightCm\": 172,\n    \"weightKg\": 68\n  },\n  \"physicalExamination\": \"Tim đều rõ, phổi thông khí tốt không rale, bụng mềm gan lách không to.\",\n  \"icd10Code\": \"E11\",\n  \"icd10Name\": \"Đái tháo đường typ 2 (Type 2 diabetes mellitus)\",\n  \"preliminaryDiagnosis\": \"Theo dõi Đái tháo đường typ 2\",\n  \"finalDiagnosis\": \"Đái tháo đường typ 2 mới khởi phát\",\n  \"severity\": \"Moderate\",\n  \"riskLevel\": \"Medium\",\n  \"clinicalImpression\": \"Cần xét nghiệm đường huyết đói và HbA1c để đánh giá mức độ kiểm soát đường huyết.\",\n  \"recommendedTestPackages\": [\n    \"Gói Tầm Soát Đái Tháo Đường & HbA1c\",\n    \"Bộ Mỡ Máu Toàn Phần (Lipid Profile)\"\n  ],\n  \"treatmentPlan\": \"Giảm tinh bột, kiêng đồ ngọt, hạn chế bia rượu. Đi bộ nhẹ nhàng 30 phút mỗi ngày.\",\n  \"prescriptionNotes\": \"Tạm thời chưa dùng thuốc, đợi kết quả xét nghiệm để chỉ định phác đồ cụ thể.\",\n  \"followUpDate\": \"2026-10-28T08:00:00Z\",\n  \"followUpNotes\": \"Mang theo kết quả xét nghiệm khi tái khám.\",\n  \"status\": \"Draft\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments"]
+            }
+          }
+        },
+        {
+          "name": "2.2 Get Patient Encounters for Assessment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments/patient/{{patientId}}/encounters",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments", "patient", "{{patientId}}", "encounters"]
+            }
+          }
+        },
+        {
+          "name": "2.3 Get Assessment Details by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments/{{assessmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments", "{{assessmentId}}"]
+            }
+          }
+        },
+        {
+          "name": "2.4 Query / Filter Assessments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments?keyword=E11&pageNumber=1&pageSize=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments"],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "E11"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2.5 Get All Assessments for Patient",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments/patient/{{patientId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments", "patient", "{{patientId}}"]
+            }
+          }
+        },
+        {
+          "name": "2.6 Update Medical Assessment",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chiefComplaint\": \"Mệt mỏi nhiều ngày, sụt cân và khát nước liên tục (đã cập nhật)\",\n  \"clinicalSymptoms\": \"Bệnh nhân sụt 3kg trong 1 tháng, ăn nhiều nhưng nhanh đói.\",\n  \"vitals\": {\n    \"heartRate\": 78,\n    \"systolicBp\": 120,\n    \"diastolicBp\": 80,\n    \"temperature\": 36.5,\n    \"spo2\": 98,\n    \"heightCm\": 172,\n    \"weightKg\": 67\n  },\n  \"physicalExamination\": \"Khám thực thể bình thường, niêm mạc hồng.\",\n  \"icd10Code\": \"E11\",\n  \"icd10Name\": \"Đái tháo đường typ 2 (Type 2 diabetes mellitus)\",\n  \"preliminaryDiagnosis\": \"Theo dõi Đái tháo đường typ 2\",\n  \"finalDiagnosis\": \"Đái tháo đường typ 2 mới phát hiện\",\n  \"severity\": \"Moderate\",\n  \"riskLevel\": \"Medium\",\n  \"clinicalImpression\": \"Cần xét nghiệm máu và theo dõi chặt chẽ.\",\n  \"recommendedTestPackages\": [\n    \"Gói Tầm Soát Đái Tháo Đường & HbA1c\"\n  ],\n  \"treatmentPlan\": \"Ăn giảm bột đường.\",\n  \"prescriptionNotes\": \"Chờ kết quả xét nghiệm.\",\n  \"followUpDate\": \"2026-10-28T08:00:00Z\",\n  \"followUpNotes\": \"Tái khám buổi sáng nhịn ăn.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments/{{assessmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments", "{{assessmentId}}"]
+            }
+          }
+        },
+        {
+          "name": "2.7 Finalize & Lock Assessment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"finalNotes\": \"Bác sĩ xác nhận chẩn đoán và hoàn tất đánh giá y khoa lâm sàng.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments/{{assessmentId}}/finalize",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments", "{{assessmentId}}", "finalize"]
+            }
+          }
+        },
+        {
+          "name": "2.8 Soft Delete Assessment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deleteReason\": \"Hồ sơ lập nhầm lượt khám cần hủy và tạo lại phiếu mới.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments/{{assessmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments", "{{assessmentId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Clinical Validation Tests (Negative)",
+      "item": [
+        {
+          "name": "3.1 Invariant Fail - Blood Pressure (Sys <= Dia + 15)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patientId\": \"{{patientId}}\",\n  \"chiefComplaint\": \"Kiểm tra huyết áp bất thường\",\n  \"icd10Code\": \"I10\",\n  \"finalDiagnosis\": \"Tăng huyết áp vô căn\",\n  \"vitals\": {\n    \"heartRate\": 80,\n    \"systolicBp\": 100,\n    \"diastolicBp\": 95,\n    \"temperature\": 36.5,\n    \"spo2\": 98,\n    \"heightCm\": 170,\n    \"weightKg\": 65\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments"]
+            }
+          }
+        },
+        {
+          "name": "3.2 Validation Fail - Missing ICD-10 or Invalid Format",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patientId\": \"{{patientId}}\",\n  \"chiefComplaint\": \"Khám tổng quát\",\n  \"icd10Code\": \"INVALID_CODE_123\",\n  \"finalDiagnosis\": \"Không hợp lệ\",\n  \"vitals\": {\n    \"heartRate\": 80,\n    \"systolicBp\": 120,\n    \"diastolicBp\": 80,\n    \"temperature\": 36.5,\n    \"spo2\": 98,\n    \"heightCm\": 170,\n    \"weightKg\": 65\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medical-assessments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medical-assessments"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
