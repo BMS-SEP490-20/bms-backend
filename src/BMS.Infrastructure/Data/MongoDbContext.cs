@@ -75,6 +75,13 @@ public class MongoDbContext
         _database?.GetCollection<ReferenceIntervalEntity>("reference_intervals");
 
     /// <summary>
+    /// Collection persisting laboratory test result notifications ("test_result_notifications", UC60).
+    /// </summary>
+    public IMongoCollection<BMS.Core.Entities.TestResultNotification>? TestResultNotifications =>
+        _database?.GetCollection<BMS.Core.Entities.TestResultNotification>("test_result_notifications");
+
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
