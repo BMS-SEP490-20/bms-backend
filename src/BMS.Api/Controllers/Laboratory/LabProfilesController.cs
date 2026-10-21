@@ -41,5 +41,10 @@ public sealed class LabProfilesController(ILabProfileService service) : Controll
         var result = await service.CreateAsync(input, Actor(), ct);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
+    /// <summary>Updates professional details with optimistic concurrency; account identity cannot change.</summary>
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(string id, UpdateLabProfileDto input, CancellationToken ct)
+        => Ok(await service.UpdateAsync(id, input, Actor(), ct));
+
     private LabProfileActor Actor() => new(User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "", User.Identity?.Name ?? "");
 }

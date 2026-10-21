@@ -50,6 +50,26 @@ public sealed class LabProfileService(ILabProfileRepository repository, TimeProv
         if (!await repository.InsertAsync(profile, ct)) throw new LabProfileConflictException("Tài khoản vừa được tạo hồ sơ. Vui lòng tải lại.");
         return Map(profile, rooms);
     }
+    public async Task<LabProfileDto> UpdateAsync(string id, UpdateLabProfileDto input, LabProfileActor actor, CancellationToken ct = default)
+    {
+        ValidateId(id); ValidateActor(actor); ValidateRevision(input.ExpectedRevision);
+        var details = ValidateDetails(input.FullName, input.Qualification, input.AssignedRoom, input.Reason);
+        var current = await repository.GetAsync(id.Trim(), ct) ?? throw new LabProfileNotFoundException();
+        if (current.Revision != input.ExpectedRevision) throw Stale();
+        if (await repository.EligibleAccountAsync(current.Id, ct) is null)
+            throw new DomainValidationException("INVALID_LAB_ACCOUNT", "Tài khoản liên kết không còn là nhân viên Lab đang hoạt động.");
+        var rooms = await ValidateRoom(details.AssignedRoom, ct);
+        var audit = new LabProfileAudit("Update", actor.Id, actor.Name, clock.GetUtcNow().UtcDateTime, input.Reason.Trim(),
+            new(current.FullName, current.Qualification, current.AssignedRoom), details);
+        var updated = await repository.UpdateAsync(current.Id, input.ExpectedRevision!.Value, details, audit, ct) ?? throw Stale();
+        return Map(updated, rooms);
+    }
+    private static LabProfileConflictException Stale() => new("Hồ sơ đã được thay đổi. Hãy tải lại dữ liệu trước khi thử lại.");
+    private static void ValidateRevision(long? revision)
+    {
+        if (!revision.HasValue || revision < 0 || revision == long.MaxValue)
+            throw new DomainValidationException("INVALID_LAB_PROFILE_REVISION", "Cần phiên bản hồ sơ hợp lệ. Hãy tải lại dữ liệu.");
+    }
     private static void ValidateActor(LabProfileActor actor)
     {
         if (string.IsNullOrWhiteSpace(actor.Id)) throw new ForbiddenAccessException("Không xác định được người thực hiện.");

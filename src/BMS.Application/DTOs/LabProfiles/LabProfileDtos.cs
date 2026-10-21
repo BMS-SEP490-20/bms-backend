@@ -27,3 +27,13 @@ public sealed class CreateLabProfileDto
     [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = "";
 }
 public sealed record LabProfileAccountsDto(List<BMS.Core.Entities.LabProfileAccount> Items, long Total, int Page, int PageSize, int TotalPages);
+
+/// <summary>Account identity is immutable; callers must submit the version they viewed.</summary>
+public sealed class UpdateLabProfileDto
+{
+    [Required, StringLength(200)] public string FullName { get; set; } = "";
+    [Required, StringLength(500)] public string Qualification { get; set; } = "";
+    [Required, StringLength(100)] public string AssignedRoom { get; set; } = "";
+    [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = "";
+    [Required, Range(typeof(long), "0", "9223372036854775806")] public long? ExpectedRevision { get; set; }
+}

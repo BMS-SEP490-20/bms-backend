@@ -101,4 +101,20 @@ public sealed class LabProfileRepository : ILabProfileRepository
         try { await _profiles.InsertOneAsync(profile, cancellationToken: ct); return true; }
         catch (MongoWriteException e) when (e.WriteError.Category == ServerErrorCategory.DuplicateKey) { return false; }
     }
+    // Missing revisions are legacy version zero. Active-state and revision checks share the atomic write.
+    private static FilterDefinition<LabUserProfile> CurrentVersion(string id, long revision)
+    {
+        var f = Builders<LabUserProfile>.Filter;
+        var version = f.Eq(x => x.Revision, revision);
+        if (revision == 0) version |= f.Exists(x => x.Revision, false);
+        return ProfileId(id) & f.Ne(x => x.IsDeleted, true) & version;
+    }
+    public Task<LabUserProfile?> UpdateAsync(string id, long expectedRevision, LabProfileSnapshot details, LabProfileAudit audit, CancellationToken ct = default)
+    {
+        var u = Builders<LabUserProfile>.Update;
+        return _profiles.FindOneAndUpdateAsync(CurrentVersion(id, expectedRevision), u.Set(x => x.FullName, details.FullName)
+            .Set(x => x.Qualification, details.Qualification).Set(x => x.AssignedRoom, details.AssignedRoom)
+            .Set(x => x.UpdatedAt, audit.At).Inc(x => x.Revision, 1).Push(x => x.Audit, audit),
+            new FindOneAndUpdateOptions<LabUserProfile> { ReturnDocument = ReturnDocument.After }, ct)!;
+    }
 }

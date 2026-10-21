@@ -92,8 +92,14 @@ try
         Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Created);
         Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Conflict);
         Assert((await http.PostAsJsonAsync("/api/lab-profiles", new { fullName = "missing fields" })).StatusCode == HttpStatusCode.BadRequest);
+        var edit = new UpdateLabProfileDto { FullName = "HTTP updated", Qualification = "Lab senior", AssignedRoom = "ROOM-B", Reason = "Update via HTTP", ExpectedRevision = 0 };
+        Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.OK);
+        Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.Conflict);
+        edit.ExpectedRevision = null;
+        Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.BadRequest);
         http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", "LabTechnician");
         Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Forbidden);
+        Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.Forbidden);
         await app.StopAsync();
     });
     await Check("existing BMS profile schema can be read without changing staff data", async () => {
@@ -139,6 +145,33 @@ try
         }));
         Assert(attempts.Count(x => x) == 1);
         Assert(await profiles.CountDocumentsAsync(new BsonDocument("_id", "race-lab")) == 1);
+    });
+    UpdateLabProfileDto Edit(long? revision = 0) => new() { FullName = "Updated professional", Qualification = "Senior specialist", AssignedRoom = "ROOM-B", Reason = "Correct professional details", ExpectedRevision = revision };
+    await Check("legacy update preserves identity, unknown fields, timestamps and account", async () => {
+        await profiles.UpdateOneAsync(new BsonDocument("_id", a), new BsonDocument("$set", new BsonDocument("legacy_extra", "preserved")));
+        var before = await accounts.Find(new BsonDocument("_id", a)).FirstAsync();
+        var result = await service.UpdateAsync(a.ToString(), Edit(), actor);
+        var raw = await profiles.Find(new BsonDocument("_id", a)).FirstAsync();
+        Assert(result.Id == a.ToString() && result.Revision == 1 && result.CreatedAt == null && result.AssignedRoom == "ROOM-B");
+        Assert(raw["legacy_extra"] == "preserved" && raw["audit"][0]["Before"]["FullName"] == "Test [A]");
+        Assert(before.Equals(await accounts.Find(new BsonDocument("_id", a)).FirstAsync()));
+        await Conflict(() => service.UpdateAsync(a.ToString(), Edit(), actor));
+        await Reject(() => service.UpdateAsync(a.ToString(), Edit(null), actor));
+        await Reject(() => service.UpdateAsync(a.ToString(), Edit(-1), actor));
+        var invalid = Edit(1); invalid.AssignedRoom = "missing"; await Reject(() => service.UpdateAsync(a.ToString(), invalid, actor));
+    });
+    await Check("only one concurrent update wins; audit appends atomically", async () => {
+        var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(async _ => {
+            try { await service.UpdateAsync(newId, Edit(), actor); return true; } catch (LabProfileConflictException) { return false; }
+        }));
+        Assert(results.Count(x => x) == 1);
+        var raw = await profiles.Find(new BsonDocument("_id", ObjectId.Parse(newId))).FirstAsync();
+        Assert(raw["revision"].ToInt64() == 1 && raw["audit"].AsBsonArray.Count == 2);
+    });
+    await Check("profile cannot be edited after linked account deactivation", async () => {
+        await accounts.UpdateOneAsync(new BsonDocument("_id", b), new BsonDocument("$set", new BsonDocument("Status", "Inactive")));
+        await Reject(() => service.UpdateAsync(b.ToString(), Edit(), actor));
+        Assert((await service.GetAsync(b.ToString()))?.Revision == 0);
     });
     Console.WriteLine($"UC61: {passed} checks passed.");
 }
