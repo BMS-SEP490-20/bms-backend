@@ -75,6 +75,18 @@ public class MongoDbContext
         _database?.GetCollection<ReferenceIntervalEntity>("reference_intervals");
 
     /// <summary>
+    /// Collection persisting database backup snapshots and archives ("backup_records", UC80).
+    /// </summary>
+    public IMongoCollection<BackupRecord>? BackupRecords =>
+        _database?.GetCollection<BackupRecord>("backup_records");
+
+    /// <summary>
+    /// Collection persisting restore audit logs ("restore_audit_logs", UC80).
+    /// </summary>
+    public IMongoCollection<RestoreAuditLog>? RestoreAuditLogs =>
+        _database?.GetCollection<RestoreAuditLog>("restore_audit_logs");
+
+    /// <summary>
     /// Initializes necessary database indexes, notably the TTL Index on ExpiresAt.
     /// </summary>
     private void EnsureIndexes()
