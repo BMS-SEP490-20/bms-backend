@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<ITestBatchService, TestBatchService>();
         services.AddScoped<IReceiptService, ReceiptService>();
         services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+        services.AddScoped<IMedicalNoteService, MedicalNoteService>();
         services.AddScoped<IPatientReceptionService, PatientReceptionService>();
 
         return services;
