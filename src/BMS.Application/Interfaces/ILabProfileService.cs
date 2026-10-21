@@ -11,4 +11,5 @@ public interface ILabProfileService
     Task<List<LabProfileRoom>> RoomsAsync(CancellationToken ct = default);
     Task<LabProfileAccountsDto> AccountsAsync(string? search, int page, int pageSize, CancellationToken ct = default);
     Task<LabProfileDto> CreateAsync(CreateLabProfileDto input, LabProfileActor actor, CancellationToken ct = default);
+    Task<LabProfileDto> UpdateAsync(string id, UpdateLabProfileDto input, LabProfileActor actor, CancellationToken ct = default);
 }
