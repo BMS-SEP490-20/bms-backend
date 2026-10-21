@@ -6,6 +6,7 @@ namespace BMS.Application.Interfaces;
 public interface IInventoryService
 {
     Task<InventoryItemDto> CreateAsync(CreateInventoryDto request, string actorId, string actorName, CancellationToken ct = default);
+    Task<InventoryItemDto> UpdateAsync(string id, UpdateInventoryDto request, string actorId, string actorName, CancellationToken ct = default);
     Task<InventoryListDto> ListAsync(InventoryFilterDto filter, CancellationToken ct = default);
     Task<InventoryDetailDto?> GetAsync(string id, CancellationToken ct = default);
 }

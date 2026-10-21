@@ -28,6 +28,15 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
         var item = await service.CreateAsync(request, ActorId, ActorName, ct);
         return CreatedAtAction(nameof(GetById), new { id = item.Id }, item);
     }
+
+    /// <summary>Updates one lot revision and records both the previous and resulting stock values.</summary>
+    [HttpPut("{id}")]
+    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    public async Task<IActionResult> Update(string id, [FromBody] UpdateInventoryDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
+        return Ok(await service.UpdateAsync(id, request, ActorId, ActorName, ct));
+    }
     /// <summary>
     /// Retrieves reagent stock levels and lot expiration tracking.
     /// </summary>

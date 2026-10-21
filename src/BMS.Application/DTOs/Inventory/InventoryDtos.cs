@@ -48,5 +48,11 @@ public sealed class CreateInventoryDto : InventoryValuesDto
     [Required, StringLength(30)] public string Unit { get; set; } = string.Empty;
 }
 
+/// <summary>Updates values on the exact revision viewed by the client; lot identity and unit remain immutable.</summary>
+public sealed class UpdateInventoryDto : InventoryValuesDto
+{
+    [Range(0, long.MaxValue)] public long ExpectedRevision { get; set; }
+}
+
 public sealed record InventoryChangeDto(string Action, string ActorName, string Reason, DateTime At,
     decimal? BeforeQuantity, decimal? AfterQuantity);

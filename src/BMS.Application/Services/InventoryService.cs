@@ -43,6 +43,23 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
             throw new DomainValidationException("INVALID_INVENTORY", "Thông tin không hợp lệ: nhập đủ thông tin, lý do tối thiểu 5 ký tự; số lượng không âm và tối đa 3 chữ số thập phân.");
     }
 
+    public async Task<InventoryItemDto> UpdateAsync(string id, UpdateInventoryDto request, string actorId, string actorName, CancellationToken ct = default)
+    {
+        ValidateValues(request, actorId);
+        if (string.IsNullOrWhiteSpace(id) || id.Length > 100)
+            throw new DomainValidationException("INVALID_INVENTORY_ID", "Mã vật tư không hợp lệ.");
+        var before = await repository.GetAsync(id, ct) ?? throw new InventoryNotFoundException();
+        if (before.Revision != request.ExpectedRevision)
+            throw new InventoryConflictException("Lô đã được thay đổi. Vui lòng tải lại dữ liệu mới nhất trước khi lưu.");
+        var next = new Reagent { Id = before.Id, Code = before.Code, LotNumber = before.LotNumber, Unit = before.Unit,
+            Name = request.Name.Trim(), Manufacturer = request.Manufacturer.Trim(), Quantity = request.Quantity,
+            MinimumStock = request.MinimumStock, ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate!.Value.Date, DateTimeKind.Utc) };
+        var updated = await repository.UpdateAsync(next, request.ExpectedRevision,
+            Change("UPDATE", actorId, actorName, request.Reason, before, next), ct)
+            ?? throw new InventoryConflictException("Lô vừa được thay đổi. Vui lòng tải lại trước khi lưu.");
+        return Map(updated, Today);
+    }
+
     private InventoryChange Change(string action, string actorId, string actorName, string reason, Reagent? before, Reagent? after) =>
         new() { Action = action, ActorId = actorId, ActorName = actorName, Reason = reason.Trim(), At = clock.GetUtcNow().UtcDateTime,
             Before = Snapshot(before), After = Snapshot(after) };

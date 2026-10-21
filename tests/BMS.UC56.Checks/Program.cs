@@ -134,6 +134,13 @@ try
         Assert((await http.PostAsJsonAsync("/api/inventory", create)).StatusCode == HttpStatusCode.Conflict);
         create.Quantity = -1;
         Assert((await http.PostAsJsonAsync("/api/inventory", create)).StatusCode == HttpStatusCode.BadRequest);
+        var update = EditLot(0, 7);
+        var updatedResponse = await http.PutAsJsonAsync($"/api/inventory/{created!.Id}", update);
+        Assert(updatedResponse.StatusCode == HttpStatusCode.OK);
+        Assert((await updatedResponse.Content.ReadFromJsonAsync<InventoryItemDto>())?.Revision == 1);
+        Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", update)).StatusCode == HttpStatusCode.Conflict);
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "LabTech");
+        Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", EditLot(1, 8))).StatusCode == HttpStatusCode.Forbidden);
         await app.StopAsync();
     });
     await Check("existing BMS schema can be read without modifying stock", async () => {
@@ -170,6 +177,30 @@ try
         try { await service.CreateAsync(request, "warehouse-1", "Warehouse One"); throw new Exception("Expected duplicate conflict."); }
         catch (InventoryConflictException) { }
     });
+    await Check("update retains identity and atomically saves stock, revision and audit", async () => {
+        var created = await service.CreateAsync(NewLot("UPDATE-CHECK"), "warehouse-1", "Warehouse One");
+        var result = await service.UpdateAsync(created.Id, EditLot(0, 7), "warehouse-2", "Warehouse Two");
+        Assert(result.Revision == 1 && result.Quantity == 7 && result.Code == created.Code && result.LotNumber == created.LotNumber && result.Unit == created.Unit);
+        var stored = await repository.GetAsync(result.Id);
+        Assert(stored!.Changes.Count == 2 && stored.Changes.Last().Before!.Quantity == 10 && stored.Changes.Last().After!.Quantity == 7);
+        Assert(stored.Changes.Last().ActorId == "warehouse-2");
+        var legacy = Lot("legacy-update", "LEGACY", today.AddDays(100), 5, 1);
+        var collection = database.GetCollection<Reagent>("reagents");
+        await collection.InsertOneAsync(legacy);
+        await collection.UpdateOneAsync(x => x.Id == legacy.Id, Builders<Reagent>.Update.Unset(x => x.Revision));
+        Assert((await service.UpdateAsync(legacy.Id, EditLot(0, 4), "warehouse-1", "One")).Revision == 1);
+    });
+    await Check("stale and concurrent updates cannot overwrite newer stock", async () => {
+        var created = await service.CreateAsync(NewLot("UPDATE-RACE"), "warehouse-1", "One");
+        var results = await Task.WhenAll(Enumerable.Range(1, 5).Select(async n => {
+            try { await service.UpdateAsync(created.Id, EditLot(0, n), "warehouse-1", "One"); return true; }
+            catch (InventoryConflictException) { return false; }
+        }));
+        Assert(results.Count(x => x) == 1 && (await repository.GetAsync(created.Id))!.Changes.Count == 2);
+        await Reject(() => service.UpdateAsync(created.Id, EditLot(1, -1), "warehouse-1", "One"));
+        try { await service.UpdateAsync("not-found", EditLot(0, 1), "warehouse-1", "One"); throw new Exception("Expected 404."); }
+        catch (InventoryNotFoundException) { }
+    });
     Console.WriteLine($"UC56: {passed} checks passed.");
 }
 finally
@@ -186,6 +217,8 @@ Reagent Lot(string id, string code, DateTime? expiry, decimal qty, decimal min) 
 };
 CreateInventoryDto NewLot(string code) => new() { Code = code, LotNumber = "LOT-NEW", Unit = "Hộp", Name = "Test reagent",
     Manufacturer = "Test manufacturer", Quantity = 10, MinimumStock = 2, ExpiryDate = today.AddDays(90), Reason = "Initial stock check" };
+UpdateInventoryDto EditLot(long revision, decimal quantity) => new() { Name = "Reconciled reagent", Manufacturer = "Updated manufacturer",
+    Quantity = quantity, MinimumStock = 3, ExpiryDate = today.AddDays(120), Reason = "Physical stock reconciliation", ExpectedRevision = revision };
 async Task Check(string name, Func<Task> action) { await action(); passed++; Console.WriteLine($"PASS {name}"); }
 static void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed."); }
 static async Task Reject(Func<Task> action) { try { await action(); } catch (DomainValidationException) { return; } throw new Exception("Expected validation failure."); }
