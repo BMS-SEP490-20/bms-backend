@@ -93,7 +93,7 @@ try
         Assert((await service.GetAsync("unknown"))!.Transactions.Count == 0);
         Assert(await service.GetAsync("missing") == null);
     });
-    await Check("HTTP authentication, role boundaries, aliases and read-only verbs", async () => {
+    await Check("HTTP authentication, management roles, CRUD validation and aliases", async () => {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
@@ -141,6 +141,17 @@ try
         Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", update)).StatusCode == HttpStatusCode.Conflict);
         http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "LabTech");
         Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", EditLot(1, 8))).StatusCode == HttpStatusCode.Forbidden);
+        using (var forbiddenDelete = new HttpRequestMessage(HttpMethod.Delete, $"/api/inventory/{created.Id}") { Content = JsonContent.Create(new DeleteInventoryDto { ExpectedRevision = 1, Reason = "Archive test lot" }) })
+            Assert((await http.SendAsync(forbiddenDelete)).StatusCode == HttpStatusCode.Forbidden);
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "WarehouseStaff");
+        Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", EditLot(1, 0))).StatusCode == HttpStatusCode.OK);
+        using (var staleDelete = new HttpRequestMessage(HttpMethod.Delete, $"/api/inventory/{created.Id}") { Content = JsonContent.Create(new DeleteInventoryDto { ExpectedRevision = 1, Reason = "Archive test lot" }) })
+            Assert((await http.SendAsync(staleDelete)).StatusCode == HttpStatusCode.Conflict);
+        using (var invalidDelete = new HttpRequestMessage(HttpMethod.Delete, $"/api/inventory/{created.Id}") { Content = JsonContent.Create(new DeleteInventoryDto { ExpectedRevision = 2, Reason = " " }) })
+            Assert((await http.SendAsync(invalidDelete)).StatusCode == HttpStatusCode.BadRequest);
+        using (var delete = new HttpRequestMessage(HttpMethod.Delete, $"/api/inventory/{created.Id}") { Content = JsonContent.Create(new DeleteInventoryDto { ExpectedRevision = 2, Reason = "Archive test lot" }) })
+            Assert((await http.SendAsync(delete)).StatusCode == HttpStatusCode.NoContent);
+        Assert((await http.GetAsync($"/api/inventory/{created.Id}")).StatusCode == HttpStatusCode.NotFound);
         await app.StopAsync();
     });
     await Check("existing BMS schema can be read without modifying stock", async () => {
@@ -201,6 +212,40 @@ try
         try { await service.UpdateAsync("not-found", EditLot(0, 1), "warehouse-1", "One"); throw new Exception("Expected 404."); }
         catch (InventoryNotFoundException) { }
     });
+    await Check("delete archives zero stock, preserves audit and hides active reads", async () => {
+        var request = NewLot("DELETE-CHECK"); request.Quantity = 0;
+        var created = await service.CreateAsync(request, "warehouse-1", "One");
+        var beforeCount = (await service.ListAsync(new())).Total;
+        await service.DeleteAsync(created.Id, Archive(0), "warehouse-2", "Two");
+        Assert(await repository.GetAsync(created.Id) == null && (await service.ListAsync(new())).Total == beforeCount - 1);
+        var stored = await database.GetCollection<Reagent>("reagents").Find(x => x.Id == created.Id).SingleAsync();
+        Assert(stored.IsDeleted && stored.DeletedAt != null && stored.Revision == 1 && stored.Changes.Count == 2);
+        Assert(stored.Changes.Last().Action == "DELETE" && stored.Changes.Last().ActorId == "warehouse-2");
+        try { await service.CreateAsync(request, "warehouse-1", "One"); throw new Exception("Archived identity must remain reserved."); }
+        catch (InventoryConflictException) { }
+        try { await service.UpdateAsync(created.Id, EditLot(1, 5), "warehouse-1", "One"); throw new Exception("Archived lot cannot be updated."); }
+        catch (InventoryNotFoundException) { }
+    });
+    await Check("delete refuses positive stock, stale revisions and invalid reasons", async () => {
+        var request = NewLot("DELETE-NONZERO");
+        var created = await service.CreateAsync(request, "warehouse-1", "One");
+        try { await service.DeleteAsync(created.Id, Archive(0), "warehouse-1", "One"); throw new Exception("Positive stock cannot be deleted."); }
+        catch (InventoryConflictException) { }
+        await Reject(() => service.DeleteAsync(created.Id, new() { ExpectedRevision = 0, Reason = " " }, "warehouse-1", "One"));
+        Assert((await repository.GetAsync(created.Id))!.Quantity == 10);
+    });
+    await Check("concurrent update and delete cannot resurrect a lot or discard newly added stock", async () => {
+        var request = NewLot("DELETE-RACE"); request.Quantity = 0;
+        var created = await service.CreateAsync(request, "warehouse-1", "One");
+        async Task<bool> Try(Func<Task> operation) {
+            try { await operation(); return true; } catch (InventoryConflictException) { return false; } catch (InventoryNotFoundException) { return false; }
+        }
+        var results = await Task.WhenAll(Try(() => service.UpdateAsync(created.Id, EditLot(0, 5), "warehouse-1", "One")),
+            Try(() => service.DeleteAsync(created.Id, Archive(0), "warehouse-1", "One")));
+        Assert(results.Count(x => x) == 1);
+        var stored = await database.GetCollection<Reagent>("reagents").Find(x => x.Id == created.Id).SingleAsync();
+        Assert(stored.Revision == 1 && stored.Changes.Count == 2 && (stored.IsDeleted ? stored.Quantity == 0 : stored.Quantity == 5));
+    });
     Console.WriteLine($"UC56: {passed} checks passed.");
 }
 finally
@@ -219,6 +264,7 @@ CreateInventoryDto NewLot(string code) => new() { Code = code, LotNumber = "LOT-
     Manufacturer = "Test manufacturer", Quantity = 10, MinimumStock = 2, ExpiryDate = today.AddDays(90), Reason = "Initial stock check" };
 UpdateInventoryDto EditLot(long revision, decimal quantity) => new() { Name = "Reconciled reagent", Manufacturer = "Updated manufacturer",
     Quantity = quantity, MinimumStock = 3, ExpiryDate = today.AddDays(120), Reason = "Physical stock reconciliation", ExpectedRevision = revision };
+DeleteInventoryDto Archive(long revision) => new() { ExpectedRevision = revision, Reason = "Archive empty lot after reconciliation" };
 async Task Check(string name, Func<Task> action) { await action(); passed++; Console.WriteLine($"PASS {name}"); }
 static void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed."); }
 static async Task Reject(Func<Task> action) { try { await action(); } catch (DomainValidationException) { return; } throw new Exception("Expected validation failure."); }

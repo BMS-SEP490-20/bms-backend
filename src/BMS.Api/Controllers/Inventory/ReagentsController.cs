@@ -37,6 +37,17 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
         if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
         return Ok(await service.UpdateAsync(id, request, ActorId, ActorName, ct));
     }
+
+    /// <summary>Soft deletes an empty lot at the viewed revision; historical evidence is retained.</summary>
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Delete(string id, [FromBody] DeleteInventoryDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
+        await service.DeleteAsync(id, request, ActorId, ActorName, ct);
+        return NoContent();
+    }
     /// <summary>
     /// Retrieves reagent stock levels and lot expiration tracking.
     /// </summary>

@@ -54,5 +54,12 @@ public sealed class UpdateInventoryDto : InventoryValuesDto
     [Range(0, long.MaxValue)] public long ExpectedRevision { get; set; }
 }
 
+/// <summary>Archives an empty lot while preserving its stock history and mutation audit.</summary>
+public sealed class DeleteInventoryDto
+{
+    [Range(0, long.MaxValue)] public long ExpectedRevision { get; set; }
+    [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = string.Empty;
+}
+
 public sealed record InventoryChangeDto(string Action, string ActorName, string Reason, DateTime At,
     decimal? BeforeQuantity, decimal? AfterQuantity);

@@ -28,6 +28,10 @@ public sealed class Reagent
     public long Revision { get; set; }
     [BsonElement("changes")]
     public List<InventoryChange> Changes { get; set; } = new();
+    [BsonElement("is_deleted")]
+    public bool IsDeleted { get; set; }
+    [BsonElement("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
 }
 
 /// <summary>Audit stored with the lot so a stock change and its evidence commit atomically.</summary>
