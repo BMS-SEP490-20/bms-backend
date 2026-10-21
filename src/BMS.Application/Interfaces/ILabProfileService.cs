@@ -3,7 +3,7 @@ using BMS.Core.Entities;
 
 namespace BMS.Application.Interfaces;
 
-/// <summary>UC61 professional Lab profile directory.</summary>
+/// <summary>UC61 professional Lab profile management, with validated references and audited mutations.</summary>
 public interface ILabProfileService
 {
     Task<LabProfileListDto> ListAsync(LabProfileFilterDto filter, CancellationToken ct = default);
@@ -12,4 +12,5 @@ public interface ILabProfileService
     Task<LabProfileAccountsDto> AccountsAsync(string? search, int page, int pageSize, CancellationToken ct = default);
     Task<LabProfileDto> CreateAsync(CreateLabProfileDto input, LabProfileActor actor, CancellationToken ct = default);
     Task<LabProfileDto> UpdateAsync(string id, UpdateLabProfileDto input, LabProfileActor actor, CancellationToken ct = default);
+    Task DeleteAsync(string id, DeleteLabProfileDto input, LabProfileActor actor, CancellationToken ct = default);
 }
