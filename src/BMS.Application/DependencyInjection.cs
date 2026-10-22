@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<IInventoryService, InventoryService>();
         services.AddScoped<ILabProfileService, LabProfileService>();
         services.AddScoped<ISampleTimelineService, SampleTimelineService>();
+        services.AddScoped<ITestHistoryService, TestHistoryService>();
         services.AddScoped<IPatientReceptionService, PatientReceptionService>();
 
         return services;
