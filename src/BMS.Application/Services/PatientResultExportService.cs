@@ -237,7 +237,7 @@ public class PatientResultExportService : IPatientResultExportService
     <div class=""header"">
         <div>
             <div class=""logo-mark"">BMS HEALTHCARE</div>
-            <div class=""clinic-sub"">{clinicName} Ã‚Â· {clinicAddress} Ã‚Â· Hotline: {hotline}</div>
+            <div class=""clinic-sub"">{clinicName} · {clinicAddress} · Hotline: {hotline}</div>
         </div>
         <div class=""meta-box"">
             <div>Order No: <strong>{result.OrderCode}</strong></div>
@@ -296,7 +296,7 @@ public class PatientResultExportService : IPatientResultExportService
     <div class=""assessment-box"">
         <div class=""assessment-title"">Doctor's Clinical Assessment</div>
         <div style=""font-size:12.5px; line-height:1.6;"">{result.DoctorAssessment}</div>
-        <div style=""margin-top:8px; font-size:11.5px; color:#64748b;"">Ã¢â‚¬â€ {result.ApprovedByDoctor} Ã‚Â· {result.DoctorSpecialty} Ã‚Â· {result.ReleasedDate}</div>
+        <div style=""margin-top:8px; font-size:11.5px; color:#64748b;"">Ã¢â‚¬â€ {result.ApprovedByDoctor} · {result.DoctorSpecialty} · {result.ReleasedDate}</div>
     </div>
 
     <div class=""signatures"">
@@ -411,14 +411,14 @@ public class PatientResultExportService : IPatientResultExportService
             DobAgeSex = report.DobAgeSex,
             CollectionTime = report.CollectionTime,
             ReleasedDate = report.IssuedAt.ToString("dd MMM yyyy HH:mm"),
-            ApprovedByDoctor = string.IsNullOrWhiteSpace(report.ApprovedBy) ? "Dr. TrÃ¡ÂºÂ§n ThÃ¡Â»â€¹ BÃƒÂ¬nh" : report.ApprovedBy,
+            ApprovedByDoctor = string.IsNullOrWhiteSpace(report.ApprovedBy) ? "BS. Trần Thị Bình" : report.ApprovedBy,
             DoctorSpecialty = "Internal Medicine",
             DoctorAssessment = string.IsNullOrWhiteSpace(report.ClinicalNotes) ?
                 "Results compiled and evaluated. Regular physician consultation recommended for ongoing monitoring." :
                 report.ClinicalNotes,
             OverallStatus = "Released",
             AbnormalCount = abnormalCount,
-            ReferenceIntervalNotes = "Adult reference intervals per ISO 15189 Ã‚Â· Fasting 12h confirmed",
+            ReferenceIntervalNotes = "Adult reference intervals per ISO 15189 · Fasting 12h confirmed",
             Parameters = parameters,
             VerificationHash = report.VerificationHash,
             ShareToken = token,
@@ -451,15 +451,15 @@ public class PatientResultExportService : IPatientResultExportService
             Category = "Biochemistry",
             PatientId = order.PatientId,
             PatientName = order.PatientName,
-            DobAgeSex = $"{order.PatientAge}y Ã‚Â· {order.PatientGender}",
+            DobAgeSex = $"{order.PatientAge}y · {order.PatientGender}",
             CollectionTime = order.CreatedAt.ToString("dd MMM yyyy HH:mm"),
             ReleasedDate = order.CreatedAt.AddHours(4).ToString("dd MMM yyyy HH:mm"),
-            ApprovedByDoctor = string.IsNullOrWhiteSpace(order.DoctorName) ? "Dr. TrÃ¡ÂºÂ§n ThÃ¡Â»â€¹ BÃƒÂ¬nh" : order.DoctorName,
+            ApprovedByDoctor = string.IsNullOrWhiteSpace(order.DoctorName) ? "BS. Trần Thị Bình" : order.DoctorName,
             DoctorSpecialty = "Internal Medicine",
             DoctorAssessment = "Evaluation in progress. Preliminary clinical markers indicate stable parameters.",
             OverallStatus = "Released",
             AbnormalCount = 0,
-            ReferenceIntervalNotes = "Adult male reference intervals Ã‚Â· Fasting verified",
+            ReferenceIntervalNotes = "Adult male reference intervals · Fasting verified",
             Parameters = parameters,
             VerificationHash = hash,
             ShareToken = token,
@@ -471,8 +471,8 @@ public class PatientResultExportService : IPatientResultExportService
     {
         var parameters = new List<PatientResultParameterDto>
         {
-            new() { ParameterName = "LDL Cholesterol", Value = "3.95", Unit = "mmol/L", ReferenceRange = "< 2.58", DeltaPrevious = "+0.42 Ã¢â€ â€˜", Flag = "HH", IsAbnormal = true, FlagSeverity = "critical" },
-            new() { ParameterName = "Total Cholesterol", Value = "5.42", Unit = "mmol/L", ReferenceRange = "< 5.17", DeltaPrevious = "+0.28 Ã¢â€ â€˜", Flag = "H", IsAbnormal = true, FlagSeverity = "warning" },
+            new() { ParameterName = "LDL Cholesterol", Value = "3.95", Unit = "mmol/L", ReferenceRange = "< 2.58", DeltaPrevious = "+0.42 ↑", Flag = "HH", IsAbnormal = true, FlagSeverity = "critical" },
+            new() { ParameterName = "Total Cholesterol", Value = "5.42", Unit = "mmol/L", ReferenceRange = "< 5.17", DeltaPrevious = "+0.28 ↑", Flag = "H", IsAbnormal = true, FlagSeverity = "warning" },
             new() { ParameterName = "HDL Cholesterol", Value = "1.28", Unit = "mmol/L", ReferenceRange = "> 1.04", DeltaPrevious = "+0.02", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" },
             new() { ParameterName = "Triglycerides", Value = "1.65", Unit = "mmol/L", ReferenceRange = "< 1.70", DeltaPrevious = "-0.12", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" },
             new() { ParameterName = "VLDL (calculated)", Value = "0.75", Unit = "mmol/L", ReferenceRange = "< 1.04", DeltaPrevious = "Ã¢â‚¬â€", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" }
@@ -492,12 +492,12 @@ public class PatientResultExportService : IPatientResultExportService
             DobAgeSex = "Male 34y",
             CollectionTime = "27 Sep 2026 08:45",
             ReleasedDate = "28 Sep 2026 10:12",
-            ApprovedByDoctor = "Dr. TrÃ¡ÂºÂ§n ThÃ¡Â»â€¹ BÃƒÂ¬nh",
+            ApprovedByDoctor = "BS. Trần Thị Bình",
             DoctorSpecialty = "Internal Medicine",
             DoctorAssessment = "LDL cholesterol is elevated at 3.95 mmol/L and has increased by +0.42 since June 2026. This confirms sustained hyperlipidemia. Please schedule a follow-up consultation to discuss lifestyle adjustments (dietary intervention, exercise target 150 min/week) and evaluate whether statin therapy is indicated.",
             OverallStatus = "Released",
             AbnormalCount = 2,
-            ReferenceIntervalNotes = "Adult male 18-65y Ã‚Â· Fasting 12h confirmed",
+            ReferenceIntervalNotes = "Adult male 18-65y · Fasting 12h confirmed",
             Parameters = parameters,
             VerificationHash = hash,
             ShareToken = token,
@@ -521,8 +521,8 @@ public class PatientResultExportService : IPatientResultExportService
 
     private static string? CalculateSimulatedDelta(string paramName, string value)
     {
-        if (paramName.Contains("LDL", StringComparison.OrdinalIgnoreCase)) return "+0.42 Ã¢â€ â€˜";
-        if (paramName.Contains("Total Cholesterol", StringComparison.OrdinalIgnoreCase)) return "+0.28 Ã¢â€ â€˜";
+        if (paramName.Contains("LDL", StringComparison.OrdinalIgnoreCase)) return "+0.42 ↑";
+        if (paramName.Contains("Total Cholesterol", StringComparison.OrdinalIgnoreCase)) return "+0.28 ↑";
         if (paramName.Contains("HDL", StringComparison.OrdinalIgnoreCase)) return "+0.02";
         if (paramName.Contains("Triglycerides", StringComparison.OrdinalIgnoreCase)) return "-0.12";
         return "Ã¢â‚¬â€";

@@ -32,7 +32,20 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         return Ok(result);
     }
 
+    
     /// <summary>
+    /// Retrieves all active doctor and lab rooms for shift scheduling.
+    /// </summary>
+    [HttpGet("rooms")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(IReadOnlyList<ShiftRoomDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<ShiftRoomDto>>> GetRooms(CancellationToken ct)
+    {
+        var result = await shifts.GetRoomsAsync(ct);
+        return Ok(new { success = true, data = result });
+    }
+
+/// <summary>
     /// Retrieves details of a specific work shift by ID (View Shifts).
     /// </summary>
     [HttpGet("{id}")]

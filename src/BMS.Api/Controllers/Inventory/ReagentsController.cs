@@ -12,7 +12,7 @@ namespace BMS.Api.Controllers.Inventory;
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/inventory")]
-[Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff,LabHead,LabTech,LabTechnician,LaboratoryUser,LabUser")]
+[Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
 public sealed class ReagentsController(IInventoryService service) : ControllerBase
 {
     private string? ActorId => User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -20,7 +20,7 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
 
     /// <summary>Creates a lot with its opening stock and an immutable audit entry.</summary>
     [HttpPost]
-    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    [Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
     [ProducesResponseType(typeof(InventoryItemDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateInventoryDto request, CancellationToken ct)
     {
@@ -31,7 +31,7 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
 
     /// <summary>Updates one lot revision and records both the previous and resulting stock values.</summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    [Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateInventoryDto request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
@@ -40,7 +40,7 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
 
     /// <summary>Soft deletes an empty lot at the viewed revision; historical evidence is retained.</summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin,Administrator,Manager,WarehouseStaff")]
+    [Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteInventoryDto request, CancellationToken ct)
     {
