@@ -47,3 +47,26 @@ public sealed record AuthResponse(
 
 /// <summary>Thông tin client (phục vụ audit / phát hiện bất thường).</summary>
 public sealed record ClientContext(string? IpAddress, string? UserAgent);
+
+public sealed class AuthLoginResult
+{
+    public bool Success { get; init; }
+    public AuthResponse? Response { get; init; }
+    public int StatusCode { get; init; } = 200;
+    public string? ErrorMessage { get; init; }
+    public string? ErrorCode { get; init; }
+    public int? RetryAfterMinutes { get; init; }
+
+    public static AuthLoginResult Ok(AuthResponse response) =>
+        new() { Success = true, Response = response, StatusCode = 200 };
+
+    public static AuthLoginResult Fail(int statusCode, string message, string code, int? retryAfterMinutes = null) =>
+        new()
+        {
+            Success = false,
+            StatusCode = statusCode,
+            ErrorMessage = message,
+            ErrorCode = code,
+            RetryAfterMinutes = retryAfterMinutes
+        };
+}

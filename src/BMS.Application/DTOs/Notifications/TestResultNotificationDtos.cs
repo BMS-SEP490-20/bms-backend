@@ -133,3 +133,20 @@ public class NotificationStatsDto
     public int FailedCount { get; set; }
     public double DeliverySuccessRate { get; set; }
 }
+
+/// <summary>
+/// DTO representing a patient with completed laboratory test results ready for notification dispatch (UC60).
+/// </summary>
+public class CompletedTestPatientDto
+{
+    public string PatientId { get; set; } = string.Empty;
+    public string PatientName { get; set; } = string.Empty;
+    public string? PatientPhone { get; set; }
+    public string? PatientEmail { get; set; }
+    public string TestOrderId { get; set; } = string.Empty;
+    public string? SpecimenBarcode { get; set; }
+    public string? TestPackageName { get; set; }
+    public string? ConclusionNotes { get; set; }
+    public bool IsCritical { get; set; }
+    public DateTime? CompletedAt { get; set; }
+}

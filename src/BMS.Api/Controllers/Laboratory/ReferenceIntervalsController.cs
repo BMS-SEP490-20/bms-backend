@@ -86,7 +86,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// Cấu hình / Thêm mới một khoảng tham chiếu sinh học (UC57).
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = "Admin,Manager,LabHead,Doctor")]
+    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateInterval(
@@ -117,7 +117,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// Cập nhật thông tin khoảng tham chiếu sinh học (UC57).
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "Admin,Manager,LabHead,Doctor")]
+    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -150,7 +150,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// Vô hiệu hóa (khóa mềm) khoảng tham chiếu sinh học, bảo toàn dữ liệu lịch sử xét nghiệm.
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin,Manager,LabHead,Doctor")]
+    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeactivateInterval(string id, CancellationToken ct = default)

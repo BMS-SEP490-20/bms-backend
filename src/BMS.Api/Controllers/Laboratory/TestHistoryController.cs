@@ -8,7 +8,7 @@ namespace BMS.Api.Controllers.Laboratory;
 
 /// <summary>UC76 signed test history; ownership and disclosure rules are enforced by the service/repository.</summary>
 [ApiController, Route("api/test-history")]
-[Authorize(Roles = "Admin,Administrator,Manager,Doctor,LabHead,LabTech,LabTechnician,Patient")]
+[Authorize(Roles = "Admin,Doctor,LabTechnician,Patient")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class TestHistoryController(ITestHistoryService service) : ControllerBase
 {

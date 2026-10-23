@@ -21,6 +21,7 @@ public interface IShiftRepository
     Task<IReadOnlyDictionary<string, (string RoomName, string? RoomNumber, string? Floor)>> GetRoomMetadataAsync(
         IEnumerable<string> roomIds,
         CancellationToken ct = default);
+    Task<IReadOnlyList<ShiftRoomDto>> GetAllRoomsAsync(CancellationToken ct = default);
 }
 
 public interface IShiftService
@@ -30,4 +31,5 @@ public interface IShiftService
     Task<ShiftDto> CreateShiftAsync(CreateShiftRequest request, string? userId, CancellationToken ct = default);
     Task<ShiftDto> UpdateShiftAsync(string id, UpdateShiftRequest request, string? userId, CancellationToken ct = default);
     Task DeleteShiftAsync(string id, string? userId, CancellationToken ct = default);
+    Task<IReadOnlyList<ShiftRoomDto>> GetRoomsAsync(CancellationToken ct = default);
 }
