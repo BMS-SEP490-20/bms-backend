@@ -115,11 +115,12 @@ public class PatientsController(
             .Select(c => c.Value)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (roles.Contains("Receptionist") || roles.Contains("RECEPTIONIST"))
+        if (roles.Contains("Receptionist") || roles.Contains("RECEPTIONIST") ||
+            roles.Contains("Admin") || roles.Contains("ADMIN") || roles.Contains("Administrator"))
             return true;
 
         var roleIdClaim = User.FindFirstValue("roleId") ?? User.FindFirstValue("role_id");
-        return roleIdClaim == "5";
+        return roleIdClaim == "5" || roleIdClaim == "1";
     }
 
     private string? CurrentUserId =>

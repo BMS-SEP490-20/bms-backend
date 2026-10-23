@@ -231,3 +231,13 @@ public sealed class ShiftDto
     public string? CreatedBy { get; set; }
     public string? UpdatedBy { get; set; }
 }
+
+public sealed class ShiftRoomDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? RoomNumber { get; set; }
+    public string? Floor { get; set; }
+    public string? Department { get; set; }
+    public string Type { get; set; } = "Clinic";
+}

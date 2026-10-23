@@ -58,7 +58,10 @@ public class AuthService : IAuthService
     /// <summary>
     /// Authenticates a user using username or email, enforces lockout &amp; status policies, and issues JWT + rotated Refresh Token.
     /// </summary>
-    public async Task<AuthResponse> LoginAsync(LoginRequest request, ClientContext client, CancellationToken ct = default)
+    /// <summary>
+    /// Authenticates a user without throwing exception on expected credential failure (for safe IDE execution & immediate HTTP response).
+    /// </summary>
+    public async Task<AuthLoginResult> AuthenticateAsync(LoginRequest request, ClientContext client, CancellationToken ct = default)
     {
         var now = _clock.GetUtcNow().UtcDateTime;
         var login = request.UsernameOrEmail.Trim();
@@ -87,14 +90,16 @@ public class AuthService : IAuthService
         {
             _passwordHasher?.VerifyDummy(request.Password);
             _logger?.LogWarning("Login failed: unknown login {Login} from {Ip}", login, client.IpAddress);
-            throw new InvalidCredentialsException();
+            return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
         // 2. Check temporary brute-force lockout
         if (user.LockoutEnd is { } until && until > now)
         {
+            var remaining = until - now;
+            var minutes = (int)Math.Ceiling(remaining.TotalMinutes);
             _logger?.LogWarning("Login blocked: locked user {UserId} until {Until} from {Ip}", user.Id, until, client.IpAddress);
-            throw new AccountLockedException(until - now);
+            return AuthLoginResult.Fail(423, $"Tài khoản tạm thời bị khóa trong {minutes} phút do đăng nhập sai quá 5 lần liên tiếp.", "ACCOUNT_LOCKED", minutes);
         }
 
         // 3. Verify password against BCrypt hash (with fallback to BmsDbContext SHA256 for dev memory accounts)
@@ -122,7 +127,7 @@ public class AuthService : IAuthService
                     _logger?.LogWarning(
                         "Account locked after {Fails} failed attempts: user {UserId} until {Until} from {Ip}",
                         fails, user.Id, lockUntil, client.IpAddress);
-                    throw new AccountLockedException(lockUntil - now);
+                    return AuthLoginResult.Fail(423, $"Tài khoản tạm thời bị khóa trong {_authOpt.LockoutMinutes} phút do đăng nhập sai quá 5 lần liên tiếp.", "ACCOUNT_LOCKED", _authOpt.LockoutMinutes);
                 }
 
                 _logger?.LogWarning("Login failed ({Fails}/{Max}): user {UserId} from {Ip}",
@@ -134,18 +139,18 @@ public class AuthService : IAuthService
                 if (user.FailedLoginCount >= _authOpt.MaxFailedAttempts)
                 {
                     user.LockoutEnd = now.AddMinutes(_authOpt.LockoutMinutes);
-                    throw new AccountLockedException(user.LockoutEnd.Value - now);
+                    return AuthLoginResult.Fail(423, $"Tài khoản tạm thời bị khóa trong {_authOpt.LockoutMinutes} phút do đăng nhập sai quá 5 lần liên tiếp.", "ACCOUNT_LOCKED", _authOpt.LockoutMinutes);
                 }
             }
 
-            throw new InvalidCredentialsException();
+            return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
         // 4. Check account active status AFTER password check so attackers cannot probe disabled accounts
         if (!user.IsActive)
         {
             _logger?.LogWarning("Login blocked: disabled user {UserId} from {Ip}", user.Id, client.IpAddress);
-            throw new AccountDisabledException();
+            return AuthLoginResult.Fail(403, "Tài khoản của bạn đã bị vô hiệu hóa hoặc chưa được kích hoạt.", "ACCOUNT_DISABLED");
         }
 
         // 5. Reset failed login counter & record LastLoginAt
@@ -161,12 +166,28 @@ public class AuthService : IAuthService
         }
 
         _logger?.LogInformation("Login succeeded: user {UserId} ({Username}) from {Ip}", user.Id, user.Username, client.IpAddress);
-        return await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
+        var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
+        return AuthLoginResult.Ok(tokens);
     }
 
     /// <summary>
-    /// Rotates a refresh token and detects token replay/reuse attacks across a token family.
+    /// Legacy LoginAsync throwing exceptions for backward-compatible caller contracts.
     /// </summary>
+    public async Task<AuthResponse> LoginAsync(LoginRequest request, ClientContext client, CancellationToken ct = default)
+    {
+        var result = await AuthenticateAsync(request, client, ct);
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "ACCOUNT_LOCKED")
+                throw new AccountLockedException(TimeSpan.FromMinutes(result.RetryAfterMinutes ?? 15));
+            if (result.ErrorCode == "ACCOUNT_DISABLED")
+                throw new AccountDisabledException();
+            throw new InvalidCredentialsException();
+        }
+        return result.Response!;
+    }
+
+
     public async Task<AuthResponse> RefreshAsync(string rawRefreshToken, ClientContext client, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(rawRefreshToken))
@@ -333,47 +354,39 @@ public class AuthService : IAuthService
         var roleId = user.RoleId ?? user.Role switch
         {
             UserRole.Administrator => 1,
-            UserRole.Manager => 2,
-            UserRole.LabHead => 2,
+            UserRole.Doctor => 2,
             UserRole.LaboratoryUser => 3,
-            UserRole.Doctor => 4,
-            UserRole.Receptionist => 5,
-            UserRole.Cashier => 7,
-            UserRole.WarehouseStaff => 8,
-            _ => 6
+            UserRole.Receptionist => 4,
+            _ => 5
         };
 
         var roleName = user.RoleId.HasValue
             ? user.RoleId.Value switch
             {
                 1 => "Admin",
-                2 => "LabHead",
-                3 => "LabTech",
-                4 => "Doctor",
-                5 => "Receptionist",
-                6 => "Patient",
+                2 => "Doctor",
+                3 => "LabTechnician",
+                4 => "Receptionist",
+                5 => "Patient",
+                6 => "Receptionist",
+                9 => "Patient",
                 _ => user.Role.ToString()
             }
             : user.Role switch
             {
                 UserRole.Administrator => "Admin",
-                UserRole.Manager => "Manager",
-                UserRole.LabHead => "LabHead",
-                UserRole.LaboratoryUser => "LabTech",
                 UserRole.Doctor => "Doctor",
+                UserRole.LaboratoryUser => "LabTechnician",
                 UserRole.Receptionist => "Receptionist",
-                UserRole.Cashier => "Cashier",
-                UserRole.WarehouseStaff => "WarehouseStaff",
                 _ => "Patient"
             };
 
         var permissions = roleId switch
         {
-            1 => new List<string> { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_SCHEDULE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_PATIENT_RECORDS", "REGISTER_PATIENTS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES" },
-            2 => new List<string> { "APPROVE_RESULT", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "MANAGE_SERVICE_PACKAGE", "VIEW_PATIENT_RECORDS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES" },
-            3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "VIEW_ALL_LAB" },
-            4 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
-            5 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
+            1 => new List<string> { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_SCHEDULE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_PATIENT_RECORDS", "REGISTER_PATIENTS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES", "VIEW_ALL_LAB" },
+            2 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
+            3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "APPROVE_RESULT", "MANAGE_REAGENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "VIEW_ALL_LAB" },
+            4 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
             _ => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" }
         };
 

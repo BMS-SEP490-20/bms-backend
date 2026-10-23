@@ -51,6 +51,8 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                 break;
         }
 
+        problem.Extensions["success"] = false;
+        problem.Extensions["message"] = problem.Title ?? "Đã xảy ra lỗi.";
         problem.Extensions["traceId"] = ctx.TraceIdentifier;
         ctx.Response.StatusCode = problem.Status!.Value;
         await ctx.Response.WriteAsJsonAsync(problem, ct);
