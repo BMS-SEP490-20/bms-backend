@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -64,8 +66,14 @@ public class TestResult
     [BsonId]
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
+    [BsonElement("testResultId")]
+    public string TestResultId { get; set; } = string.Empty;
+
     [BsonElement("resultCode")]
     public string ResultCode { get; set; } = string.Empty;
+
+    [BsonElement("appointmentId")]
+    public string AppointmentId { get; set; } = string.Empty;
 
     [BsonElement("sampleId")]
     public string SampleId { get; set; } = string.Empty;
@@ -82,6 +90,9 @@ public class TestResult
     [BsonElement("validationStatus")]
     public ResultValidationStatus ValidationStatus { get; set; } = ResultValidationStatus.PendingEntry;
 
+    [BsonElement("status")]
+    public string? Status { get; set; }
+
     [BsonElement("enteredByUserId")]
     public string? EnteredByUserId { get; set; }
 
@@ -94,12 +105,40 @@ public class TestResult
     [BsonElement("approvedAt")]
     public DateTime? ApprovedAt { get; set; }
 
+    [BsonElement("reviewedBy")]
+    public string? ReviewedBy { get; set; }
+
+    [BsonElement("reviewedAt")]
+    public DateTime? ReviewedAt { get; set; }
+
     [BsonElement("clinicalComment")]
     public string? ClinicalComment { get; set; }
 
     [BsonElement("isPanic")]
     public bool IsPanic { get; set; }
 
+    [BsonElement("reagentCode")]
+    public string? ReagentCode { get; set; }
+
+    [BsonElement("quantity")]
+    public decimal? Quantity { get; set; }
+
+    [BsonElement("deviceId")]
+    public string? DeviceId { get; set; }
+
     [BsonElement("createdAt")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [BsonElement("updatedAt")]
+    public DateTime? UpdatedAt { get; set; }
+
+    // Navigation properties for EF / In-Memory relational mapping (Ignored in MongoDB BSON serialization)
+    [BsonIgnore]
+    public virtual Appointment Appointment { get; set; } = null!;
+
+    [BsonIgnore]
+    public virtual BloodSample Sample { get; set; } = null!;
+
+    [BsonIgnore]
+    public virtual ICollection<TestParameter> TestParameters { get; set; } = new List<TestParameter>();
 }
