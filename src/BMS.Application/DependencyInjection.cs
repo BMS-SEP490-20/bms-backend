@@ -31,6 +31,12 @@ public static class DependencyInjection
         services.AddScoped<ITestHistoryService, TestHistoryService>();
         services.AddScoped<IPatientReceptionService, PatientReceptionService>();
         services.AddScoped<ITrackTestProgressService, TrackTestProgressService>();
+        services.AddScoped<ICalculateFeeService, CalculateFeeService>();
+        services.AddScoped<IPushNotificationService, PushNotificationService>();
+        services.AddScoped<ITatStatisticsService, TatStatisticsService>();
+        services.AddScoped<IIotAlertService, IotAlertService>();
+        services.AddScoped<IQcService, QcService>();
+        services.AddScoped<IRevenueReportService, RevenueReportService>();
 
         return services;
     }
