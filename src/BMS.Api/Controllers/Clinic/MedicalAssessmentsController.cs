@@ -39,7 +39,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// Creates a new clinical medical assessment (UC50).
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateMedicalAssessmentDto dto, CancellationToken ct)
@@ -171,7 +171,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// Updates an existing draft medical assessment.
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateMedicalAssessmentDto dto, CancellationToken ct)
@@ -217,7 +217,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// Finalizes and locks a medical assessment (Doctor only).
     /// </summary>
     [HttpPatch("{id}/finalize")]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Finalize(string id, [FromBody] FinalizeMedicalAssessmentDto dto, CancellationToken ct)
@@ -249,7 +249,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// Soft deletes a medical assessment with an audit reason.
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteMedicalRecordRequest request, CancellationToken ct)
