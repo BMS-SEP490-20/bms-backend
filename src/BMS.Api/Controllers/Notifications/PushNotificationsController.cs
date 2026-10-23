@@ -12,8 +12,8 @@ namespace BMS.Api.Controllers.Notifications;
 /// Conforms to: Production Engineering Standards & AGENTS-DESIGN.md.
 /// </summary>
 [ApiController]
-[Route("api/v1/notifications/[action]")]
-[Route("api/notifications/[action]")]
+[Route("api/v1/notifications")]
+[Route("api/notifications")]
 public class PushNotificationsController : ControllerBase
 {
     private readonly IPushNotificationService _notificationService;
@@ -26,10 +26,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Dispatches a push notification to a recipient user across channels (UC58).
     /// </summary>
-    [HttpPost]
-    [ActionName("dispatch")]
-    [Route("/api/v1/notifications/dispatch")]
-    [Route("/api/notifications/dispatch")]
+    [HttpPost("dispatch")]
     public async Task<IActionResult> DispatchNotification([FromBody] DispatchNotificationRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null)
@@ -54,8 +51,12 @@ public class PushNotificationsController : ControllerBase
             {
                 success = true,
                 data = result,
-                message = result.Message
+                message = "Notification dispatched successfully."
             });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { success = false, message = ex.Message });
         }
         catch (Exception ex)
         {
@@ -70,10 +71,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Registers or updates an FCM / Web Push device token for a user.
     /// </summary>
-    [HttpPost]
-    [ActionName("register-token")]
-    [Route("/api/v1/notifications/register-token")]
-    [Route("/api/notifications/register-token")]
+    [HttpPost("register-token")]
     public async Task<IActionResult> RegisterDeviceToken([FromBody] RegisterDeviceTokenRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.DeviceToken))
@@ -103,10 +101,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Retrieves user notifications with pagination.
     /// </summary>
-    [HttpGet("{userId}")]
-    [ActionName("user")]
-    [Route("/api/v1/notifications/user/{userId}")]
-    [Route("/api/notifications/user/{userId}")]
+    [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserNotifications(string userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -137,9 +132,6 @@ public class PushNotificationsController : ControllerBase
     /// Marks a specific notification as READ.
     /// </summary>
     [HttpPatch("{id}/read")]
-    [ActionName("read")]
-    [Route("/api/v1/notifications/{id}/read")]
-    [Route("/api/notifications/{id}/read")]
     public async Task<IActionResult> MarkAsRead(string id, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -171,9 +163,6 @@ public class PushNotificationsController : ControllerBase
     /// Marks all unread notifications for a user as READ.
     /// </summary>
     [HttpPatch("user/{userId}/read-all")]
-    [ActionName("read-all")]
-    [Route("/api/v1/notifications/user/{userId}/read-all")]
-    [Route("/api/notifications/user/{userId}/read-all")]
     public async Task<IActionResult> MarkAllAsRead(string userId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -204,10 +193,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Retrieves notification audit logs with filters (Status, Channel, Priority, Date Range).
     /// </summary>
-    [HttpGet]
-    [ActionName("logs")]
-    [Route("/api/v1/notifications/logs")]
-    [Route("/api/notifications/logs")]
+    [HttpGet("logs")]
     public async Task<IActionResult> GetAuditLogs([FromQuery] PushNotificationQueryParameters query, CancellationToken cancellationToken = default)
     {
         try

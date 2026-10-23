@@ -1,4 +1,4 @@
-﻿using Microsoft.OpenApi;
+using Microsoft.OpenApi;
 using MongoDB.Driver;
 using System.Reflection;
 
@@ -31,6 +31,8 @@ public static class InfrastructureDi
                 Version = "v1",
                 Description = "Blood Management & Testing System API"
             });
+            c.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
+            c.CustomSchemaIds(type => type.FullName?.Replace("+", "."));
             var xml = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
             var path = Path.Combine(AppContext.BaseDirectory, xml);
             if (File.Exists(path)) c.IncludeXmlComments(path);
