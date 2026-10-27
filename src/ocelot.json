@@ -1,0 +1,1506 @@
+{
+  "Routes": [
+    {
+      "DownstreamPathTemplate": "/IAM/auth/login",
+      "UpstreamPathTemplate": "/gateway/iam/auth/login",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "TimeoutValue": 8000
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/auth/register",
+      "UpstreamPathTemplate": "/gateway/iam/auth/register",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "TimeoutValue": 8000
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/auth/otp/send",
+      "UpstreamPathTemplate": "/gateway/iam/auth/otp/send",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "TimeoutValue": 8000
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/auth/otp/sendotp",
+      "UpstreamPathTemplate": "/gateway/iam/auth/otp/sendotp",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "TimeoutValue": 8000
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/auth/otp/verify",
+      "UpstreamPathTemplate": "/gateway/iam/auth/otp/verify",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "TimeoutValue": 8000
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/auth/otp/verifyotp",
+      "UpstreamPathTemplate": "/gateway/iam/auth/otp/verifyotp",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "TimeoutValue": 8000
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/account",
+      "UpstreamPathTemplate": "/gateway/admin/accounts",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": []
+      },
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 5,
+        "DurationOfBreak": 3000,
+        "TimeoutValue": 8000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/IAM/account/{id}",
+      "UpstreamPathTemplate": "/gateway/admin/accounts/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7020
+        }
+      ],
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": []
+      },
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 5,
+        "DurationOfBreak": 3000,
+        "TimeoutValue": 8000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients",
+      "UpstreamPathTemplate": "/gateway/patients",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/by-email/{email}",
+      "UpstreamPathTemplate": "/gateway/patients/email/{email}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/search",
+      "UpstreamPathTemplate": "/gateway/patients/search",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/by-id/{id}",
+      "UpstreamPathTemplate": "/gateway/patients/id/{id}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/{id}",
+      "UpstreamPathTemplate": "/gateway/patients/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/register",
+      "UpstreamPathTemplate": "/gateway/patients/register",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/medical-records",
+      "UpstreamPathTemplate": "/gateway/patients/medical-records",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/medical-records/{id}",
+      "UpstreamPathTemplate": "/gateway/patients/medical-records/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/medical-records/by-patient/{patientId}",
+      "UpstreamPathTemplate": "/gateway/patients/medical-records/by-patient/{patientId}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/medical-records/search",
+      "UpstreamPathTemplate": "/gateway/patients/medical-records/search",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/lab-tests",
+      "UpstreamPathTemplate": "/gateway/patients/lab-tests",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/lab-tests/{id}",
+      "UpstreamPathTemplate": "/gateway/patients/lab-tests/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/lab-tests/search",
+      "UpstreamPathTemplate": "/gateway/patients/lab-tests/search",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/lab-criteria",
+      "UpstreamPathTemplate": "/gateway/patients/lab-criteria",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/lab-criteria/{id}",
+      "UpstreamPathTemplate": "/gateway/patients/lab-criteria/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Patients/lab-criteria/search",
+      "UpstreamPathTemplate": "/gateway/patients/lab-criteria/search",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7263
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctorshift",
+      "UpstreamPathTemplate": "/gateway/testorder/doctorshift",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctorshift/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/doctorshift/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/labuserprofile",
+      "UpstreamPathTemplate": "/gateway/testorder/labuserprofile",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/labuserprofile/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/labuserprofile/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/labroom",
+      "UpstreamPathTemplate": "/gateway/testorder/labroom",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/labroom/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/labroom/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctorroom",
+      "UpstreamPathTemplate": "/gateway/testorder/doctorroom",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctorroom/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/doctorroom/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctorshift/room/{roomId}",
+      "UpstreamPathTemplate": "/gateway/testorder/doctorshift/room/{roomId}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/appointment",
+      "UpstreamPathTemplate": "/gateway/testorder/appointment",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/appointment/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/appointment/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/appointment/patient/{patientId}",
+      "UpstreamPathTemplate": "/gateway/testorder/appointment/patient/{patientId}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctor",
+      "UpstreamPathTemplate": "/gateway/testorder/doctor",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctor/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/doctor/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/doctor/email/{email}",
+      "UpstreamPathTemplate": "/gateway/testorder/doctor/email/{email}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/bloodsample",
+      "UpstreamPathTemplate": "/gateway/testorder/bloodsample",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/bloodsample/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/bloodsample/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testcriterion",
+      "UpstreamPathTemplate": "/gateway/testorder/testcriterion",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testcriterion/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/testcriterion/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testordercomment",
+      "UpstreamPathTemplate": "/gateway/testorder/testordercomment",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testordercomment/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/testordercomment/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testordercomment/appointment/{appointmentId}",
+      "UpstreamPathTemplate": "/gateway/testorder/testordercomment/appointment/{appointmentId}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testresult",
+      "UpstreamPathTemplate": "/gateway/testorder/testresult",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testresult/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/testresult/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testresult/by-appointment/{appointmentId}",
+      "UpstreamPathTemplate": "/gateway/testorder/testresult/by-appointment/{appointmentId}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testparameter",
+      "UpstreamPathTemplate": "/gateway/testorder/testparameter",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testparameter/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/testparameter/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testparameter/by-testresult/{testResultId}",
+      "UpstreamPathTemplate": "/gateway/testorder/testparameter/by-testresult/{testResultId}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/flaggingconfiguration",
+      "UpstreamPathTemplate": "/gateway/testorder/flaggingconfiguration",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/flaggingconfiguration/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/flaggingconfiguration/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/flaggingconfiglog",
+      "UpstreamPathTemplate": "/gateway/testorder/flaggingconfiglog",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/flaggingconfiglog/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/flaggingconfiglog/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testpackage",
+      "UpstreamPathTemplate": "/gateway/testorder/testpackage",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testpackage/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/testpackage/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testpackagecriterion",
+      "UpstreamPathTemplate": "/gateway/testorder/testpackagecriterion",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/testpackagecriterion/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/testpackagecriterion/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/payments",
+      "UpstreamPathTemplate": "/gateway/payments",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 1234
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/payments/{everything}",
+      "UpstreamPathTemplate": "/gateway/payments/{everything}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 1234
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/payments/{id}/status",
+      "UpstreamPathTemplate": "/gateway/payments/{id}/status",
+      "UpstreamHttpMethod": [
+        "PUT"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 1234
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/Vnpay/{everything}",
+      "UpstreamPathTemplate": "/gateway/Vnpay/{everything}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 1234
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/equipment",
+      "UpstreamPathTemplate": "/gateway/warehouse/equipment",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 53266
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/equipment/{everything}",
+      "UpstreamPathTemplate": "/gateway/warehouse/equipment/{everything}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 53266
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/reagents",
+      "UpstreamPathTemplate": "/gateway/warehouse/reagents",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 53266
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/reagents/{everything}",
+      "UpstreamPathTemplate": "/gateway/warehouse/reagents/{everything}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 53266
+        }
+      ],
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 5000,
+        "TimeoutValue": 10000
+      }
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabUserProfile",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-user-profiles",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabUserProfile/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-user-profiles/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabUserProfile/email/{email}",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-user-profiles/email/{email}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/DoctorRoom",
+      "UpstreamPathTemplate": "/gateway/testorder/doctor-rooms",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/DoctorRoom/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/doctor-rooms/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabAssignment",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-assignments",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabAssignment/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-assignments/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabAssignment/bulk",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-assignments/bulk",
+      "UpstreamHttpMethod": [
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabRoom",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-rooms",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    },
+    {
+      "DownstreamPathTemplate": "/TestOrder/LabRoom/{id}",
+      "UpstreamPathTemplate": "/gateway/testorder/lab-rooms/{id}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7105
+        }
+      ]
+    }
+  ],
+  "GlobalConfiguration": {
+    "BaseUrl": "http://localhost:7000",
+    "RequestIdKey": "OcRequestId"
+  }
+}
