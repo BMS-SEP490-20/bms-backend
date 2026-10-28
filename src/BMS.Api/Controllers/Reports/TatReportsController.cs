@@ -9,12 +9,14 @@ namespace BMS.Api.Controllers.Reports;
 
 /// <summary>
 /// Controller aggregating laboratory Turnaround Time (TAT) metrics and ISO 15189 SLA compliance (UC63 / Iteration 3 #I3-046).
-/// Conforms to: Production Standards, Medical Laboratory Benchmarking &amp; AGENTS-CODE.md.
+/// Conforms to: Production Standards, Medical Laboratory Benchmarking & AGENTS-CODE.md.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/v1/statistics/tat")]
 [Route("api/statistics/tat")]
+[Route("api/v1/tat/statistics")]
+[Route("api/tat/statistics")]
 public class TatReportsController : ControllerBase
 {
     private readonly ITatStatisticsService _tatService;

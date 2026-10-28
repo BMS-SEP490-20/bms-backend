@@ -12,8 +12,8 @@ namespace BMS.Api.Controllers.Billing;
 /// Conforms to: Production Engineering Standards & AGENTS-DESIGN.md.
 /// </summary>
 [ApiController]
-[Route("api/billing/[action]")]
-[Route("api/fees/[action]")]
+[Route("api/billing")]
+[Route("api/fees")]
 public class FeeCalculationController : ControllerBase
 {
     private readonly ICalculateFeeService _calculateFeeService;
@@ -26,10 +26,7 @@ public class FeeCalculationController : ControllerBase
     /// <summary>
     /// Calculates gross and net fees based on test packages, individual tests, service type, BHYT insurance, and vouchers (UC53).
     /// </summary>
-    [HttpPost]
-    [ActionName("calculate-fee")]
-    [Route("/api/billing/calculate-fee")]
-    [Route("/api/fees/calculate")]
+    [HttpPost("calculate-fee")]
     public async Task<IActionResult> CalculateFee([FromBody] CalculateFeeRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null)
@@ -59,10 +56,7 @@ public class FeeCalculationController : ControllerBase
     /// <summary>
     /// Validates a promotional voucher code against order parameters.
     /// </summary>
-    [HttpPost]
-    [ActionName("validate-voucher")]
-    [Route("/api/billing/validate-voucher")]
-    [Route("/api/fees/validate-voucher")]
+    [HttpPost("validate-voucher")]
     public async Task<IActionResult> ValidateVoucher([FromBody] ValidateVoucherRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.VoucherCode))
@@ -92,10 +86,7 @@ public class FeeCalculationController : ControllerBase
     /// <summary>
     /// Estimates fees for an existing test order by Order ID or Order Number.
     /// </summary>
-    [HttpGet("{orderId}")]
-    [ActionName("estimate")]
-    [Route("/api/billing/estimate/{orderId}")]
-    [Route("/api/fees/estimate/{orderId}")]
+    [HttpGet("estimate/{orderId}")]
     public async Task<IActionResult> EstimateOrderFee(string orderId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(orderId))
