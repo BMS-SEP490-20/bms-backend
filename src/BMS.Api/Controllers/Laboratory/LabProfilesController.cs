@@ -10,7 +10,7 @@ namespace BMS.Api.Controllers.Laboratory;
 /// <summary>UC61 Lab professional profiles for authorized administration and Lab management staff.</summary>
 [ApiController]
 [Route("api/lab-profiles")]
-[Authorize(Roles = "Admin,Administrator,Manager,LabHead")]
+[Authorize(Roles = "Admin,Administrator,LabTechnician")]
 public sealed class LabProfilesController(ILabProfileService service) : ControllerBase
 {
     /// <summary>Returns the filtered profile directory with bounded pagination.</summary>
