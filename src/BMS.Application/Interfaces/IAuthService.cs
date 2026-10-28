@@ -6,6 +6,7 @@ namespace BMS.Application.Interfaces;
 public interface IAuthService
 {
     Task<AuthResponse> LoginAsync(LoginRequest request, ClientContext client, CancellationToken ct = default);
+    Task<AuthLoginResult> AuthenticateAsync(LoginRequest request, ClientContext client, CancellationToken ct = default);
     Task<AuthResponse> RefreshAsync(string refreshToken, ClientContext client, CancellationToken ct = default);
     Task LogoutAsync(string userId, string? refreshToken, CancellationToken ct = default);
     Task LogoutAllAsync(string userId, CancellationToken ct = default);
