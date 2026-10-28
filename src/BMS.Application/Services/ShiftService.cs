@@ -216,6 +216,11 @@ public sealed class ShiftService(
         logger.LogInformation("Shift deleted: {ShiftId} by {UserId}", existing.Id, userId);
     }
 
+    public async Task<IReadOnlyList<ShiftRoomDto>> GetRoomsAsync(CancellationToken ct = default)
+    {
+        return await shiftRepository.GetAllRoomsAsync(ct);
+    }
+
     private async Task ValidateNoShiftConflictAsync(
         DateTime shiftDate,
         TimeSpan newStart,
