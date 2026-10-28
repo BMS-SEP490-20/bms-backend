@@ -74,7 +74,7 @@ public class MedicalRecordsController : ControllerBase
     /// Creates a new electronic medical record with ICD-10 and physiological validation (Doctor only).
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalRecordDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateMedicalRecordDto dto, CancellationToken ct)
@@ -114,7 +114,7 @@ public class MedicalRecordsController : ControllerBase
     /// Updates an existing medical record within the legal 24-hour window (Doctor only).
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalRecordDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateMedicalRecordDto dto, CancellationToken ct)
@@ -154,7 +154,7 @@ public class MedicalRecordsController : ControllerBase
     /// Soft deletes a medical record with an audit justification reason (Doctor/Admin only).
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Doctor,Admin,Manager")]
+    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteMedicalRecordRequest request, CancellationToken ct)
