@@ -30,6 +30,9 @@ public static class DependencyInjection
         services.AddScoped<ISampleTimelineService, SampleTimelineService>();
         services.AddScoped<ITestHistoryService, TestHistoryService>();
         services.AddScoped<IPatientReceptionService, PatientReceptionService>();
+
+        // Iteration 3: Core Medical & Tracking Services
+        services.AddScoped<ITrackTestProgressService, TrackTestProgressService>();
         services.AddScoped<IQcService, QcService>();
 
         // Iteration 3: Analytics & Reporting Services
