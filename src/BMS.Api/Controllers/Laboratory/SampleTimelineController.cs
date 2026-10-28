@@ -11,7 +11,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [ApiController]
 [Route("api/sample-timelines")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-[Authorize(Roles = "Admin,Administrator,Manager,Doctor,LabHead,LabTech,LabTechnician,Nurse,Phlebotomist,Receptionist,Patient")]
+[Authorize(Roles = "Admin,Doctor,LabTechnician,Receptionist,Patient")]
 public sealed class SampleTimelineController(ISampleTimelineService service) : ControllerBase
 {
     /// <summary>Lists accessible samples, without accepting an account identity from the client.</summary>

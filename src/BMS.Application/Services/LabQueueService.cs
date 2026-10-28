@@ -761,9 +761,12 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        lock (_context.Samples)
+        // Only fallback to in-memory store if MongoDB has no rerun requests
+        if (result.Count == 0)
         {
-            foreach (var s in _context.Samples.Where(s => s.Status == SampleStatus.RerunRequested))
+            lock (_context.Samples)
+            {
+                foreach (var s in _context.Samples.Where(s => s.Status == SampleStatus.RerunRequested))
             {
                 var specId = !string.IsNullOrEmpty(s.Barcode) ? s.Barcode : s.Id;
                 if (result.Any(r => r.SpecimenId == specId)) continue;
@@ -780,6 +783,7 @@ public class LabQueueService : ILabQueueService
                     RequestedAt = s.UpdatedAt ?? s.CollectedAt
                 });
             }
+        }
         }
 
         return result;
@@ -886,9 +890,13 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        foreach (var memSample in _context.Samples)
+        // Only use in-memory store if MongoDB has no samples (dev fallback)
+        if (byId.Count == 0)
         {
-            byId.TryAdd(memSample.Id, memSample);
+            foreach (var memSample in _context.Samples)
+            {
+                byId.TryAdd(memSample.Id, memSample);
+            }
         }
 
         var list = byId.Values.ToList();

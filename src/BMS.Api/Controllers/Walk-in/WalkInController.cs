@@ -12,7 +12,7 @@ namespace BMS.WalkIn.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/walk-in")]
-[Authorize(Roles = "Receptionist,Admin,Manager")]
+[Authorize(Roles = "Receptionist,Admin")]
 public class WalkInController : ControllerBase
 {
     private readonly IWalkInService _service;

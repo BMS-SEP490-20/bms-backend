@@ -26,13 +26,8 @@ public enum UserRole
     Doctor = 2,
     LaboratoryUser = 3,
     LabTechnician = 3,
-    LabHead = 4,
-    Nurse = 5,
-    Manager = 5,
-    Receptionist = 6,
-    Cashier = 7,
-    WarehouseStaff = 8,
-    Patient = 9
+    Receptionist = 4,
+    Patient = 5
 }
 
 /// <summary>
@@ -87,9 +82,12 @@ public class User : ISupportInitialize
     [BsonIgnore]
     public UserRole Role
     {
-        get => RoleId.HasValue && Enum.IsDefined(typeof(UserRole), RoleId.Value)
-            ? (UserRole)RoleId.Value
-            : UserRole.Patient;
+        get {
+        if (!RoleId.HasValue) return UserRole.Patient;
+        if (RoleId.Value == 6) return UserRole.Receptionist;
+        if (RoleId.Value == 9) return UserRole.Patient;
+        return Enum.IsDefined(typeof(UserRole), RoleId.Value) ? (UserRole)RoleId.Value : UserRole.Patient;
+    }
         set => RoleId = (int)value;
     }
 
