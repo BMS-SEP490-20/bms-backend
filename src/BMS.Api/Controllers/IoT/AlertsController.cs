@@ -10,12 +10,14 @@ namespace BMS.Api.Controllers.IoT;
 
 /// <summary>
 /// Controller handling IoT threshold alarms, specimen cold-chain violations, and incident escalation (UC68 / Iteration 3 #I3-061).
-/// Conforms to: Production Standards, ISO 15189 Quality Management &amp; AGENTS-CODE.md.
+/// Conforms to: Production Standards, ISO 15189 Quality Management & AGENTS-CODE.md.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/iot/alerts")]
 [Route("api/v1/iot/alerts")]
+[Route("api/alerts")]
+[Route("api/v1/alerts")]
 public class AlertsController : ControllerBase
 {
     private readonly IIotAlertService _alertService;
