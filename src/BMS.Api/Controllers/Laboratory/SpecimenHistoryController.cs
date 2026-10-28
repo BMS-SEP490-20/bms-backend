@@ -88,7 +88,7 @@ public class SpecimenHistoryController : ControllerBase
     /// Ghi nhận bổ sung một sự kiện theo dõi mẫu (Collection, InTransit, Received, Processing, MachineAnalysis) (UC70).
     /// </summary>
     [HttpPost("{barcode}/events")]
-    [Authorize(Roles = "Admin,Manager,LabHead,LabTech,Nurse")]
+    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<SpecimenHistoryDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -127,7 +127,7 @@ public class SpecimenHistoryController : ControllerBase
     /// Cập nhật vị trí lưu trữ mẫu, tủ bảo quản lạnh, kệ, khay và thông số bảo quản (UC70).
     /// </summary>
     [HttpPut("{barcode}/storage")]
-    [Authorize(Roles = "Admin,Manager,LabHead,LabTech")]
+    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<SpecimenHistoryDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

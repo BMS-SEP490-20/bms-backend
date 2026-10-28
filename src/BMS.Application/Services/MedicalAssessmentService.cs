@@ -85,11 +85,11 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             }
         }
 
-        patientName ??= $"Bá»‡nh nhÃ¢n {dto.PatientId}";
+        patientName ??= $"Bệnh nhân {dto.PatientId}";
 
         // 3. Resolve doctor details
         var doctorId = !string.IsNullOrWhiteSpace(dto.DoctorId) ? dto.DoctorId : currentUserId;
-        var doctorName = dto.DoctorName ?? currentUserName ?? "BÃ¡c sÄ© lÃ¢m sÃ ng";
+        var doctorName = dto.DoctorName ?? currentUserName ?? "Bác sĩ lâm sàng";
 
         // 4. Generate next assessment code
         var assessmentCode = await _repository.GenerateNextAssessmentCodeAsync(DateTime.UtcNow, ct);
@@ -231,7 +231,7 @@ public class MedicalAssessmentService : IMedicalAssessmentService
                 DoctorId = "DOC-001",
                 RoomId = "ROOM-101",
                 Status = "InProgress",
-                Notes = "KhÃ¡m lÃ¢m sÃ ng táº¡i phÃ²ng khÃ¡m"
+                Notes = "Khám lâm sàng tại phòng khám"
             });
         }
 
@@ -389,7 +389,7 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         string category;
         if (bmi < 18.5m)
         {
-            category = "Thiáº¿u cÃ¢n (Underweight)";
+            category = "Thiếu cân (Underweight)";
         }
         else if (bmi <= 22.9m)
         {
@@ -397,7 +397,7 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         }
         else if (bmi <= 24.9m)
         {
-            category = "Thá»«a cÃ¢n (Overweight)";
+            category = "Thừa cân (Overweight)";
         }
         else
         {
@@ -424,7 +424,7 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             EncounterType = a.EncounterType,
             EncounterDate = a.EncounterDate,
             DoctorId = a.DoctorId,
-            DoctorName = a.DoctorName ?? "BÃ¡c sÄ© lÃ¢m sÃ ng",
+            DoctorName = a.DoctorName ?? "Bác sĩ lâm sàng",
             Department = a.Department,
             AssessmentDate = a.AssessmentDate,
             ChiefComplaint = a.ChiefComplaint,

@@ -74,11 +74,11 @@ public sealed class PasswordsController : ControllerBase
     }
 
     // =========================================================
-    // FORGOT PASSWORD - EMAIL RESET TOKEN
+    // FORGOT PASSWORD - EMAIL RESET TOKEN & OTP DISPATCH
     // =========================================================
 
     /// <summary>
-    /// Gửi email hướng dẫn đặt lại mật khẩu.
+    /// Gửi email hướng dẫn đặt lại mật khẩu và mã OTP xác thực (UC10 / BR-032).
     /// Luôn trả cùng thông báo để hạn chế dò tìm tài khoản (OWASP Anti-Enumeration).
     /// </summary>
     [HttpPost("forgot-password")]
@@ -93,6 +93,19 @@ public sealed class PasswordsController : ControllerBase
             request.Email,
             GetClient(),
             ct);
+
+        // Also generate and dispatch 6-digit OTP for users on the OTP verification interface (UC10/UC11)
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            try
+            {
+                await _authService.ForgotPasswordAsync(new ForgotPasswordDto { Email = request.Email.Trim() });
+            }
+            catch
+            {
+                // Fallback to maintain anti-enumeration response
+            }
+        }
 
         return Ok(new MessageResponse(
             "Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi."));
