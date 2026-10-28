@@ -1,3 +1,4 @@
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.Application.DTOs;
 using BMS.Application.DTOs.Auth;
@@ -37,16 +38,42 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<AuthResponse>> Login(
+    public async Task<IActionResult> Login(
         [FromBody] LoginRequest request,
         CancellationToken ct)
     {
-        var result = await _authService.LoginAsync(
-            request,
-            GetClient(),
-            ct);
+        try
+        {
+            var result = await _authService.AuthenticateAsync(
+                request,
+                GetClient(),
+                ct);
 
-        return Ok(result);
+            if (!result.Success)
+            {
+                return StatusCode(result.StatusCode, new
+                {
+                    success = false,
+                    message = result.ErrorMessage ?? "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!",
+                    title = result.ErrorMessage ?? "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!",
+                    code = result.ErrorCode ?? "INVALID_CREDENTIALS",
+                    retryAfterMinutes = result.RetryAfterMinutes
+                });
+            }
+
+            return Ok(result.Response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during login for {Username}", request.UsernameOrEmail);
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "Hệ thống gặp sự cố trong quá trình xử lý đăng nhập. Vui lòng thử lại sau.",
+                title = "Lỗi hệ thống.",
+                code = "INTERNAL_ERROR"
+            });
+        }
     }
 
     // =========================================================
@@ -57,16 +84,50 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<AuthResponse>> Refresh(
+    public async Task<IActionResult> Refresh(
         [FromBody] RefreshTokenRequest request,
         CancellationToken ct)
     {
-        var result = await _authService.RefreshAsync(
-            request.RefreshToken,
-            GetClient(),
-            ct);
+        try
+        {
+            var result = await _authService.RefreshAsync(
+                request.RefreshToken,
+                GetClient(),
+                ct);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (InvalidRefreshTokenException ex)
+        {
+            return Unauthorized(new
+            {
+                success = false,
+                message = "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+                title = "Phiên làm việc hết hạn.",
+                code = ex.Code ?? "INVALID_REFRESH_TOKEN"
+            });
+        }
+        catch (AuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                success = false,
+                message = ex.Message,
+                title = ex.Message,
+                code = ex.Code
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing token");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "Không thể làm mới phiên đăng nhập.",
+                title = "Lỗi làm mới token.",
+                code = "INTERNAL_ERROR"
+            });
+        }
     }
 
     // =========================================================
