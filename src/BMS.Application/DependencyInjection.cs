@@ -34,9 +34,13 @@ public static class DependencyInjection
         // Iteration 3: Core Medical, Billing & Tracking Services
         services.AddScoped<ITrackTestProgressService, TrackTestProgressService>();
         // WHY a factory: the parameterless constructor exists only for the offline UC53 check; DI must use the catalog one.
+        services.AddScoped<BillingSettingsService>();
+        services.AddScoped<IBillingSettingsService>(sp => sp.GetRequiredService<BillingSettingsService>());
+        services.AddScoped<IFeePolicyProvider>(sp => sp.GetRequiredService<BillingSettingsService>());
         services.AddScoped<ICalculateFeeService>(sp => new CalculateFeeService(
             sp.GetRequiredService<IServicePackageRepository>(),
             sp.GetRequiredService<BMS.Core.Interfaces.ITestOrderRepository>(),
+            sp.GetRequiredService<IFeePolicyProvider>(),
             sp.GetRequiredService<TimeProvider>()));
         services.AddScoped<IOrderPaymentService, OrderPaymentService>();
         services.AddScoped<IPushNotificationService, PushNotificationService>();

@@ -41,17 +41,18 @@ try
 {
     await new FlowIndexInitializer(db, NullLogger<FlowIndexInitializer>.Instance).EnsureAsync(CancellationToken.None);
     FeeLine L(decimal price, string code = "X") => new(code, code, "Sinh hóa", price);
+    var policy = FeePolicy.SeedDefault; // fresh database: 8 seeded BHYT group codes, priority discount 0
     decimal Net(string? card, bool home, string? voucher, params decimal[] prices) =>
-        FeeCalculator.Compute(prices.Select((p, i) => L(p, "T" + i)).ToList(), home, card, voucher, false, now).NetTotalPayable;
+        FeeCalculator.Compute(prices.Select((p, i) => L(p, "T" + i)).ToList(), home, card, voucher, false, policy, now).NetTotalPayable;
     const string DN4 = "DN4791234567890";
 
     await Check("matrix: DN4 150,000 -> 0; 379,499 -> 0; 379,500 -> 75,900 -> 76,000", () =>
     {
         Assert(Net(DN4, false, null, 150_000m) == 0m);
         Assert(Net(DN4, false, null, 379_499m) == 0m);
-        var at = FeeCalculator.Compute(new[] { L(379_500m) }, false, DN4, null, false, now);
+        var at = FeeCalculator.Compute(new[] { L(379_500m) }, false, DN4, null, false, policy, now);
         Assert(at.NetBeforeRounding == 75_900m && at.NetTotalPayable == 76_000m && at.InsuranceCoveragePercent == 80 && at.InsuranceBenefitPercent == 80);
-        var below = FeeCalculator.Compute(new[] { L(150_000m) }, false, DN4, null, false, now);
+        var below = FeeCalculator.Compute(new[] { L(150_000m) }, false, DN4, null, false, policy, now);
         Assert(below.InsuranceCoveragePercent == 100 && below.InsuranceBenefitPercent == 80 && below.InsuranceDeduction == 150_000m);
         return Task.CompletedTask;
     });
@@ -62,28 +63,30 @@ try
     });
     await Check("matrix: DN4 CBC 150k + BIO 250k + home + BMS10 -> 190,000 (threshold before voucher)", () =>
     {
-        var r = FeeCalculator.Compute(new[] { L(150_000m, "CBC"), L(250_000m, "BIO") }, true, DN4, "BMS10", false, now);
+        var r = FeeCalculator.Compute(new[] { L(150_000m, "CBC"), L(250_000m, "BIO") }, true, DN4, "BMS10", false, policy, now);
         Assert(r.GrossTotal == 550_000m && r.InsuranceDeduction == 320_000m && r.VoucherDiscount == 40_000m && r.NetTotalPayable == 190_000m, r.NetTotalPayable.ToString());
         return Task.CompletedTask;
     });
-    await Check("matrix: 400k -> QN5/CA5/CY5 0; TE1/HN2/DK2/CN2/LH2 0; HT3 20,000; DN4/GD4/QN4 80,000", () =>
+    await Check("matrix: 400k -> QN5/CA5/CY5 0; QN1/DK2/CN2/LH2/DN1 0; HT3 20,000; DN4/QN4/HT4 80,000; TE1/HN2/GD4 (not seeded) -> 400", async () =>
     {
-        foreach (var g in new[] { "QN5", "CA5", "CY5", "TE1", "HN2", "DK2", "CN2", "LH2" })
+        foreach (var g in new[] { "QN5", "CA5", "CY5", "QN1", "DK2", "CN2", "LH2", "DN1" })
             Assert(Net(g + "791234567890", false, null, 400_000m) == 0m, g);
         Assert(Net("HT3791234567890", false, null, 400_000m) == 20_000m);
-        foreach (var g in new[] { "DN4", "GD4", "QN4" })
+        foreach (var g in new[] { "DN4", "QN4", "HT4" })
             Assert(Net(g + "791234567890", false, null, 400_000m) == 80_000m, g);
-        return Task.CompletedTask;
+        // Quy trình Đợt 3A Q1: only catalog codes are accepted; TE/HN/GD are not in the seed (open point C2).
+        foreach (var g in new[] { "TE1", "HN2", "GD4" })
+            Assert((await Throws<DomainValidationException>(() => Task.FromResult(Net(g + "791234567890", false, null, 400_000m)))).Code == "MSG-ERR-FIN-01", g);
     });
     await Check("BMS10 on 2,010,000 -> discount capped at 200,000, pays 1,810,000; FREEHOME only with home", () =>
     {
-        var r = FeeCalculator.Compute(new[] { L(2_010_000m) }, false, null, "BMS10", false, now);
+        var r = FeeCalculator.Compute(new[] { L(2_010_000m) }, false, null, "BMS10", false, policy, now);
         Assert(r.VoucherDiscount == 200_000m && r.NetTotalPayable == 1_810_000m);
-        var fh = FeeCalculator.Compute(new[] { L(100_000m) }, true, null, "FREEHOME", false, now);
+        var fh = FeeCalculator.Compute(new[] { L(100_000m) }, true, null, "FREEHOME", false, policy, now);
         Assert(fh.IsVoucherValid && fh.VoucherDiscount == 150_000m && fh.NetTotalPayable == 100_000m);
-        var fc = FeeCalculator.Compute(new[] { L(100_000m) }, false, null, "FREEHOME", false, now);
+        var fc = FeeCalculator.Compute(new[] { L(100_000m) }, false, null, "FREEHOME", false, policy, now);
         Assert(!fc.IsVoucherValid && fc.VoucherDiscount == 0m);
-        var bad = FeeCalculator.Compute(new[] { L(100_000m) }, false, null, "SPRING10", false, now);
+        var bad = FeeCalculator.Compute(new[] { L(100_000m) }, false, null, "SPRING10", false, policy, now);
         Assert(!bad.IsVoucherValid && bad.NetTotalPayable == 100_000m);
         return Task.CompletedTask;
     });
@@ -92,18 +95,18 @@ try
         Assert(FeeCalculator.RoundToThousand(2_499m) == 2_000m && FeeCalculator.RoundToThousand(2_500m) == 3_000m && FeeCalculator.RoundToThousand(3_500m) == 4_000m);
         Assert(FeeCalculator.RoundToThousand(499m) == 0m && FeeCalculator.RoundToThousand(500m) == 1_000m);
         Assert(Net(null, false, null, 2_500m) == 3_000m && Net(null, false, null, 2_499m) == 2_000m && Net(null, false, null, 3_500m) == 4_000m);
-        Assert(FeeCalculator.Compute(new[] { L(2_500m) }, false, null, null, false, now).TotalInWords.Contains("Ba nghìn đồng chẵn"));
+        Assert(FeeCalculator.Compute(new[] { L(2_500m) }, false, null, null, false, policy, now).TotalInWords.Contains("Ba nghìn đồng chẵn"));
         return Task.CompletedTask;
     });
     await Check("card rejected only for the 4 format errors -> 400 MSG-ERR-FIN-01; never a default 80%", async () =>
     {
         foreach (var bad in new[] { "DN479123456789", "DN47912345678901", "ZZ4791234567890", "DN6791234567890", "DN0791234567890", "DN4A91234567890", "DN47B1234567890" })
         {
-            var ex = await Throws<DomainValidationException>(() => Task.FromResult(BhytCard.Parse(bad)));
+            var ex = await Throws<DomainValidationException>(() => Task.FromResult(BhytCard.Parse(bad, policy.BhytGroupCodes)));
             Assert(ex.Code == "MSG-ERR-FIN-01" && ex.StatusCode == 400, bad);
         }
-        Assert(BhytCard.Parse(" dn4-79 1234567890 ").Card == DN4);
-        Assert(BhytCard.Parse("LH2791234567890").BenefitPercent == 100 && BhytCard.Parse("HT3791234567890").BenefitPercent == 95);
+        Assert(BhytCard.Parse(" dn4-79 1234567890 ", policy.BhytGroupCodes).Card == DN4);
+        Assert(BhytCard.Parse("LH2791234567890", policy.BhytGroupCodes).BenefitPercent == 100 && BhytCard.Parse("HT3791234567890", policy.BhytGroupCodes).BenefitPercent == 95);
     });
 
     // ---------- catalog-backed services ----------
@@ -114,7 +117,63 @@ try
         new ServicePackage { Id = ObjectId.GenerateNewId().ToString(), Code = "BIO", Name = "Sinh hóa", Price = 250_000m, Category = "Sinh hóa", IsActive = true },
     });
     var orderRepo = new TestOrderRepository(db);
-    var fees = new CalculateFeeService(new ServicePackageRepository(db, names), orderRepo, clock);
+    var settingsRepo = new BillingSettingsRepository(db);
+    var auditCol = db.GetCollection<AuditLog>(AuditLogRepository.CollectionName);
+    var billingSettings = new BillingSettingsService(settingsRepo, new AuditLogService(new AuditLogRepository(db)), clock);
+    var fees = new CalculateFeeService(new ServicePackageRepository(db, names), orderRepo, billingSettings, clock);
+    var admin = new Actor("adm-1", "Admin A", "Admin");
+    var manager = new Actor("mgr-1", "QL B", "Manager");
+
+    await Check("BHYT catalog seeded once with exactly QN, CA, CY, DK, CN, HT, LH, DN; re-seed is idempotent", async () =>
+    {
+        var rows = await settingsRepo.GetBhytGroupCodesAsync();
+        Assert(rows.Select(r => r.Code).OrderBy(c => c).SequenceEqual(new[] { "CA", "CN", "CY", "DK", "DN", "HT", "LH", "QN" }), string.Join(",", rows.Select(r => r.Code)));
+        Assert(rows.All(r => r.IsActive && r.Seeded));
+        Assert(await settingsRepo.SeedBhytGroupCodesAsync(BhytCard.SeedGroupCodes, now) == 0);
+        Assert((await billingSettings.GetAsync()).BhytGroupCodes.SetEquals(FeePolicy.SeedDefault.BhytGroupCodes));
+    });
+
+    await Check("BHYT catalog edit: ' te ' normalized to TE -> TE1 card accepted; deactivate DN -> DN4 rejected, restart seed keeps it off; bad codes 400; audited", async () =>
+    {
+        var req1 = new CalculateFeeRequestDto { PackageIds = new() { "CBC" }, InsuranceCardNumber = "TE1012345678901" };
+        Assert((await Throws<DomainValidationException>(() => fees.CalculateFeeAsync(req1))).Code == "MSG-ERR-FIN-01");
+        var te = await billingSettings.UpsertBhytGroupCodeAsync(" te ", new() { Description = "Trẻ em dưới 6 tuổi", IsActive = true }, admin);
+        Assert(te.Code == "TE" && te.IsActive && !te.Seeded && te.UpdatedBy == "adm-1");
+        Assert((await fees.CalculateFeeAsync(req1)).InsuranceCoveragePercent == 100);
+        await billingSettings.UpsertBhytGroupCodeAsync("dn", new() { IsActive = false }, manager);
+        var req2 = new CalculateFeeRequestDto { PackageIds = new() { "CBC" }, InsuranceCardNumber = DN4 };
+        Assert((await Throws<DomainValidationException>(() => fees.CalculateFeeAsync(req2))).Code == "MSG-ERR-FIN-01");
+        await new FlowIndexInitializer(db, NullLogger<FlowIndexInitializer>.Instance).EnsureAsync(CancellationToken.None);
+        Assert(!(await settingsRepo.GetBhytGroupCodeAsync("DN"))!.IsActive, "seed must not re-activate a code a user turned off");
+        foreach (var bad in new[] { "", "  ", "D", "DNX", "D1", "Đ1", "-" })
+            Assert((await Throws<DomainValidationException>(() => billingSettings.UpsertBhytGroupCodeAsync(bad, new(), admin))).Code == "BHYT_GROUP_CODE_INVALID", bad);
+        var logs = await auditCol.Find(a => a.TargetEntity == "BhytGroupCode").ToListAsync();
+        Assert(logs.Count == 2 && logs.Any(l => l.Action == "BHYT_GROUP_CODE_CREATED" && l.UserId == "adm-1" && l.UserRole == "Admin")
+               && logs.Any(l => l.Action == "BHYT_GROUP_CODE_UPDATED" && l.UserId == "mgr-1" && l.EntityId == "DN"));
+        await billingSettings.UpsertBhytGroupCodeAsync("DN", new() { IsActive = true }, manager); // restore for the next checks
+        Assert((await fees.CalculateFeeAsync(req2)).NetTotalPayable == 0m);
+    });
+
+    await Check("priority discount: default 0 VND (no 10%/100k); Manager sets 5% cap 30,000 -> applied; invalid -> 400; audited", async () =>
+    {
+        var pri = new CalculateFeeRequestDto { PackageIds = new() { "CBC", "BIO" }, IsPriorityPatient = true };
+        var d0 = await fees.CalculateFeeAsync(pri);
+        Assert(d0.PriorityDiscount == 0m && d0.NetTotalPayable == 400_000m, d0.PriorityDiscount.ToString());
+        Assert((await billingSettings.GetPriorityDiscountAsync()).Percent == 0m);
+        Assert(FeeCalculator.PriorityDiscount(1_000_000m, FeePolicy.SeedDefault) == 0m);
+        await billingSettings.SetPriorityDiscountAsync(new() { Percent = 5m, MaxAmount = 30_000m }, manager);
+        var d1 = await fees.CalculateFeeAsync(pri);
+        Assert(d1.PriorityDiscount == 20_000m && d1.NetTotalPayable == 380_000m, d1.PriorityDiscount.ToString());
+        await billingSettings.SetPriorityDiscountAsync(new() { Percent = 10m, MaxAmount = 30_000m }, manager);
+        Assert((await fees.CalculateFeeAsync(pri)).PriorityDiscount == 30_000m);
+        Assert((await fees.CalculateFeeAsync(new() { PackageIds = new() { "CBC", "BIO" } })).PriorityDiscount == 0m, "non-priority patient");
+        foreach (var bad in new PriorityDiscountSettingsDto[] { new() { Percent = -1m }, new() { Percent = 100.5m }, new() { Percent = 5m, MaxAmount = -1m } })
+            Assert((await Throws<DomainValidationException>(() => billingSettings.SetPriorityDiscountAsync(bad, manager))).Code == "PRIORITY_DISCOUNT_INVALID");
+        var logs = await auditCol.Find(a => a.Action == "PRIORITY_DISCOUNT_UPDATED").ToListAsync();
+        Assert(logs.Count == 2 && logs.All(l => l.UserId == "mgr-1"));
+        await billingSettings.SetPriorityDiscountAsync(new() { Percent = 0m }, manager); // back to default
+        Assert((await fees.CalculateFeeAsync(pri)).PriorityDiscount == 0m);
+    });
     await Check("calculate-fee uses catalog prices; unknown code -> 400 FEE_ITEM_NOT_IN_CATALOG (no 200,000/75,000 default)", async () =>
     {
         var r = await fees.CalculateFeeAsync(new CalculateFeeRequestDto { PackageIds = new() { "cbc", "BIO" }, ServiceType = "HomeCollection", InsuranceCardNumber = DN4, VoucherCode = "BMS10" });
@@ -146,7 +205,7 @@ try
     }
     var invoices = new InvoiceRepository(db);
     var seq = new MongoSequenceGenerator(db);
-    OrderPaymentService NewPay() => new(new TestOrderRepository(db), new InvoiceRepository(db), new PatientRepository(db), seq, clock, NullLogger<OrderPaymentService>.Instance);
+    OrderPaymentService NewPay() => new(new TestOrderRepository(db), new InvoiceRepository(db), new PatientRepository(db), seq, billingSettings, clock, NullLogger<OrderPaymentService>.Instance);
     var pay = NewPay();
     var req = new OrderPaymentRequestDto { InsuranceCardNumber = DN4, HomeCollection = true, VoucherCode = "BMS10", PaymentMethod = "Cash" };
 
@@ -275,6 +334,39 @@ try
         Assert((await As(http, "Receptionist").PostAsJsonAsync($"/api/billing/orders/{o.Id}/pay", cash)).StatusCode == HttpStatusCode.Conflict);
         await app.StopAsync();
     });
+    await Check("HTTP settings: 401 anon; bhyt-groups GET/PUT Admin+Manager 200, Lab/Doctor/Receptionist/Patient 403; priority-discount PUT Manager 200, Admin/Receptionist 403", async () =>
+    {
+        await using var app = await StartAsync(s => s.AddScoped<IBillingSettingsService>(_ => billingSettings));
+        using var http = Client(app);
+        var put = new { description = "x", isActive = true };
+        Assert((await http.GetAsync("/api/billing/settings/bhyt-groups")).StatusCode == HttpStatusCode.Unauthorized);
+        Assert((await http.PutAsJsonAsync("/api/billing/settings/bhyt-groups/HN", put)).StatusCode == HttpStatusCode.Unauthorized);
+        foreach (var role in new[] { "Lab", "Doctor", "Receptionist", "Patient" })
+        {
+            Assert((await As(http, role).GetAsync("/api/billing/settings/bhyt-groups")).StatusCode == HttpStatusCode.Forbidden, role);
+            Assert((await As(http, role).PutAsJsonAsync("/api/billing/settings/bhyt-groups/HN", put)).StatusCode == HttpStatusCode.Forbidden, role);
+        }
+        foreach (var role in new[] { "Admin", "Manager" })
+        {
+            Assert((await As(http, role).GetAsync("/api/billing/settings/bhyt-groups")).StatusCode == HttpStatusCode.OK, role);
+            var r = await As(http, role).PutAsJsonAsync("/api/billing/settings/bhyt-groups/%20hn%20", put);
+            Assert(r.StatusCode == HttpStatusCode.OK && (await r.Content.ReadAsStringAsync()).Contains("\"code\":\"HN\""), role);
+        }
+        var bad = await As(http, "Admin").PutAsJsonAsync("/api/billing/settings/bhyt-groups/H1", put);
+        Assert(bad.StatusCode == HttpStatusCode.BadRequest && (await bad.Content.ReadAsStringAsync()).Contains("BHYT_GROUP_CODE_INVALID"));
+        var pd = new { percent = 0, maxAmount = (decimal?)null };
+        foreach (var role in new[] { "Admin", "Receptionist", "Lab", "Doctor", "Patient" })
+            Assert((await As(http, role).PutAsJsonAsync("/api/billing/settings/priority-discount", pd)).StatusCode == HttpStatusCode.Forbidden, role);
+        Assert((await As(http, "Manager").PutAsJsonAsync("/api/billing/settings/priority-discount", pd)).StatusCode == HttpStatusCode.OK);
+        Assert((await As(http, "Manager").GetAsync("/api/billing/settings/priority-discount")).StatusCode == HttpStatusCode.OK);
+        Assert((await As(http, "Admin").GetAsync("/api/billing/settings/priority-discount")).StatusCode == HttpStatusCode.Forbidden);
+        var badPd = await As(http, "Manager").PutAsJsonAsync("/api/billing/settings/priority-discount", new { percent = 101 });
+        Assert(badPd.StatusCode == HttpStatusCode.BadRequest && (await badPd.Content.ReadAsStringAsync()).Contains("PRIORITY_DISCOUNT_INVALID"));
+        var audit = await auditCol.Find(a => a.EntityId == "HN").ToListAsync();
+        Assert(audit.Count == 2 && audit.Select(a => a.UserId).OrderBy(x => x).SequenceEqual(new[] { "check-Admin", "check-Manager" }), string.Join(",", audit.Select(a => a.UserId)));
+        await app.StopAsync();
+    });
+
 }
 catch (Exception ex)
 {

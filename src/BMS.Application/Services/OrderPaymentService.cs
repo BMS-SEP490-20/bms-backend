@@ -15,6 +15,7 @@ public sealed class OrderPaymentService(
     IInvoiceRepository invoices,
     IPatientRepository patients,
     ISequenceGenerator sequences,
+    IFeePolicyProvider policies,
     TimeProvider clock,
     ILogger<OrderPaymentService> logger) : IOrderPaymentService
 {
@@ -22,7 +23,7 @@ public sealed class OrderPaymentService(
     public async Task<CalculateFeeResultDto> QuoteAsync(string orderId, OrderPaymentRequestDto request, CancellationToken ct = default)
     {
         var order = await LoadAsync(orderId, ct);
-        return Compute(order, request);
+        return await ComputeAsync(order, request, ct);
     }
 
     /// <inheritdoc />
@@ -37,7 +38,7 @@ public sealed class OrderPaymentService(
         };
         var order = await LoadAsync(orderId, ct);
         EnsurePayable(order);
-        var fee = Compute(order, request); // validates the card/voucher before anything is written
+        var fee = await ComputeAsync(order, request, ct); // validates the card/voucher before anything is written
         var now = clock.GetUtcNow().UtcDateTime;
 
         // WHY mark the order first: the conditional update is the single "who pays" decision; a second cashier
@@ -76,7 +77,7 @@ public sealed class OrderPaymentService(
                 throw new ForbiddenAccessException("Bạn chỉ được thanh toán đơn của chính mình.");
         }
         EnsurePayable(order);
-        var fee = Compute(order, request);
+        var fee = await ComputeAsync(order, request, ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var invoice = NewInvoice(order, fee, now, await NextCodeAsync("INV", now, ct));
         invoice.Status = InvoiceStatus.Unpaid;
@@ -89,9 +90,9 @@ public sealed class OrderPaymentService(
         return Result(order, invoice, fee, "Đã tạo yêu cầu thanh toán VNPay. Đơn chỉ chuyển sang đã thanh toán khi có xác nhận từ VNPay.");
     }
 
-    private CalculateFeeResultDto Compute(TestOrder order, OrderPaymentRequestDto r) =>
+    private async Task<CalculateFeeResultDto> ComputeAsync(TestOrder order, OrderPaymentRequestDto r, CancellationToken ct) =>
         FeeCalculator.Compute(CalculateFeeService.OrderLines(order), r.HomeCollection, r.InsuranceCardNumber, r.VoucherCode, false,
-            clock.GetUtcNow().UtcDateTime);
+            await policies.GetAsync(ct), clock.GetUtcNow().UtcDateTime);
 
     private async Task<TestOrder> LoadAsync(string orderId, CancellationToken ct) =>
         (string.IsNullOrWhiteSpace(orderId) ? null : await orders.GetByIdAsync(orderId, ct) ?? await orders.GetByOrderNumberAsync(orderId, ct))
