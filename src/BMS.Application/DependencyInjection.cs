@@ -43,6 +43,7 @@ public static class DependencyInjection
             sp.GetRequiredService<IFeePolicyProvider>(),
             sp.GetRequiredService<TimeProvider>()));
         services.AddScoped<IOrderPaymentService, OrderPaymentService>();
+        services.AddScoped<IOrderRefundService, OrderRefundService>();
         services.AddScoped<IPushNotificationService, PushNotificationService>();
         services.AddScoped<IQcService, QcService>();
 

@@ -111,6 +111,10 @@ public class TestOrderResponseDto
     public List<TestOrderItemDto> Items { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public string? CreatedBy { get; set; }
+    /// <summary>Set on a cancel response when a refund request was opened (Quy trình Đợt 3A Q3).</summary>
+    public string? RefundCode { get; set; }
+    /// <summary>Set on a cancel response to explain the refund outcome.</summary>
+    public string? RefundNote { get; set; }
 }
 
 /// <summary>

@@ -10,6 +10,7 @@ using System.Text.Json;
 using BMS.Api.Controllers.Billing;
 using BMS.Api.Middleware;
 using BMS.Application.DTOs.Billing;
+using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
 using BMS.Application.Services.Billing;
@@ -367,6 +368,161 @@ try
         await app.StopAsync();
     });
 
+    // ---------- Quy trình Đợt 3A Q3: refund when a paid order is cancelled ----------
+    var auditSvc = new AuditLogService(new AuditLogRepository(db));
+    var refundRepo = new RefundRepository(db);
+    OrderRefundService NewRefunds() => new(refundRepo, new InvoiceRepository(db), new TestOrderRepository(db), seq, auditSvc, clock, NullLogger<OrderRefundService>.Instance);
+    var refundSvc = NewRefunds();
+    TestOrderService NewOrders() => new(new TestOrderRepository(db), new PatientRepository(db), FakeUsers.Create(), new ServicePackageRepository(db, names), seq,
+        new SpecimenRepository(db), new TestResultRepository(db), auditSvc, NewRefunds(), clock, NullLogger<TestOrderService>.Instance);
+    var orderSvc = NewOrders();
+    var docCancel = new UpdateTestOrderStatusRequestDto { Status = "Cancelled", Notes = "BN đổi ý, không làm nữa" };
+    var receptionist = new Actor("rec-9", "LT C", "Receptionist");
+
+    await Check("refund (cash): paid 190,000 (BHYT 320,000) cancelled before sampling -> request = 190,000 at counter; payout needs Manager approval; BHYT only reversed; invoice Refunded; audited", async () =>
+    {
+        var o = await NewOrder();
+        var paidRes = await pay.PayAtCounterAsync(o.Id, req, "rec-1", "LT A");
+        var cancelled = await orderSvc.UpdateOrderStatusAsync(o.Id, docCancel, "doc-1", false);
+        Assert(cancelled.Status == "Cancelled" && cancelled.RefundCode!.StartsWith("RF-20261030-"), cancelled.RefundCode);
+        var r = await refundRepo.GetByOrderIdAsync(o.Id);
+        Assert(r!.Status == RefundStatus.PendingApproval && r.Kind == RefundKind.CancelBeforeCollection && r.Amount == 190_000m && r.Channel == RefundChannel.Counter);
+        Assert((await Throws<ConflictStateException>(() => refundSvc.PayOutAtCounterAsync(r.Id, receptionist))).Code == "REFUND_NOT_APPROVED");
+        var ok = await refundSvc.ApproveAsync(r.RefundCode, new() { Note = "Đồng ý" }, manager);
+        Assert(ok.Status == "ApprovedAwaitingPayout" && ok.Amount == 190_000m && ok.BhytReversalAmount == 320_000m && ok.BhytReversalPostedAt != null && ok.DecidedBy == "mgr-1");
+        Assert(ok.Amount == paidRes.Fee.NetTotalPayable && ok.Amount != paidRes.Fee.NetTotalPayable + paidRes.Fee.InsuranceDeduction, "BHYT part is never paid to the patient");
+        Assert((await Throws<ConflictStateException>(() => refundSvc.ApproveAsync(r.Id, new(), manager))).Code == "REFUND_NOT_PENDING");
+        var done = await refundSvc.PayOutAtCounterAsync(r.Id, receptionist);
+        Assert(done.Status == "Completed" && done.PaidOutBy == "rec-9" && done.PaymentMethod == "Cash");
+        Assert((await invoices.GetByIdAsync(paidRes.InvoiceId))!.Status == InvoiceStatus.Refunded);
+        Assert((await Throws<ConflictStateException>(() => refundSvc.PayOutAtCounterAsync(r.Id, receptionist))).Code == "REFUND_NOT_PAYABLE");
+        var actions = (await auditCol.Find(a => a.EntityId == o.OrderNumber || a.EntityId == r.RefundCode || a.EntityId == paidRes.InvoiceCode).ToListAsync()).Select(a => a.Action).ToList();
+        foreach (var a in new[] { "ORDER_CANCELLED", "REFUND_REQUESTED", "REFUND_APPROVED", "BHYT_REVERSAL_POSTED", "REFUND_PAID_OUT" })
+            Assert(actions.Contains(a), a + " missing: " + string.Join(",", actions));
+    });
+
+    await Check("refund (VNPay): same channel -> ApprovedAwaitingGateway, counter payout refused 409 REFUND_CHANNEL_VNPAY; amount = VNPay total", async () =>
+    {
+        var o = await NewOrder();
+        await orderRepo.TryMarkPaidAsync(o.Id, "vnpay-ipn", now);
+        await invoices.CreateAsync(new Invoice { InvoiceCode = "INV-VNP-1", OrderId = o.Id, PatientId = o.PatientId, SubTotal = 400_000m, TotalAmount = 400_000m,
+            Status = InvoiceStatus.Paid, PaymentMethod = PaymentMethod.VNPay, PaidAt = now });
+        var c = await orderSvc.UpdateOrderStatusAsync(o.Id, new() { Status = "Cancelled", Notes = "Hủy theo yêu cầu QL" }, "mgr-1", true);
+        var r = await refundRepo.GetByOrderIdAsync(o.Id);
+        Assert(c.RefundCode == r!.RefundCode && r.Channel == RefundChannel.VnPay);
+        var ok = await refundSvc.ApproveAsync(r.Id, new(), manager);
+        Assert(ok.Status == "ApprovedAwaitingGateway" && ok.Channel == "VnPay" && ok.Amount == 400_000m && ok.BhytReversalAmount == 0m && ok.BhytReversalPostedAt == null);
+        Assert((await Throws<ConflictStateException>(() => refundSvc.PayOutAtCounterAsync(r.Id, receptionist))).Code == "REFUND_CHANNEL_VNPAY");
+        Assert((await invoices.GetByInvoiceCodeAsync("INV-VNP-1"))!.Status == InvoiceStatus.Paid, "money not back yet -> invoice stays Paid");
+    });
+
+    await Check("sample collected: Manager cancel -> no automatic refund (REFUND_NOT_AUTOMATIC); Manager exception needs reason; once per order", async () =>
+    {
+        var o = await NewOrder();
+        await pay.PayAtCounterAsync(o.Id, new() { PaymentMethod = "POS" }, "rec-1", null);
+        await orderCol.UpdateOneAsync(x => x.Id == o.Id, Builders<TestOrder>.Update.Set(x => x.Status, TestOrderStatus.SampleCollected));
+        var c = await orderSvc.UpdateOrderStatusAsync(o.Id, new() { Status = "Cancelled", Notes = "Mẫu tán huyết, BN không lấy lại" }, "mgr-1", true);
+        Assert(c.Status == "Cancelled" && c.RefundCode == null && c.RefundNote!.Contains("không hoàn tiền tự động"));
+        Assert(await refundRepo.GetByOrderIdAsync(o.Id) == null);
+        Assert(await auditCol.CountDocumentsAsync(a => a.EntityId == o.OrderNumber && a.Action == "REFUND_NOT_AUTOMATIC") == 1);
+        // Tubes on record also count as "collected" even if the status read was stale.
+        var o2 = await NewOrder();
+        await pay.PayAtCounterAsync(o2.Id, new() { PaymentMethod = "Cash" }, "rec-1", null);
+        await db.GetCollection<Sample>(SpecimenRepository.CollectionName).InsertOneAsync(new Sample { Barcode = "SMP-20261030-8801", SmpDay = "2026-10-30", TestOrderId = o2.OrderNumber });
+        Assert((await orderSvc.UpdateOrderStatusAsync(o2.Id, new() { Status = "Cancelled", Notes = "Hủy ngoại lệ có lý do" }, "mgr-1", true)).RefundCode == null);
+        foreach (var bad in new string?[] { null, "", "ok" })
+            Assert((await Throws<DomainValidationException>(() => refundSvc.OpenManagerExceptionAsync(new() { OrderId = o.Id, Reason = bad }, manager))).Code == "REFUND_REASON_REQUIRED");
+        var ex = await refundSvc.OpenManagerExceptionAsync(new() { OrderId = o.OrderNumber, Reason = "Lỗi phòng xét nghiệm, hoàn cho BN" }, manager);
+        Assert(ex.Kind == "ManagerException" && ex.Status == "PendingApproval" && ex.Amount == 400_000m && ex.Channel == "Counter");
+        Assert((await Throws<ConflictStateException>(() => refundSvc.OpenManagerExceptionAsync(new() { OrderId = o.Id, Reason = "Lần hai cho chắc" }, manager))).Code == "REFUND_ALREADY_EXISTS");
+        var live = await NewOrder();
+        Assert((await Throws<ConflictStateException>(() => refundSvc.OpenManagerExceptionAsync(new() { OrderId = live.Id, Reason = "Đơn chưa hủy mà" }, manager))).Code == "REFUND_ORDER_NOT_CANCELLED");
+    });
+
+    await Check("unpaid cancel: no refund; pending VNPay invoice voided (can never be settled later)", async () =>
+    {
+        var o = await NewOrder();
+        var v = await pay.StartVnPayAsync(o.Id, new() { PaymentMethod = "VNPay" }, "rec-1", false);
+        var c = await orderSvc.UpdateOrderStatusAsync(o.Id, docCancel, "doc-1", false);
+        Assert(c.RefundCode == null && c.RefundNote == null && await refundRepo.GetByOrderIdAsync(o.Id) == null);
+        Assert((await invoices.GetByIdAsync(v.InvoiceId))!.Status == InvoiceStatus.Voided);
+    });
+
+    await Check("reject needs a note; 10 parallel approvals -> exactly 1; rejected cannot be approved", async () =>
+    {
+        var o = await NewOrder();
+        await pay.PayAtCounterAsync(o.Id, new() { PaymentMethod = "Cash" }, "rec-1", null);
+        await orderSvc.UpdateOrderStatusAsync(o.Id, docCancel, "doc-1", false);
+        var r = (await refundRepo.GetByOrderIdAsync(o.Id))!;
+        var res = await Task.WhenAll(Enumerable.Range(0, 10).Select(i => Task.Run(async () =>
+        {
+            try { await NewRefunds().ApproveAsync(r.Id, new(), new Actor("mgr-" + i, null, "Manager")); return "ok"; }
+            catch (ConflictStateException) { return "409"; }
+        })));
+        Assert(res.Count(x => x == "ok") == 1 && res.Count(x => x == "409") == 9, string.Join(",", res));
+        Console.WriteLine($"     concurrency: 10 parallel approvals -> {res.Count(x => x == "ok")} approved");
+        var o2 = await NewOrder();
+        await pay.PayAtCounterAsync(o2.Id, new() { PaymentMethod = "Cash" }, "rec-1", null);
+        await orderSvc.UpdateOrderStatusAsync(o2.Id, docCancel, "doc-1", false);
+        var r2 = (await refundRepo.GetByOrderIdAsync(o2.Id))!;
+        Assert((await Throws<DomainValidationException>(() => refundSvc.RejectAsync(r2.Id, new() { Note = " " }, manager))).Code == "REFUND_REASON_REQUIRED");
+        Assert((await refundSvc.RejectAsync(r2.Id, new() { Note = "BN đã nhận lại tiền mặt trước đó" }, manager)).Status == "Rejected");
+        Assert((await Throws<ConflictStateException>(() => refundSvc.ApproveAsync(r2.Id, new(), manager))).Code == "REFUND_NOT_PENDING");
+        Assert(await db.GetCollection<Refund>(RefundRepository.CollectionName).CountDocumentsAsync(x => x.OrderId == o2.Id) == 1);
+    });
+
+    await Check("race: cancel vs counter payment (10 rounds) -> never a Paid invoice on a cancelled order without a refund request", async () =>
+    {
+        var outcomes = new List<string>();
+        for (var round = 0; round < 10; round++)
+        {
+            var o = await NewOrder();
+            var payTask = Task.Run(async () => { try { await NewPay().PayAtCounterAsync(o.Id, new() { PaymentMethod = "Cash" }, "rec-1", null); return true; } catch (ConflictStateException) { return false; } });
+            var cancelTask = Task.Run(async () => { try { await NewOrders().UpdateOrderStatusAsync(o.Id, docCancel, "doc-1", false); return true; } catch (ConflictStateException) { return false; } });
+            var paidWon = await payTask; var cancelWon = await cancelTask;
+            Assert(cancelWon, $"round {round}: an uncollected order must always be cancellable by its doctor");
+            var paidInvoice = await invoices.GetPaidByOrderIdAsync(o.Id);
+            var refund = await refundRepo.GetByOrderIdAsync(o.Id);
+            Assert((paidInvoice == null) == !paidWon, $"round {round}");
+            Assert(paidInvoice == null || refund != null, $"round {round}: paid + cancelled without refund");
+            if (refund != null) Assert((await NewRefunds().ApproveAsync(refund.Id, new(), manager)).Amount == paidInvoice!.TotalAmount);
+            outcomes.Add(paidWon ? "paid+refund" : "cancel-first");
+        }
+        Console.WriteLine($"     concurrency: cancel vs pay -> {string.Join(",", outcomes.GroupBy(x => x).Select(g => g.Key + "=" + g.Count()))}");
+    });
+
+    await Check("HTTP refunds: 401 anon; list Manager/Receptionist 200, Admin/Lab/Doctor/Patient 403; approve/reject/exception Manager only; payout Receptionist only", async () =>
+    {
+        await using var app = await StartAsync(s => s.AddScoped<IOrderRefundService>(_ => NewRefunds()));
+        using var http = Client(app);
+        var o = await NewOrder();
+        await pay.PayAtCounterAsync(o.Id, new() { PaymentMethod = "Cash" }, "rec-1", null);
+        await orderSvc.UpdateOrderStatusAsync(o.Id, docCancel, "doc-1", false);
+        var r = (await refundRepo.GetByOrderIdAsync(o.Id))!;
+        Assert((await http.GetAsync("/api/Refunds")).StatusCode == HttpStatusCode.Unauthorized);
+        foreach (var role in new[] { "Admin", "Lab", "Doctor", "Patient" })
+        {
+            Assert((await As(http, role).GetAsync("/api/Refunds")).StatusCode == HttpStatusCode.Forbidden, role);
+            Assert((await As(http, role).PostAsJsonAsync($"/api/Refunds/{r.Id}/approve", new { })).StatusCode == HttpStatusCode.Forbidden, role);
+            Assert((await As(http, role).PostAsJsonAsync($"/api/Refunds/{r.Id}/payout", new { })).StatusCode == HttpStatusCode.Forbidden, role);
+            Assert((await As(http, role).PostAsJsonAsync("/api/Refunds", new { orderId = o.Id, reason = "thử quyền" })).StatusCode == HttpStatusCode.Forbidden, role);
+        }
+        foreach (var role in new[] { "Manager", "Receptionist" })
+            Assert((await As(http, role).GetAsync("/api/Refunds?status=PendingApproval")).StatusCode == HttpStatusCode.OK, role);
+        Assert((await As(http, "Receptionist").PostAsJsonAsync($"/api/Refunds/{r.Id}/approve", new { })).StatusCode == HttpStatusCode.Forbidden);
+        Assert((await As(http, "Receptionist").PostAsJsonAsync("/api/Refunds", new { orderId = o.Id, reason = "thử quyền" })).StatusCode == HttpStatusCode.Forbidden);
+        Assert((await As(http, "Manager").PostAsJsonAsync($"/api/Refunds/{r.Id}/payout", new { })).StatusCode == HttpStatusCode.Forbidden);
+        var early = await As(http, "Receptionist").PostAsJsonAsync($"/api/Refunds/{r.Id}/payout", new { });
+        Assert(early.StatusCode == HttpStatusCode.Conflict && (await early.Content.ReadAsStringAsync()).Contains("REFUND_NOT_APPROVED"));
+        Assert((await As(http, "Manager").PostAsJsonAsync($"/api/Refunds/{r.Id}/approve", new { })).StatusCode == HttpStatusCode.OK);
+        var paidOut = await As(http, "Receptionist").PostAsJsonAsync($"/api/Refunds/{r.Id}/payout", new { });
+        var t = await paidOut.Content.ReadAsStringAsync();
+        Assert(paidOut.StatusCode == HttpStatusCode.OK && t.Contains("\"status\":\"Completed\"") && t.Contains("\"paidOutBy\":\"check-Receptionist\""), t);
+        var noReason = await As(http, "Manager").PostAsJsonAsync("/api/Refunds", new { orderId = o.Id });
+        Assert(noReason.StatusCode == HttpStatusCode.BadRequest && (await noReason.Content.ReadAsStringAsync()).Contains("REFUND_REASON_REQUIRED"));
+        await app.StopAsync();
+    });
+
 }
 catch (Exception ex)
 {
@@ -445,3 +601,14 @@ sealed class HeaderAuth(IOptionsMonitor<AuthenticationSchemeOptions> options, IL
     }
 }
 
+
+/// <summary>User repository fake: every id resolves to a user named "U {id}"; other members must not be called.</summary>
+public class FakeUsers : DispatchProxy
+{
+    public static IUserRepository Create() => DispatchProxy.Create<IUserRepository, FakeUsers>();
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => targetMethod?.Name switch
+    {
+        "GetByIdAsync" or "FindByIdAsync" => Task.FromResult<User?>(new User { Id = (string)args![0]!, FullName = "U " + args[0], RoleId = 4 }),
+        _ => throw new InvalidOperationException($"{targetMethod?.Name} must not be called by this check.")
+    };
+}

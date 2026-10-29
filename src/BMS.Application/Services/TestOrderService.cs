@@ -26,6 +26,7 @@ public sealed partial class TestOrderService(
     ISpecimenRepository specimens,
     ITestResultRepository results,
     IAuditLogService audit,
+    IOrderRefundService refunds,
     TimeProvider clock,
     ILogger<TestOrderService> logger) : ITestOrderService
 {
@@ -220,7 +221,18 @@ public sealed partial class TestOrderService(
         }, ct);
         logger.LogInformation("Test order {OrderNumber} cancelled by {ActorId} ({Role}) from {From}", updated.OrderNumber, actorUserId,
             role, order.Status);
-        return Map(updated);
+
+        // Quy trình Đợt 3A Q3. WHY tubes as well as the status: the status read before the cancel may be stale; a
+        // written specimen is the proof that the sample was collected.
+        var collected = TestOrderStatusRules.IsSampleCollectedOrLater(order.Status)
+                        || (await specimens.GetByOrderAsync(updated.OrderNumber, ct)).Count > 0;
+        var refund = await refunds.OnOrderCancelledAsync(updated, collected, new Actor(actorUserId, actorName, role), note, ct);
+        var dto = Map(updated);
+        dto.RefundCode = refund?.RefundCode;
+        dto.RefundNote = refund != null
+            ? "Đã tạo yêu cầu hoàn tiền, chờ Quản lý duyệt."
+            : updated.PaidAt != null && collected ? "Mẫu đã lấy: không hoàn tiền tự động; Quản lý xử lý ngoại lệ." : null;
+        return dto;
     }
 
     /// <summary>Minimum length of the Manager's cancel reason.</summary>

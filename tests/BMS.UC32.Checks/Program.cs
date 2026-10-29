@@ -58,7 +58,10 @@ try
     var seq = new MongoSequenceGenerator(db);
     TestOrderService NewSvc() => new(new TestOrderRepository(db), new PatientRepository(db), FakeUsers.Create(),
         new ServicePackageRepository(db, names), seq, new SpecimenRepository(db), new TestResultRepository(db),
-        new AuditLogService(new AuditLogRepository(db)), clock, NullLogger<TestOrderService>.Instance);
+        new AuditLogService(new AuditLogRepository(db)),
+        new OrderRefundService(new RefundRepository(db), new InvoiceRepository(db), new TestOrderRepository(db), seq,
+            new AuditLogService(new AuditLogRepository(db)), clock, NullLogger<OrderRefundService>.Instance),
+        clock, NullLogger<TestOrderService>.Instance);
     var auditCol = db.GetCollection<AuditLog>(AuditLogRepository.CollectionName);
     var resultCol = db.GetCollection<TestResult>("test_results");
     var svc = NewSvc();
