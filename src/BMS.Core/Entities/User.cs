@@ -17,17 +17,17 @@ public enum UserStatus
 }
 
 /// <summary>
-/// Các vai trò người dùng trong hệ thống BMS.
+/// Các vai trò người dùng trong hệ thống BMS. Giá trị số = <c>RoleId</c> đã seed trong DB
+/// (quyết định 30/10/2026 điểm 1). Tên claim tương ứng nằm ở <see cref="BMS.Core.Constants.RoleNames"/>.
 /// </summary>
 public enum UserRole
 {
-    Administrator = 1,
     Admin = 1,
-    Doctor = 2,
-    LaboratoryUser = 3,
-    LabTechnician = 3,
-    Receptionist = 4,
-    Patient = 5
+    Manager = 2,
+    Lab = 3,
+    Doctor = 4,
+    Receptionist = 5,
+    Patient = 6
 }
 
 /// <summary>
@@ -79,13 +79,16 @@ public class User : ISupportInitialize
     [BsonIgnoreIfNull]
     public int? RoleId { get; set; } = (int)UserRole.Patient;
 
+    /// <summary>RoleId written by self-registration before Đợt 2 (AuthService used 9); read as Patient, never written again.</summary>
+    public const int LegacyPatientRoleId = 9;
+
     [BsonIgnore]
     public UserRole Role
     {
         get {
         if (!RoleId.HasValue) return UserRole.Patient;
-        if (RoleId.Value == 6) return UserRole.Receptionist;
-        if (RoleId.Value == 9) return UserRole.Patient;
+        // WHY: accounts self-registered before Đợt 2 were stored with RoleId 9; they are patients.
+        if (RoleId.Value == LegacyPatientRoleId) return UserRole.Patient;
         return Enum.IsDefined(typeof(UserRole), RoleId.Value) ? (UserRole)RoleId.Value : UserRole.Patient;
     }
         set => RoleId = (int)value;

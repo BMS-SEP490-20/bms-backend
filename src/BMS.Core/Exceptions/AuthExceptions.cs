@@ -18,5 +18,9 @@ public sealed class AccountLockedException(TimeSpan retryAfter)
 public sealed class AccountDisabledException()
     : AuthException(403, "ACCOUNT_DISABLED", "Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.");
 
+/// <summary>Tài khoản không có role hợp lệ (1–6) nên không được cấp token (TIEU-CHI R8).</summary>
+public sealed class RoleNotAssignedException()
+    : AuthException(403, "ROLE_NOT_ASSIGNED", "Tài khoản chưa được gán vai trò hợp lệ. Vui lòng liên hệ quản trị viên.");
+
 public sealed class InvalidRefreshTokenException()
     : AuthException(401, "INVALID_REFRESH_TOKEN", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.");

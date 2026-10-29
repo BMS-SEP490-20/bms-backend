@@ -4,9 +4,8 @@ using Microsoft.Extensions.Options;
 namespace BMS.Api.Authorization;
 
 /// <summary>
-/// Phân quyền theo permission lấy từ bảng roles. Dùng:
-///   [HasPermission("CREATE_INVOICE")]  hoặc  [Authorize(Roles = "Admin")]
-/// Role Admin có permission "ALL" => qua mọi kiểm tra.
+/// Phân quyền theo permission lấy từ claim <c>permission</c> của JWT. Dùng: <c>[HasPermission("CREATE_INVOICE")]</c>.
+/// Chuỗi nhiều permission cách nhau dấu phẩy = cần ít nhất 1. Request chưa đăng nhập luôn bị 401.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public sealed class HasPermissionAttribute(string permission)
@@ -27,14 +26,13 @@ public sealed class PermissionHandler : AuthorizationHandler<PermissionRequireme
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
-        var granted = context.User.FindAll("permission").Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var roles = context.User.FindAll("role").Concat(context.User.FindAll(System.Security.Claims.ClaimTypes.Role))
-            .Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // WHY (TIEU-CHI R6): never succeed for anonymous callers. The old handler let unauthenticated
+        // "demo" requests and every staff/Manager/Admin role through, which made [HasPermission] a no-op.
+        if (context.User.Identity?.IsAuthenticated != true)
+            return Task.CompletedTask;
 
-        if (granted.Contains(PermissionPolicy.All) ||
-            roles.Contains("Admin") ||
-            roles.Contains("Administrator") ||
-            roles.Contains("Manager"))
+        var granted = context.User.FindAll("permission").Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (granted.Contains(PermissionPolicy.All))
         {
             context.Succeed(requirement);
             return Task.CompletedTask;
@@ -49,19 +47,6 @@ public sealed class PermissionHandler : AuthorizationHandler<PermissionRequireme
             return Task.CompletedTask;
         }
 
-        // Staff roles succeed on clinical/lab/schedule endpoints even if their token predates DB permission enrichment
-        if (roles.Overlaps(["LabHead", "LabTech", "LabTechnician", "Doctor", "Receptionist", "Nurse", "Cashier"]))
-        {
-            context.Succeed(requirement);
-            return Task.CompletedTask;
-        }
-
-        // Allow unauthenticated dev/demo preview requests while blocking unauthorized Patient role
-        if (context.User.Identity?.IsAuthenticated != true)
-        {
-            context.Succeed(requirement);
-        }
-
         return Task.CompletedTask;
     }
 }
@@ -74,7 +59,9 @@ public sealed class PermissionPolicyProvider(IOptions<AuthorizationOptions> opti
     {
         if (policyName.StartsWith(PermissionPolicy.Prefix, StringComparison.Ordinal))
         {
+            // RequireAuthenticatedUser => anonymous callers get 401 (challenge), not 403.
             return new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
                 .AddRequirements(new PermissionRequirement(policyName[PermissionPolicy.Prefix.Length..]))
                 .Build();
         }
