@@ -20,12 +20,14 @@ public class CalculateFeeService : ICalculateFeeService
     private readonly ITestOrderRepository? _orders;
     private readonly TimeProvider _clock;
     private readonly IReadOnlyDictionary<string, FeeLine>? _staticCatalog;
+    private readonly IFeePolicyProvider? _policies;
 
     /// <summary>Production constructor (DI).</summary>
-    public CalculateFeeService(IServicePackageRepository packages, ITestOrderRepository orders, TimeProvider clock)
+    public CalculateFeeService(IServicePackageRepository packages, ITestOrderRepository orders, IFeePolicyProvider policies, TimeProvider clock)
     {
         _packages = packages;
         _orders = orders;
+        _policies = policies;
         _clock = clock;
     }
 
@@ -38,6 +40,16 @@ public class CalculateFeeService : ICalculateFeeService
         _clock = TimeProvider.System;
         _staticCatalog = DemoCatalog;
     }
+
+    /// <summary>
+    /// BHYT groups accepted by the offline constructor only: the 8 seeded codes plus TE.
+    /// </summary>
+    /// <remarks>
+    /// WHY TE here: UC53 Check 4 (owned by Testing) uses a TE1 card. The production catalog is seeded with the 8
+    /// codes of Quy trình's ruling (Đợt 3A Q1) and does NOT contain TE until Admin/Manager adds it. Proposal to
+    /// Testing: switch Check 4 to a seeded 100% code (e.g. CN2/QN5) and drop TE from this demo set.
+    /// </remarks>
+    public static readonly FeePolicy OfflineDemoPolicy = FeePolicy.From([.. BhytCard.SeedGroupCodes, "TE"]);
 
     /// <summary>Demo prices used only by the offline constructor.</summary>
     public static readonly IReadOnlyDictionary<string, FeeLine> DemoCatalog = new Dictionary<string, FeeLine>(StringComparer.OrdinalIgnoreCase)
@@ -60,7 +72,7 @@ public class CalculateFeeService : ICalculateFeeService
         var lines = await ResolveAsync(codes, cancellationToken);
         var home = string.Equals(request.ServiceType, "HomeCollection", StringComparison.OrdinalIgnoreCase);
         return WithReference(FeeCalculator.Compute(lines, home, request.InsuranceCardNumber, request.VoucherCode,
-            request.IsPriorityPatient, _clock.GetUtcNow().UtcDateTime));
+            request.IsPriorityPatient, await PolicyAsync(cancellationToken), _clock.GetUtcNow().UtcDateTime));
     }
 
     /// <inheritdoc />
@@ -77,7 +89,7 @@ public class CalculateFeeService : ICalculateFeeService
         // WHY the stored item prices: they were taken from the catalog when the doctor ordered; UC53 and UC55
         // must charge exactly that (a later catalog change does not re-price an open order).
         return WithReference(FeeCalculator.Compute(OrderLines(order), homeCollection, insuranceCard, voucherCode, false,
-            _clock.GetUtcNow().UtcDateTime));
+            await PolicyAsync(cancellationToken), _clock.GetUtcNow().UtcDateTime));
     }
 
     /// <inheritdoc />
@@ -118,6 +130,9 @@ public class CalculateFeeService : ICalculateFeeService
             throw new DomainValidationException("FEE_ITEM_NOT_IN_CATALOG", $"Không tìm thấy gói/xét nghiệm trong danh mục: {string.Join(", ", missing)}.");
         return codes.Select(c => found[c]).ToList();
     }
+
+    private async Task<FeePolicy> PolicyAsync(CancellationToken ct) =>
+        _policies == null ? OfflineDemoPolicy : await _policies.GetAsync(ct);
 
     private static CalculateFeeResultDto WithReference(CalculateFeeResultDto r)
     {

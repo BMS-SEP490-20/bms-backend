@@ -27,10 +27,12 @@ public static class FeeCalculator
     /// <param name="insuranceCard">Raw card or null; invalid → 400 MSG-ERR-FIN-01.</param>
     /// <param name="voucherCode">BMS10 or FREEHOME; anything else is reported invalid and gives no discount.</param>
     /// <param name="isPriorityPatient">Courtesy discount flag (see <see cref="PriorityDiscount"/>).</param>
+    /// <param name="policy">BHYT group catalog and Manager fee parameters, loaded by <c>IFeePolicyProvider</c>.</param>
     /// <param name="now">Calculation time (UTC).</param>
     public static CalculateFeeResultDto Compute(IReadOnlyList<FeeLine> lines, bool homeCollection, string? insuranceCard,
-        string? voucherCode, bool isPriorityPatient, DateTime now)
+        string? voucherCode, bool isPriorityPatient, FeePolicy policy, DateTime now)
     {
+        ArgumentNullException.ThrowIfNull(policy);
         var r = new CalculateFeeResultDto
         {
             CalculatedAt = now,
@@ -48,7 +50,7 @@ public static class FeeCalculator
 
         if (!string.IsNullOrWhiteSpace(insuranceCard))
         {
-            var (card, benefit) = BhytCard.Parse(insuranceCard);
+            var (card, benefit) = BhytCard.Parse(insuranceCard, policy.BhytGroupCodes);
             var scope = lines.Where(l => l.BhytEligible).Sum(l => l.Price);
             var effective = BhytCard.EffectivePercent(benefit, scope);
             r.HasInsurance = true;
@@ -75,7 +77,7 @@ public static class FeeCalculator
             r.VoucherDiscount = discount;
         }
 
-        r.PriorityDiscount = isPriorityPatient ? PriorityDiscount(r.TestSubTotal - r.InsuranceDeduction) : 0m;
+        r.PriorityDiscount = isPriorityPatient ? PriorityDiscount(r.TestSubTotal - r.InsuranceDeduction, policy) : 0m;
         r.TotalDiscount = r.VoucherDiscount + r.PriorityDiscount;
         r.NetBeforeRounding = Math.Max(0m, r.GrossTotal - r.InsuranceDeduction - r.VoucherDiscount - r.PriorityDiscount);
         r.NetTotalPayable = RoundToThousand(r.NetBeforeRounding);
@@ -97,8 +99,15 @@ public static class FeeCalculator
         };
 
     /// <summary>
-    /// Courtesy discount for priority patients: 10% of the remaining test fee, max 100,000 (kept from the existing code).
+    /// Courtesy discount for priority patients: <see cref="FeePolicy.PriorityDiscountPercent"/> of the remaining test
+    /// fee after BHYT, capped at <see cref="FeePolicy.PriorityDiscountMaxAmount"/> when set. Default policy = 0 VND.
     /// </summary>
-    /// <remarks>TODO(phat, open question Q-FIN-2): BA names PriorityDiscount in the formula but gives no rate.</remarks>
-    public static decimal PriorityDiscount(decimal remainingTestFee) => Math.Min(100_000m, Math.Max(0m, remainingTestFee) * 0.10m);
+    /// <remarks>Quy trình ruling Đợt 3A Q2: the former 10% / max 100,000 had no source and touched real money, so the
+    /// rate is now a Manager parameter (<c>PUT api/billing/settings/priority-discount</c>) that starts at 0.</remarks>
+    public static decimal PriorityDiscount(decimal remainingTestFee, FeePolicy policy)
+    {
+        if (policy.PriorityDiscountPercent <= 0m) return 0m;
+        var discount = Math.Max(0m, remainingTestFee) * policy.PriorityDiscountPercent / 100m;
+        return policy.PriorityDiscountMaxAmount is { } cap ? Math.Min(cap, discount) : discount;
+    }
 }

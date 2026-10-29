@@ -13,25 +13,33 @@ namespace BMS.Application.Services.Billing;
 /// </remarks>
 public static class BhytCard
 {
-    /// <summary>Beneficiary group codes (QĐ 1351/QĐ-BHXH and later amendments, incl. LH from NQ 261/2025).</summary>
-    /// <remarks>TODO(phat, open question Q-FIN-1): confirm the full list with the BHXH catalog in use at the clinic.</remarks>
-    public static readonly IReadOnlySet<string> GroupCodes = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "DN", "HX", "CH", "NN", "TK", "HC", "XK", "XB", "XN", "TN", "CS", "QN", "CA", "CY", "MS", "HT", "TB", "NO",
-        "CT", "CC", "CK", "CB", "KC", "HD", "BT", "HN", "DT", "DK", "XD", "TS", "TC", "TQ", "TA", "TY", "HG", "LS",
-        "PV", "CN", "OK", "HK", "HS", "SV", "GB", "GD", "TE", "TL", "LH", "NK", "TD", "TV", "QD", "TH"
-    };
+    /// <summary>
+    /// Group codes seeded into the configurable catalog <c>bhyt_group_codes</c> on first start (Quy trình ruling
+    /// Đợt 3A Q1: the codes present in its source). Admin or Manager adds or deactivates codes afterwards.
+    /// </summary>
+    /// <remarks>TODO(phat, open point C2): confirm the full official list; until then a card whose group is not in
+    /// the catalog is rejected with MSG-ERR-FIN-01 (never priced with a guessed benefit).</remarks>
+    public static readonly IReadOnlyList<string> SeedGroupCodes = ["QN", "CA", "CY", "DK", "CN", "HT", "LH", "DN"];
+
+    /// <summary>Normalizes a group code typed by Admin/Manager or read from a card: trim + upper-case (invariant).</summary>
+    public static string NormalizeGroupCode(string? raw) => (raw ?? string.Empty).Trim().ToUpperInvariant();
 
     /// <summary>Visit BHYT-scope cost below this is fully covered; at or above it the card benefit applies (QĐ2).</summary>
     public const decimal FullCoverageThreshold = 379_500m;
 
-    /// <summary>Normalizes (trim, upper-case, drop spaces/dashes) and validates; returns the card and its benefit %.</summary>
+    /// <summary>
+    /// Normalizes (trim, upper-case, drop spaces/dashes) BEFORE validating, then validates against the active
+    /// group codes of the catalog; returns the card and its benefit %.
+    /// </summary>
+    /// <param name="raw">Card as typed.</param>
+    /// <param name="activeGroupCodes">Active codes from <c>bhyt_group_codes</c> (upper-case).</param>
     /// <exception cref="DomainValidationException">400 MSG-ERR-FIN-01 on any of the 4 format errors.</exception>
-    public static (string Card, int BenefitPercent) Parse(string raw)
+    public static (string Card, int BenefitPercent) Parse(string raw, IReadOnlySet<string> activeGroupCodes)
     {
+        ArgumentNullException.ThrowIfNull(activeGroupCodes);
         var card = new string((raw ?? string.Empty).Where(c => !char.IsWhiteSpace(c) && c != '-').ToArray()).ToUpperInvariant();
         if (card.Length != 15) throw Invalid("Mã thẻ BHYT phải gồm đúng 15 ký tự.");
-        if (!GroupCodes.Contains(card[..2])) throw Invalid("Hai ký tự đầu không thuộc danh mục mã đối tượng BHYT.");
+        if (!activeGroupCodes.Contains(card[..2])) throw Invalid("Hai ký tự đầu không thuộc danh mục mã đối tượng BHYT.");
         var benefit = card[2] switch { '1' or '2' or '5' => 100, '3' => 95, '4' => 80, _ => 0 };
         if (benefit == 0) throw Invalid("Ký tự thứ 3 (mã quyền lợi) phải từ 1 đến 5.");
         if (!char.IsAsciiDigit(card[3]) || !char.IsAsciiDigit(card[4])) throw Invalid("Ký tự 4–5 (mã tỉnh) phải là số.");
