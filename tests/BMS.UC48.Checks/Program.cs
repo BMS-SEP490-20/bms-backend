@@ -10,7 +10,7 @@ Console.WriteLine("=================================================");
 Console.WriteLine("STARTING UC48 TRACK TEST PROGRESS VERIFICATION CHECKS");
 Console.WriteLine("=================================================");
 
-var client = new MongoClient("mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
+var client = new MongoClient(Environment.GetEnvironmentVariable("BMS_CHECK_MONGO") ?? "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
 var databaseName = "BMS_UC48_Checks_" + Guid.NewGuid().ToString("N");
 var db = client.GetDatabase(databaseName);
 var passed = 0;
