@@ -20,7 +20,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 
 // Only this disposable database is written; the real BMS inventory remains untouched.
-var client = new MongoClient("mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
+var client = new MongoClient(Environment.GetEnvironmentVariable("BMS_CHECK_MONGO") ?? "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
 var databaseName = "BMS_UC56_Checks_" + Guid.NewGuid().ToString("N");
 var database = client.GetDatabase(databaseName);
 var today = new DateTime(2026, 10, 22, 0, 0, 0, DateTimeKind.Utc);

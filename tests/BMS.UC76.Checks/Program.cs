@@ -20,7 +20,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
-var client = new MongoClient("mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
+var client = new MongoClient(Environment.GetEnvironmentVariable("BMS_CHECK_MONGO") ?? "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
 var name = "BMS_UC76_Checks_" + Guid.NewGuid().ToString("N");
 var db = client.GetDatabase(name); var passed = 0;
 try
