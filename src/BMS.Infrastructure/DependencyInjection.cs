@@ -40,6 +40,16 @@ public static class DependencyInjection
         services.AddScoped<IMedicalAssessmentRepository, MedicalAssessmentRepository>();
         services.AddScoped<IBackupRepository, BackupRepository>();
 
+        // Iteration 3 features ported from the old microservices (Đợt 1 recovery): Mongo repositories
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<ILabRoomRepository, LabRoomRepository>();
+        services.AddScoped<IBloodSampleRepository, BloodSampleRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<ITestResultRepository, TestResultRepository>();
+        services.AddScoped<IQcFlagRepository, QcFlagRepository>();
+        services.AddScoped<IPatientFeedbackRepository, PatientFeedbackRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
+
         return services;
     }
 }

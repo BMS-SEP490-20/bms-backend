@@ -44,6 +44,16 @@ public static class DependencyInjection
         services.AddScoped<ITatStatisticsService, TatStatisticsService>();
         services.AddScoped<IRevenueReportService, RevenueReportService>();
 
+        // Iteration 3 features ported from the old microservices (Đợt 1 recovery)
+        services.AddScoped<IAuditLogService, AuditLogService>();
+        services.AddScoped<ILabRoomService, LabRoomService>();
+        services.AddScoped<IBloodSampleService, BloodSampleService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<ITestResultService, TestResultService>();
+        services.AddScoped<IQcFlagService, QcFlagService>();
+        services.AddScoped<IPatientFeedbackService, PatientFeedbackService>();
+        services.AddScoped<IPaymentRecordService, PaymentRecordService>();
+
         return services;
     }
 }
