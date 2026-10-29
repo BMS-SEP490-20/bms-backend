@@ -1,15 +1,18 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson.Serialization.Attributes;
 
-namespace Testorder_service.Models.Entities
+namespace BMS.Core.Entities
 {
     /// <summary>
     /// Represents a Quality Control (QC) flag triggered by laboratory analyzers or out-of-bound threshold rules.
-    /// Handled by Laboratory Users and Clinic Managers.
+    /// Handled by Laboratory Users and Clinic Managers. Persisted in <c>qc_flags</c> (I3-076).
     /// </summary>
+    [BsonIgnoreExtraElements]
     public class QcFlag
     {
         [Key]
+        [BsonId]
         public string FlagId { get; set; } = null!;
 
         public string FlagCode { get; set; } = null!; // e.g. QC-CAL-001, QC-WESTGARD-13S
@@ -26,12 +29,16 @@ namespace Testorder_service.Models.Entities
 
         public string Status { get; set; } = "ACTIVE"; // ACTIVE, INVESTIGATING, RESOLVED, OVERRIDDEN, DISMISSED
 
+        [BsonRepresentation(MongoDB.Bson.BsonType.Decimal128)]
         public decimal ObservedValue { get; set; }
 
+        [BsonRepresentation(MongoDB.Bson.BsonType.Decimal128)]
         public decimal TargetValue { get; set; }
 
+        [BsonRepresentation(MongoDB.Bson.BsonType.Decimal128)]
         public decimal LowerLimit { get; set; }
 
+        [BsonRepresentation(MongoDB.Bson.BsonType.Decimal128)]
         public decimal UpperLimit { get; set; }
 
         public string Unit { get; set; } = "";

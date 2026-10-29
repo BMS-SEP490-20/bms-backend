@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
-using Testorder_service.Services.Interface;
+using System.Security.Cryptography;
+using System.Threading;
+using BMS.Application.DTOs.QC;
+using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
 
-namespace Testorder_service.Services.Implement
+namespace BMS.Application.Services
 {
     /// <summary>
     /// Service managing Quality Control (QC) flags, analyzer rules, and resolution states.
@@ -17,6 +19,7 @@ namespace Testorder_service.Services.Implement
     {
         private readonly IQcFlagRepository _repository;
 
+        /// <summary>Creates the service over the QC flag repository.</summary>
         public QcFlagService(IQcFlagRepository repository)
         {
             _repository = repository;
@@ -25,28 +28,23 @@ namespace Testorder_service.Services.Implement
         /// <summary>
         /// Retrieves filtered QC flags from MongoDB based on status, severity, analyzer, or parameter.
         /// </summary>
-        public async Task<IEnumerable<QcFlag>> GetAllAsync(string? status, string? severity, string? analyzerId, string? parameter)
-        {
-            return await _repository.GetAllAsync(status, severity, analyzerId, parameter);
-        }
+        public Task<IReadOnlyList<QcFlag>> GetAllAsync(string? status, string? severity, string? analyzerId, string? parameter, CancellationToken ct = default)
+            => _repository.GetAllAsync(status, severity, analyzerId, parameter, ct);
 
         /// <summary>
         /// Retrieves a single QC flag record by identifier.
         /// </summary>
-        public async Task<QcFlag?> GetByIdAsync(string id)
-        {
-            return await _repository.GetByIdAsync(id);
-        }
+        public Task<QcFlag?> GetByIdAsync(string id, CancellationToken ct = default) => _repository.GetByIdAsync(id, ct);
 
         /// <summary>
         /// Creates a new QC flag triggered by an analyzer threshold rule or manual inspection.
         /// </summary>
-        public async Task<QcFlag> CreateAsync(CreateQcFlagDto dto)
+        public async Task<QcFlag> CreateAsync(CreateQcFlagDto dto, CancellationToken ct = default)
         {
             var flag = new QcFlag
             {
                 FlagId = $"QC-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
-                FlagCode = !string.IsNullOrWhiteSpace(dto.FlagCode) ? dto.FlagCode : $"QC-ERR-{new Random().Next(100, 999)}",
+                FlagCode = !string.IsNullOrWhiteSpace(dto.FlagCode) ? dto.FlagCode : $"QC-ERR-{RandomNumberGenerator.GetInt32(100, 1000)}",
                 AnalyzerId = dto.AnalyzerId,
                 AnalyzerName = dto.AnalyzerName,
                 Parameter = dto.Parameter,
@@ -66,17 +64,16 @@ namespace Testorder_service.Services.Implement
                 UpdatedAt = DateTime.UtcNow
             };
 
-            await _repository.AddAsync(flag);
-            await _repository.SaveChangesAsync();
+            await _repository.AddAsync(flag, ct);
             return flag;
         }
 
         /// <summary>
         /// Updates resolution details, severity, or status of an existing QC flag.
         /// </summary>
-        public async Task<QcFlag?> UpdateAsync(string id, UpdateQcFlagDto dto)
+        public async Task<QcFlag?> UpdateAsync(string id, UpdateQcFlagDto dto, CancellationToken ct = default)
         {
-            var existing = await _repository.GetByIdAsync(id);
+            var existing = await _repository.GetByIdAsync(id, ct);
             if (existing == null) return null;
 
             if (!string.IsNullOrWhiteSpace(dto.Status))
@@ -99,45 +96,26 @@ namespace Testorder_service.Services.Implement
 
             existing.UpdatedAt = DateTime.UtcNow;
 
-            await _repository.UpdateAsync(existing);
-            await _repository.SaveChangesAsync();
-            return existing;
+            return await _repository.UpdateAsync(existing, ct) ? existing : null;
         }
 
         /// <summary>
         /// Deletes a QC flag record from MongoDB.
         /// </summary>
-        public async Task<bool> DeleteAsync(string id)
-        {
-            var existing = await _repository.GetByIdAsync(id);
-            if (existing == null) return false;
-
-            await _repository.DeleteAsync(existing);
-            await _repository.SaveChangesAsync();
-            return true;
-        }
+        public Task<bool> DeleteAsync(string id, CancellationToken ct = default) => _repository.DeleteAsync(id, ct);
 
         /// <summary>
         /// Computes real-time QC metrics based on actual records in MongoDB.
         /// </summary>
-        public async Task<object> GetStatisticsAsync()
+        public async Task<QcFlagStatisticsDto> GetStatisticsAsync(CancellationToken ct = default)
         {
-            var all = (await _repository.GetAllAsync(null, null, null, null)).ToList();
-
-            var total = all.Count;
-            var active = all.Count(q => q.Status == "ACTIVE");
-            var investigating = all.Count(q => q.Status == "INVESTIGATING");
-            var resolved = all.Count(q => q.Status == "RESOLVED");
-            var critical = all.Count(q => q.Severity == "CRITICAL");
-
-            return new
-            {
-                totalFlags = total,
-                activeFlags = active,
-                investigatingFlags = investigating,
-                resolvedFlags = resolved,
-                criticalFlags = critical
-            };
+            // Server-side counts instead of loading every flag into memory.
+            return new QcFlagStatisticsDto(
+                await _repository.CountAsync(ct: ct),
+                await _repository.CountAsync(status: "ACTIVE", ct: ct),
+                await _repository.CountAsync(status: "INVESTIGATING", ct: ct),
+                await _repository.CountAsync(status: "RESOLVED", ct: ct),
+                await _repository.CountAsync(severity: "CRITICAL", ct: ct));
         }
     }
 }

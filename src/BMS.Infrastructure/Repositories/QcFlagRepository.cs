@@ -1,75 +1,72 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Testorder_service.Data;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
+using System.Text.RegularExpressions;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
-namespace Testorder_service.Repositories.Implement
+namespace BMS.Infrastructure.Repositories
 {
-    public class QcFlagRepository : IQcFlagRepository
+    /// <summary>
+    /// MongoDB implementation of <see cref="IQcFlagRepository"/> over <c>qc_flags</c> (I3-076).
+    /// Replaces the legacy EF Core implementation.
+    /// </summary>
+    public sealed class QcFlagRepository : IQcFlagRepository
     {
-        private readonly TestOrderManagementDbContext _context;
+        private const string AllFilterValue = "ALL";
+        private const int MaxResults = 500;
+        private readonly IMongoCollection<QcFlag> _flags;
 
-        public QcFlagRepository(TestOrderManagementDbContext context)
+        /// <summary>Creates the repository bound to <c>qc_flags</c>.</summary>
+        public QcFlagRepository(IMongoDatabase database)
         {
-            _context = context;
+            _flags = database.GetCollection<QcFlag>("qc_flags");
         }
 
-        public async Task<IEnumerable<QcFlag>> GetAllAsync(string? status, string? severity, string? analyzerId, string? parameter)
+        private static FilterDefinitionBuilder<QcFlag> F => Builders<QcFlag>.Filter;
+        private static bool IsSet(string? v) => !string.IsNullOrWhiteSpace(v) && v != AllFilterValue;
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<QcFlag>> GetAllAsync(string? status, string? severity, string? analyzerId, string? parameter, CancellationToken ct = default)
         {
-            var query = _context.QcFlags.AsQueryable();
+            var filter = F.Empty;
+            if (IsSet(status)) filter &= F.Eq(q => q.Status, status);
+            if (IsSet(severity)) filter &= F.Eq(q => q.Severity, severity);
+            if (IsSet(analyzerId)) filter &= F.Eq(q => q.AnalyzerId, analyzerId);
+            if (IsSet(parameter))
+                filter &= F.Regex(q => q.Parameter, new BsonRegularExpression(Regex.Escape(parameter!.Trim()), "i"));
 
-            if (!string.IsNullOrWhiteSpace(status) && status != "ALL")
-            {
-                query = query.Where(q => q.Status == status);
-            }
-
-            if (!string.IsNullOrWhiteSpace(severity) && severity != "ALL")
-            {
-                query = query.Where(q => q.Severity == severity);
-            }
-
-            if (!string.IsNullOrWhiteSpace(analyzerId) && analyzerId != "ALL")
-            {
-                query = query.Where(q => q.AnalyzerId == analyzerId);
-            }
-
-            if (!string.IsNullOrWhiteSpace(parameter) && parameter != "ALL")
-            {
-                var param = parameter.Trim().ToLower();
-                query = query.Where(q => q.Parameter.ToLower().Contains(param));
-            }
-
-            return await query.OrderByDescending(q => q.TriggeredAt).ToListAsync();
+            return await _flags.Find(filter).SortByDescending(q => q.TriggeredAt).Limit(MaxResults).ToListAsync(ct);
         }
 
-        public async Task<QcFlag?> GetByIdAsync(string id)
+        /// <inheritdoc />
+        public async Task<QcFlag?> GetByIdAsync(string id, CancellationToken ct = default) =>
+            await _flags.Find(F.Eq(q => q.FlagId, id)).FirstOrDefaultAsync(ct);
+
+        /// <inheritdoc />
+        public Task AddAsync(QcFlag entity, CancellationToken ct = default) =>
+            _flags.InsertOneAsync(entity, cancellationToken: ct);
+
+        /// <inheritdoc />
+        public async Task<bool> UpdateAsync(QcFlag entity, CancellationToken ct = default)
         {
-            return await _context.QcFlags.FirstOrDefaultAsync(q => q.FlagId == id);
+            var result = await _flags.ReplaceOneAsync(F.Eq(q => q.FlagId, entity.FlagId), entity, cancellationToken: ct);
+            return result.MatchedCount > 0;
         }
 
-        public async Task AddAsync(QcFlag entity)
+        /// <inheritdoc />
+        public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
         {
-            await _context.QcFlags.AddAsync(entity);
+            var result = await _flags.DeleteOneAsync(F.Eq(q => q.FlagId, id), ct);
+            return result.DeletedCount > 0;
         }
 
-        public Task UpdateAsync(QcFlag entity)
+        /// <inheritdoc />
+        public Task<long> CountAsync(string? status = null, string? severity = null, CancellationToken ct = default)
         {
-            _context.QcFlags.Update(entity);
-            return Task.CompletedTask;
-        }
-
-        public Task DeleteAsync(QcFlag entity)
-        {
-            _context.QcFlags.Remove(entity);
-            return Task.CompletedTask;
-        }
-
-        public async Task SaveChangesAsync()
-        {
-            await _context.SaveChangesAsync();
+            var filter = F.Empty;
+            if (status is not null) filter &= F.Eq(q => q.Status, status);
+            if (severity is not null) filter &= F.Eq(q => q.Severity, severity);
+            return _flags.CountDocumentsAsync(filter, cancellationToken: ct);
         }
     }
 }
