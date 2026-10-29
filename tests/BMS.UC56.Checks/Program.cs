@@ -113,7 +113,7 @@ try
             http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", role);
             Assert((await http.GetAsync("/api/inventory")).StatusCode == HttpStatusCode.Forbidden);
         }
-        foreach (var role in new[] { "Admin", "Manager", "WarehouseStaff", "LabHead", "LabTech", "LabTechnician", "LaboratoryUser", "LabUser" }) {
+        foreach (var role in new[] { "Admin", "Manager", "Lab" }) {
             http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", role);
             Assert((await http.GetAsync("/api/inventory")).StatusCode == HttpStatusCode.OK);
         }
@@ -123,8 +123,9 @@ try
         Assert((await http.GetAsync("/api/inventory?expiryFrom=bad-date")).StatusCode == HttpStatusCode.BadRequest);
         Assert((await http.GetAsync("/api/inventory/missing")).StatusCode == HttpStatusCode.NotFound);
         Assert((await http.GetAsync("/api/inventory/today")).StatusCode == HttpStatusCode.OK);
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "Admin");
         Assert((await http.PostAsJsonAsync("/api/inventory", new { })).StatusCode == HttpStatusCode.Forbidden);
-        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "WarehouseStaff");
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "Lab");
         Assert((await http.PostAsJsonAsync("/api/inventory", new { })).StatusCode == HttpStatusCode.BadRequest);
         var create = NewLot("HTTP-CREATE");
         var createdResponse = await http.PostAsJsonAsync("/api/inventory", create);
@@ -139,11 +140,11 @@ try
         Assert(updatedResponse.StatusCode == HttpStatusCode.OK);
         Assert((await updatedResponse.Content.ReadFromJsonAsync<InventoryItemDto>())?.Revision == 1);
         Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", update)).StatusCode == HttpStatusCode.Conflict);
-        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "LabTech");
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "Admin");
         Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", EditLot(1, 8))).StatusCode == HttpStatusCode.Forbidden);
         using (var forbiddenDelete = new HttpRequestMessage(HttpMethod.Delete, $"/api/inventory/{created.Id}") { Content = JsonContent.Create(new DeleteInventoryDto { ExpectedRevision = 1, Reason = "Archive test lot" }) })
             Assert((await http.SendAsync(forbiddenDelete)).StatusCode == HttpStatusCode.Forbidden);
-        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "WarehouseStaff");
+        http.DefaultRequestHeaders.Remove("X-Check-Role"); http.DefaultRequestHeaders.Add("X-Check-Role", "Manager");
         Assert((await http.PutAsJsonAsync($"/api/inventory/{created.Id}", EditLot(1, 0))).StatusCode == HttpStatusCode.OK);
         using (var staleDelete = new HttpRequestMessage(HttpMethod.Delete, $"/api/inventory/{created.Id}") { Content = JsonContent.Create(new DeleteInventoryDto { ExpectedRevision = 1, Reason = "Archive test lot" }) })
             Assert((await http.SendAsync(staleDelete)).StatusCode == HttpStatusCode.Conflict);

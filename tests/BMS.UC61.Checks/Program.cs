@@ -80,7 +80,7 @@ try
         await using var app = builder.Build(); app.UseExceptionHandler(); app.UseAuthentication(); app.UseAuthorization(); app.MapControllers(); await app.StartAsync();
         using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
         Assert((await http.GetAsync("/api/lab-profiles")).StatusCode == HttpStatusCode.Unauthorized);
-        foreach (var role in new[] { "Patient", "Doctor", "LabTech", "Receptionist", "WarehouseStaff" })
+        foreach (var role in new[] { "Patient", "Doctor", "Lab", "Receptionist" })
         {
             http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", role);
             Assert((await http.GetAsync("/api/lab-profiles")).StatusCode == HttpStatusCode.Forbidden);
@@ -89,7 +89,7 @@ try
             using var denied = new HttpRequestMessage(HttpMethod.Delete, "/api/lab-profiles/test") { Content = JsonContent.Create(new { }) };
             Assert((await http.SendAsync(denied)).StatusCode == HttpStatusCode.Forbidden);
         }
-        foreach (var role in new[] { "Admin", "Manager", "LabHead" })
+        foreach (var role in new[] { "Admin", "Manager" })
         {
             http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", role);
             Assert((await http.GetAsync("/api/lab-profiles")).StatusCode == HttpStatusCode.OK);
@@ -109,10 +109,10 @@ try
         Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.Conflict);
         edit.ExpectedRevision = null;
         Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.BadRequest);
-        http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", "LabTechnician");
+        http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", "Lab");
         Assert((await http.PostAsJsonAsync("/api/lab-profiles", input)).StatusCode == HttpStatusCode.Forbidden);
         Assert((await http.PutAsJsonAsync("/api/lab-profiles/http-lab", edit)).StatusCode == HttpStatusCode.Forbidden);
-        http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", "LabHead");
+        http.DefaultRequestHeaders.Remove("X-Role"); http.DefaultRequestHeaders.Add("X-Role", "Manager");
         async Task<HttpStatusCode> Remove(object body)
         {
             using var request = new HttpRequestMessage(HttpMethod.Delete, "/api/lab-profiles/http-lab") { Content = JsonContent.Create(body) };

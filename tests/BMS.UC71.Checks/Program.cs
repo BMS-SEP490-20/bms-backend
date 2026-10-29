@@ -28,7 +28,7 @@ try
 {
     var repository = new SampleTimelineRepository(db);
     var service = new SampleTimelineService(repository);
-    var staff = new SampleTimelineViewer("staff", "LabHead");
+    var staff = new SampleTimelineViewer("staff", "Lab");
     var accountId = ObjectId.GenerateNewId();
     var patient = new SampleTimelineViewer(accountId.ToString(), "Patient");
     var secondSample = ObjectId.GenerateNewId();
@@ -116,8 +116,7 @@ try
         Assert(await service.GetAsync("missing", new(), patient) == null);
         Assert(await service.GetAsync("S-DELETED", new(), staff) == null);
         await Denied(() => service.RfidAsync("S1", new(), patient));
-        var reception = await service.GetAsync("S1", new(), new("staff", "Receptionist"));
-        Assert(!System.Text.Json.JsonSerializer.Serialize(reception).Contains("sensitive-audit-note"));
+        await Denied(() => service.GetAsync("S1", new(), new("staff", "Receptionist")));
     });
     await Check("RFID attribution excludes another sample and precollection tag scans; never drives progress", async () =>
     {
@@ -156,7 +155,7 @@ try
         await Invalid(() => service.GetAsync("S1", new() { PageSize = 101 }, staff));
         await Invalid(() => service.GetAsync(" ", new(), staff));
         await Denied(() => service.ListAsync(new(), new("staff", "Cashier")));
-        await Denied(() => service.ListAsync(new(), new("", "LabHead")));
+        await Denied(() => service.ListAsync(new(), new("", "Lab")));
     });
     await Check("HTTP authorization, scoped access, validation and read-only contracts", async () =>
     {
@@ -168,19 +167,20 @@ try
         await using var app = builder.Build(); app.UseExceptionHandler(); app.UseAuthentication(); app.UseAuthorization(); app.MapControllers(); await app.StartAsync();
         using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
         Assert((await http.GetAsync("/api/sample-timelines")).StatusCode == HttpStatusCode.Unauthorized);
-        foreach (var role in new[] { "Cashier", "WarehouseStaff" })
+        foreach (var role in new[] { "Admin", "Receptionist", "Patient" })
         {
             Role(role); Assert((await http.GetAsync("/api/sample-timelines/S1")).StatusCode == HttpStatusCode.Forbidden);
         }
-        foreach (var role in new[] { "Admin", "Administrator", "Manager", "Doctor", "LabHead", "LabTech", "LabTechnician", "Nurse", "Phlebotomist", "Receptionist" })
+        foreach (var role in new[] { "Manager", "Doctor", "Lab" })
         {
             Role(role); using var response = await http.GetAsync("/api/sample-timelines/S1");
             Assert(response.StatusCode == HttpStatusCode.OK && response.Headers.CacheControl?.NoStore == true);
         }
         Role("Patient"); http.DefaultRequestHeaders.Add("X-User", accountId.ToString());
-        Assert((await http.GetFromJsonAsync<SampleTimelinePage<SampleTimelineSummary>>("/api/sample-timelines?patientId=P2&accountId=other-account"))?.Total == 2);
-        Assert((await http.GetAsync("/api/sample-timelines/S-OTHER")).StatusCode == HttpStatusCode.NotFound);
+        Assert((await http.GetAsync("/api/sample-timelines?patientId=P2&accountId=other-account")).StatusCode == HttpStatusCode.Forbidden);
         Assert((await http.GetAsync("/api/sample-timelines/S1/rfid")).StatusCode == HttpStatusCode.Forbidden);
+        Role("Lab");
+        Assert((await http.GetAsync("/api/sample-timelines/MISSING-SAMPLE")).StatusCode == HttpStatusCode.NotFound);
         Assert((await http.GetAsync("/api/sample-timelines?pageSize=101")).StatusCode == HttpStatusCode.BadRequest);
         Assert((await http.GetAsync("/api/sample-timelines?fromDate=bad-date")).StatusCode == HttpStatusCode.BadRequest);
         Assert((await http.PostAsJsonAsync("/api/sample-timelines/S1", new { })).StatusCode == HttpStatusCode.MethodNotAllowed);
