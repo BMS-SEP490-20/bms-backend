@@ -15,4 +15,6 @@ public interface IPaymentService
     Task<DiscountResultDto> ApplyDiscountAsync(ApplyDiscountRequestDto request, CancellationToken ct = default);
     Task<PaymentCheckoutDto> ProcessPaymentAsync(ProcessPaymentRequestDto request, string? userId, string? userName, CancellationToken ct = default);
     Task<List<PaymentCheckoutDto>> GetPatientInvoicesAsync(string patientId, CancellationToken ct = default);
+    /// <summary>Patient ID that owns the invoice (by id or code), or null when not found. Used for Patient ownership checks.</summary>
+    Task<string?> GetInvoicePatientIdAsync(string invoiceIdOrCode, CancellationToken ct = default);
 }

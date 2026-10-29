@@ -14,6 +14,8 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         services.AddSingleton<MongoDbContext>();
+        // Đợt 2: Patient "own data" checks (TIEU-CHI R14).
+        services.AddScoped<IPatientOwnership, PatientOwnershipRepository>();
         services.AddScoped<IOtpRepository, OtpRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IRoleRepository, RoleRepository>();

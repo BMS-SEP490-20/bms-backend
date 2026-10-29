@@ -96,4 +96,30 @@ public static class RoleSets
     public const string DoctorOrLab = RoleNames.Doctor + C + RoleNames.Lab;
     /// <summary>Receptionist and Patient (own payments, appointments booking).</summary>
     public const string ReceptionOrPatient = RoleNames.Receptionist + C + RoleNames.Patient;
+    /// <summary>Receptionist with Manager oversight (invoices UC54 view, legacy appointment management UC24).</summary>
+    public const string ReceptionOrManager = RoleNames.Receptionist + C + RoleNames.Manager;
+    /// <summary>Admin, Manager, Lab (IoT thresholds/logs view UC67/UC69, lab equipment).</summary>
+    public const string AdminManagerLab = RoleNames.Admin + C + RoleNames.Manager + C + RoleNames.Lab;
+    /// <summary>EMR / assessment readers (UC33, UC50): Doctor, Manager (view), Patient (own).</summary>
+    public const string DoctorManagerOrPatient = RoleNames.Doctor + C + RoleNames.Manager + C + RoleNames.Patient;
+    /// <summary>Appointment readers (UC23): Receptionist, Manager, Doctor (assigned), Patient (own).</summary>
+    public const string AppointmentReaders = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Patient;
+    /// <summary>Appointment editors (UC24): Receptionist, Manager, Patient (own cancel/reschedule).</summary>
+    public const string AppointmentEditors = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Patient;
+    /// <summary>Doctor schedule viewers (UC16): Admin, Manager, Doctor, Receptionist.</summary>
+    public const string DoctorScheduleViewers = RoleNames.Admin + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Receptionist;
+    /// <summary>Push dispatchers (UC58): Lab, Manager, Receptionist.</summary>
+    public const string NotificationDispatchers = RoleNames.Lab + C + RoleNames.Manager + C + RoleNames.Receptionist;
+    /// <summary>Patient result export (UC62): Doctor and Patient (own).</summary>
+    public const string DoctorOrPatient = RoleNames.Doctor + C + RoleNames.Patient;
+    /// <summary>Tracking search and patient trackings (UC48): clinical staff, Receptionist, Patient (own).</summary>
+    public const string TrackingViewers = ClinicalStaffOrReception + C + RoleNames.Patient;
+    /// <summary>Feedback by patient (UC79): Manager and Patient (own).</summary>
+    public const string ManagerOrPatient = RoleNames.Manager + C + RoleNames.Patient;
+    /// <summary>Test order status (UC32): Doctor cancels own order, Manager handles exceptions.</summary>
+    public const string DoctorOrManager = RoleNames.Doctor + C + RoleNames.Manager;
+    /// <summary>Single result notification (UC60): Lab, Manager, Patient (own).</summary>
+    public const string LabManagerOrPatient = LabOrManager + C + RoleNames.Patient;
+    /// <summary>Test notes readers (UC52): Lab, Doctor, Manager (view).</summary>
+    public const string TestNoteReaders = ClinicalStaff;
 }
