@@ -1,47 +1,20 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using BMS.Application.DTOs.Billing;
 using BMS.Application.Interfaces;
+using BMS.Application.Services.Billing;
 using BMS.Core.Entities;
+using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
-using BMS.Infrastructure.Data;
-using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
 /// <summary>
-/// Service implementing patient fee checkout and digital payment processing (UC55 / Process Payment).
-/// Supports VNPay, MoMo e-Wallet, Banking QR, and Pay-at-reception workflows.
+/// UC55 invoice checkout. Voucher numbers come from <see cref="FeeCalculator"/> (same as UC53: BMS10 capped at
+/// 200,000, rounding to 1,000); online methods never mark an invoice Paid without a verified gateway callback.
 /// </summary>
-public class PaymentService : IPaymentService
+/// <remarks>WHY changed (Đợt 3): BMS10 had no cap here (UC55 ≠ UC53), unknown codes such as SPRING10/HEALTH2026 gave
+/// discounts, VNPay/MoMo were set Paid immediately with a fake QR CRC, and invoices were mirrored into BmsDbContext.</remarks>
+public class PaymentService(IInvoiceRepository invoiceRepo, ITestOrderRepository orders, TimeProvider clock) : IPaymentService
 {
-    private readonly IInvoiceRepository _invoiceRepo;
-    private readonly BmsDbContext _dbContext;
-    private readonly IMongoCollection<Invoice>? _invoicesCol;
-
-    public PaymentService(
-        IInvoiceRepository invoiceRepo,
-        BmsDbContext dbContext,
-        IMongoDatabase? database = null)
-    {
-        _invoiceRepo = invoiceRepo;
-        _dbContext = dbContext;
-        if (database != null)
-        {
-            try
-            {
-                _invoicesCol = database.GetCollection<Invoice>("invoices");
-            }
-            catch
-            {
-                _invoicesCol = null;
-            }
-        }
-    }
-
     public async Task<PaymentCheckoutDto?> GetCheckoutSummaryAsync(string invoiceId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(invoiceId))
@@ -60,50 +33,19 @@ public class PaymentService : IPaymentService
 
     public async Task<DiscountResultDto> ApplyDiscountAsync(ApplyDiscountRequestDto request, CancellationToken ct = default)
     {
-        var invoice = await FindInvoiceAsync(request.InvoiceId.Trim(), ct);
-        if (invoice == null)
-        {
-            return new DiscountResultDto
-            {
-                IsValid = false,
-                Message = $"Invoice '{request.InvoiceId}' not found."
-            };
-        }
-
+        var invoice = await FindInvoiceAsync(request.InvoiceId.Trim(), ct)
+                      ?? throw new ResourceNotFoundException("INVOICE_NOT_FOUND", "Không tìm thấy hóa đơn.");
         var code = request.DiscountCode.Trim().ToUpperInvariant();
-        decimal percent = code switch
-        {
-            "SPRING10" => 10m,
-            "BMS10" => 10m,
-            "HEALTH2026" => 15m,
-            "BMS20" => 20m,
-            _ => 0m
-        };
-
-        if (percent <= 0)
-        {
-            return new DiscountResultDto
-            {
-                IsValid = false,
-                DiscountCode = code,
-                OriginalSubTotal = invoice.SubTotal,
-                NewTotal = invoice.TotalAmount,
-                Message = "Invalid or expired discount code. Try SPRING10 for 10% off."
-            };
-        }
-
-        var discountAmount = Math.Round(invoice.SubTotal * (percent / 100m), 0);
-        var newTotal = Math.Max(0, invoice.SubTotal - discountAmount);
-
+        var (valid, discount, description) = FeeCalculator.Voucher(code, invoice.SubTotal, 0m);
         return new DiscountResultDto
         {
-            IsValid = true,
+            IsValid = valid,
             DiscountCode = code,
-            DiscountPercent = percent,
-            DiscountAmount = discountAmount,
+            DiscountPercent = valid && code == "BMS10" ? 10m : 0m,
+            DiscountAmount = discount,
             OriginalSubTotal = invoice.SubTotal,
-            NewTotal = newTotal,
-            Message = $"{code} applied — {percent:0}% off order total"
+            NewTotal = FeeCalculator.RoundToThousand(Math.Max(0m, invoice.SubTotal - discount)),
+            Message = description
         };
     }
 
@@ -114,93 +56,67 @@ public class PaymentService : IPaymentService
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.InvoiceId))
-        {
-            throw new ArgumentException("Invoice identifier is required.", nameof(request.InvoiceId));
-        }
+            throw new DomainValidationException("INVOICE_REQUIRED", "Vui lòng chọn hóa đơn.");
+        var invoice = await FindInvoiceAsync(request.InvoiceId.Trim(), ct)
+                      ?? throw new ResourceNotFoundException("INVOICE_NOT_FOUND", "Không tìm thấy hóa đơn.");
+        if (invoice.Status != InvoiceStatus.Unpaid)
+            throw new ConflictStateException("INVOICE_NOT_PAYABLE", "Hóa đơn đã thanh toán hoặc đã hủy.");
 
-        var invoice = await FindInvoiceAsync(request.InvoiceId.Trim(), ct);
-        if (invoice == null)
-        {
-            throw new KeyNotFoundException($"Invoice '{request.InvoiceId}' not found in database.");
-        }
-
-        // Apply discount if provided
         string? appliedDiscountCode = null;
         if (!string.IsNullOrWhiteSpace(request.DiscountCode))
         {
-            var code = request.DiscountCode.Trim().ToUpperInvariant();
-            decimal percent = code switch
+            var (valid, discount, _) = FeeCalculator.Voucher(request.DiscountCode, invoice.SubTotal, 0m);
+            if (valid)
             {
-                "SPRING10" => 10m,
-                "BMS10" => 10m,
-                "HEALTH2026" => 15m,
-                "BMS20" => 20m,
-                _ => 0m
-            };
-
-            if (percent > 0)
-            {
-                appliedDiscountCode = code;
-                invoice.DiscountAmount = Math.Round(invoice.SubTotal * (percent / 100m), 0);
-                invoice.TotalAmount = Math.Max(0, invoice.SubTotal - invoice.DiscountAmount);
+                appliedDiscountCode = request.DiscountCode.Trim().ToUpperInvariant();
+                invoice.DiscountAmount = discount;
+                invoice.TotalAmount = FeeCalculator.RoundToThousand(Math.Max(0m, invoice.SubTotal - discount));
             }
         }
 
-        var methodStr = request.PaymentMethod.Trim();
-        var methodUpper = methodStr.ToUpperInvariant();
-
-        string confirmationMessage;
-        string? qrCodePayload = null;
-        string? paymentUrl = null;
-
-        if (methodUpper == "RECEPTION" || methodUpper == "PAY AT RECEPTION")
+        var now = clock.GetUtcNow().UtcDateTime;
+        var method = (request.PaymentMethod ?? string.Empty).Trim().ToUpperInvariant();
+        string message;
+        switch (method)
         {
-            invoice.PaymentMethod = PaymentMethod.Reception;
-            invoice.Status = InvoiceStatus.Unpaid; // Patient will pay cash/card upon arrival
-            invoice.TransactionReference = $"RECP-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}";
-            confirmationMessage = "Order confirmed for cash or POS card settlement upon arrival at clinic reception.";
-        }
-        else
-        {
-            // Digital settlement (VNPay, MoMo, BankingQR)
-            var (parsedMethod, methodLabel) = methodUpper switch
-            {
-                "MOMO" => (PaymentMethod.MoMo, "MoMo e-Wallet"),
-                "BANKINGQR" or "BANKING QR" => (PaymentMethod.BankingQR, "Vietnamese Banking QR"),
-                "CASH" => (PaymentMethod.Cash, "Cash"),
-                "CREDITCARD" or "CARD" or "POS" => (PaymentMethod.CreditCard, "Credit Card"),
-                _ => (PaymentMethod.VNPay, "VNPay Gateway")
-            };
-
-            invoice.PaymentMethod = parsedMethod;
-            invoice.Status = InvoiceStatus.Paid;
-            invoice.PaidAt = DateTime.UtcNow;
-            invoice.TransactionReference = $"TXN-{parsedMethod}-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..6].ToUpper()}";
-
-            confirmationMessage = $"Payment of {invoice.TotalAmount:N0} ₫ successfully processed via {methodLabel}.";
-            qrCodePayload = $"00020101021238540010A0000007270124{invoice.InvoiceCode}5303704540{invoice.TotalAmount:0}5802VN62200816{invoice.TransactionReference}6304ABCD";
-            paymentUrl = string.IsNullOrWhiteSpace(request.ReturnUrl) ? null : $"{request.ReturnUrl}?status=success&txn={invoice.TransactionReference}";
+            case "CASH":
+            case "POS":
+            case "CARD":
+            case "CREDITCARD":
+                invoice.PaymentMethod = method == "CASH" ? PaymentMethod.Cash : PaymentMethod.CreditCard;
+                invoice.Status = InvoiceStatus.Paid;
+                invoice.PaidAt = now;
+                invoice.CashierId = userId;
+                invoice.CashierName = userName;
+                invoice.TransactionReference = $"RCP-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+                message = $"Đã thu {invoice.TotalAmount:N0}đ.";
+                break;
+            case "RECEPTION":
+            case "PAY AT RECEPTION":
+                invoice.PaymentMethod = PaymentMethod.Reception;
+                message = "Thanh toán tại quầy khi đến phòng khám.";
+                break;
+            case "VNPAY":
+            case "MOMO":
+            case "BANKINGQR":
+            case "BANKING QR":
+                // WHY still Unpaid: only a verified gateway callback may mark Paid (GAP C3.3). TODO(phat, Đợt 4): IPN.
+                invoice.PaymentMethod = method == "MOMO" ? PaymentMethod.MoMo : method == "VNPAY" ? PaymentMethod.VNPay : PaymentMethod.BankingQR;
+                message = "Đang chờ xác nhận từ cổng thanh toán.";
+                break;
+            default:
+                throw new DomainValidationException("PAYMENT_METHOD_INVALID", "Phương thức thanh toán không hợp lệ.");
         }
 
-        // Persist update in MongoDB and local in-memory store
-        await _invoiceRepo.UpdateAsync(invoice, ct);
-
-        lock (_dbContext.Invoices)
-        {
-            var existing = _dbContext.Invoices.FirstOrDefault(x => x.Id == invoice.Id || x.InvoiceCode == invoice.InvoiceCode);
-            if (existing != null)
-            {
-                _dbContext.Invoices.Remove(existing);
-            }
-            _dbContext.Invoices.Add(invoice);
-        }
+        await invoiceRepo.UpdateAsync(invoice, ct);
+        if (invoice.Status == InvoiceStatus.Paid && !string.IsNullOrWhiteSpace(invoice.OrderId))
+            await orders.TryMarkPaidAsync(invoice.OrderId, userId ?? string.Empty, now, ct);
 
         var dto = MapToCheckoutDto(invoice);
         dto.DiscountCode = appliedDiscountCode;
-        dto.Message = confirmationMessage;
-        dto.QrCodePayload = qrCodePayload;
-        dto.PaymentUrl = paymentUrl;
-
+        dto.Message = message;
+        dto.QrCodePayload = null;
+        dto.PaymentUrl = null;
         return dto;
     }
 
@@ -211,7 +127,7 @@ public class PaymentService : IPaymentService
             return new List<PaymentCheckoutDto>();
         }
 
-        var list = await _invoiceRepo.GetInvoicesAsync(patientId.Trim(), null, null, null, 1, 50, ct);
+        var list = await invoiceRepo.GetInvoicesAsync(patientId.Trim(), null, null, null, 1, 50, ct);
         return list.Select(MapToCheckoutDto).ToList();
     }
 
@@ -224,19 +140,13 @@ public class PaymentService : IPaymentService
         var key = invoiceIdOrCode.Trim();
 
         // 1. Check via repository (MongoDB collection 'invoices')
-        var found = await _invoiceRepo.GetByIdAsync(key, ct);
+        var found = await invoiceRepo.GetByIdAsync(key, ct);
         if (found != null) return found;
 
-        found = await _invoiceRepo.GetByInvoiceCodeAsync(key, ct);
+        found = await invoiceRepo.GetByInvoiceCodeAsync(key, ct);
         if (found != null) return found;
 
-        // 2. Check BmsDbContext in-memory store
-        lock (_dbContext.Invoices)
-        {
-            return _dbContext.Invoices.FirstOrDefault(i =>
-                string.Equals(i.Id, key, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(i.InvoiceCode, key, StringComparison.OrdinalIgnoreCase));
-        }
+        return null;
     }
 
     private static PaymentCheckoutDto MapToCheckoutDto(Invoice inv)

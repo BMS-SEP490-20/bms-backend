@@ -91,7 +91,10 @@ public class CalculateFeeResultDto
     public bool HasInsurance { get; set; }
     public string? InsuranceCardNumber { get; set; }
     public string? InsuranceTierDescription { get; set; }
+    /// <summary>Coverage actually applied (100 below the 379,500 threshold, else the card benefit).</summary>
     public int InsuranceCoveragePercent { get; set; }
+    /// <summary>Benefit printed on the card (3rd character): 100 / 95 / 80.</summary>
+    public int InsuranceBenefitPercent { get; set; }
     public decimal InsuranceDeduction { get; set; }
 
     /// <summary>Voucher discounts.</summary>
@@ -108,6 +111,9 @@ public class CalculateFeeResultDto
     public decimal TotalDiscount { get; set; }
 
     /// <summary>Net final amount payable by patient after all deductions, non-negative.</summary>
+    /// <summary>Net before rounding to 1,000 VND.</summary>
+    public decimal NetBeforeRounding { get; set; }
+
     public decimal NetTotalPayable { get; set; }
 
     /// <summary>Vietnamese reading of NetTotalPayable according to Decree 123/2020/ND-CP.</summary>

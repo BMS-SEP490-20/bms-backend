@@ -64,4 +64,22 @@ public sealed class TestOrderRepository(IMongoDatabase database) : ITestOrderRep
         return await _orders.FindOneAndUpdateAsync(F.Eq(o => o.Id, id) & F.In(o => o.Status, from), update,
             new FindOneAndUpdateOptions<TestOrder> { ReturnDocument = ReturnDocument.After }, ct);
     }
+
+    /// <inheritdoc />
+    public async Task<TestOrder?> TryMarkPaidAsync(string id, string actorUserId, DateTime nowUtc, CancellationToken ct = default)
+    {
+        var options = new FindOneAndUpdateOptions<TestOrder> { ReturnDocument = ReturnDocument.After };
+        var unpaid = F.Eq(o => o.Id, id) & F.Eq(o => o.PaidAt, null);
+        var paid = await _orders.FindOneAndUpdateAsync(
+            unpaid & F.In(o => o.Status, new[] { TestOrderStatus.AwaitingPayment, TestOrderStatus.Ordered }),
+            Builders<TestOrder>.Update.Set(o => o.Status, TestOrderStatus.PaidPendingSample).Set(o => o.PaidAt, nowUtc)
+                .Set(o => o.UpdatedAt, nowUtc).Set(o => o.StatusChangedBy, actorUserId), options, ct);
+        if (paid != null) return paid;
+        // WHY a second conditional update: a STAT order may already be sampled (post-payment); only the
+        // payment timestamp changes, the clinical status stays.
+        return await _orders.FindOneAndUpdateAsync(
+            unpaid & F.Eq(o => o.PaymentDeferred, true)
+                & F.In(o => o.Status, new[] { TestOrderStatus.SampleCollected, TestOrderStatus.InAnalysis, TestOrderStatus.Completed }),
+            Builders<TestOrder>.Update.Set(o => o.PaidAt, nowUtc).Set(o => o.UpdatedAt, nowUtc), options, ct);
+    }
 }
