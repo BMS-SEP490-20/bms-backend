@@ -1,75 +1,71 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Testorder_service.Data;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using MongoDB.Driver;
 
-namespace Testorder_service.Repositories.Implement
+namespace BMS.Infrastructure.Repositories
 {
     /// <summary>
-    /// Repository implementation providing MongoDB data access for notification records.
+    /// MongoDB implementation of <see cref="INotificationRepository"/> over <c>notifications</c> (I3-034).
+    /// Replaces the legacy EF Core implementation.
     /// </summary>
-    public class NotificationRepository : INotificationRepository
+    public sealed class NotificationRepository : INotificationRepository
     {
-        private readonly TestOrderManagementDbContext _context;
+        private const string BroadcastUser = "ALL";
+        private const string BroadcastRole = "All";
+        private readonly IMongoCollection<Notification> _notifications;
 
-        public NotificationRepository(TestOrderManagementDbContext context)
+        /// <summary>Creates the repository bound to <c>notifications</c>.</summary>
+        public NotificationRepository(IMongoDatabase database)
         {
-            _context = context;
+            _notifications = database.GetCollection<Notification>("notifications");
         }
 
-        public async Task<IEnumerable<Notification>> GetByUserIdAsync(string userId)
+        private static FilterDefinitionBuilder<Notification> F => Builders<Notification>.Filter;
+        private static FilterDefinition<Notification> ForUser(string userId) => F.In(n => n.UserId, new[] { userId, BroadcastUser });
+
+        private async Task<IReadOnlyList<Notification>> ListAsync(FilterDefinition<Notification> filter, CancellationToken ct) =>
+            await _notifications.Find(filter).SortByDescending(n => n.CreatedAt).Limit(INotificationRepository.MaxResults).ToListAsync(ct);
+
+        /// <inheritdoc />
+        public Task<IReadOnlyList<Notification>> GetByUserIdAsync(string userId, CancellationToken ct = default) =>
+            ListAsync(ForUser(userId), ct);
+
+        /// <inheritdoc />
+        public Task<IReadOnlyList<Notification>> GetByRoleAsync(string role, CancellationToken ct = default) =>
+            ListAsync(F.In(n => n.Role, new[] { role, BroadcastRole }), ct);
+
+        /// <inheritdoc />
+        public Task<IReadOnlyList<Notification>> GetByUserAndRoleAsync(string userId, string? role, CancellationToken ct = default)
         {
-            return await _context.Notifications
-                .Where(n => n.UserId == userId || n.UserId == "ALL")
-                .OrderByDescending(n => n.CreatedAt)
-                .ToListAsync();
+            var filter = string.IsNullOrWhiteSpace(role)
+                ? ForUser(userId)
+                : ForUser(userId) | F.In(n => n.Role, new[] { role.Trim(), BroadcastRole });
+            return ListAsync(filter, ct);
         }
 
-        public async Task<IEnumerable<Notification>> GetByRoleAsync(string role)
+        /// <inheritdoc />
+        public async Task<Notification?> GetByIdAsync(string id, CancellationToken ct = default) =>
+            await _notifications.Find(F.Eq(n => n.NotificationId, id)).FirstOrDefaultAsync(ct);
+
+        /// <inheritdoc />
+        public Task AddAsync(Notification entity, CancellationToken ct = default) =>
+            _notifications.InsertOneAsync(entity, cancellationToken: ct);
+
+        /// <inheritdoc />
+        public async Task<bool> MarkAsReadAsync(string id, DateTime readAt, CancellationToken ct = default)
         {
-            return await _context.Notifications
-                .Where(n => n.Role == role || n.Role == "All")
-                .OrderByDescending(n => n.CreatedAt)
-                .ToListAsync();
+            var result = await _notifications.UpdateOneAsync(F.Eq(n => n.NotificationId, id),
+                Builders<Notification>.Update.Set(n => n.IsRead, true).Set(n => n.ReadAt, readAt), cancellationToken: ct);
+            return result.MatchedCount > 0;
         }
 
-        public async Task<IEnumerable<Notification>> GetByUserAndRoleAsync(string userId, string? role)
+        /// <inheritdoc />
+        public async Task<long> MarkAllAsReadAsync(string userId, DateTime readAt, CancellationToken ct = default)
         {
-            var query = _context.Notifications.AsQueryable();
-            if (!string.IsNullOrWhiteSpace(role))
-            {
-                var normalizedRole = role.Trim();
-                query = query.Where(n => n.UserId == userId || n.UserId == "ALL" || n.Role == normalizedRole || n.Role == "All");
-            }
-            else
-            {
-                query = query.Where(n => n.UserId == userId || n.UserId == "ALL");
-            }
-            return await query.OrderByDescending(n => n.CreatedAt).ToListAsync();
-        }
-
-        public async Task<Notification?> GetByIdAsync(string id)
-        {
-            return await _context.Notifications.FirstOrDefaultAsync(n => n.NotificationId == id);
-        }
-
-        public async Task AddAsync(Notification entity)
-        {
-            await _context.Notifications.AddAsync(entity);
-        }
-
-        public Task UpdateAsync(Notification entity)
-        {
-            _context.Notifications.Update(entity);
-            return Task.CompletedTask;
-        }
-
-        public async Task SaveChangesAsync()
-        {
-            await _context.SaveChangesAsync();
+            // Only notifications owned by the user: marking a broadcast ("ALL") read would hide it for everyone.
+            var result = await _notifications.UpdateManyAsync(F.Eq(n => n.UserId, userId) & F.Eq(n => n.IsRead, false),
+                Builders<Notification>.Update.Set(n => n.IsRead, true).Set(n => n.ReadAt, readAt), cancellationToken: ct);
+            return result.ModifiedCount;
         }
     }
 }

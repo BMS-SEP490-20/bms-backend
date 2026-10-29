@@ -2,10 +2,10 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Testorder_service.Models.DTO;
-using Testorder_service.Services.Interface;
+using BMS.Application.DTOs.Notifications;
+using BMS.Application.Interfaces;
 
-namespace Testorder_service.Controllers
+namespace BMS.Api.Controllers.Notifications
 {
     /// <summary>
     /// Controller managing past and ongoing system notifications.
@@ -29,9 +29,9 @@ namespace Testorder_service.Controllers
         /// <param name="role">Optional user role for seed/filter context.</param>
         /// <returns>List of notification records.</returns>
         [HttpGet("user/{userId}")]
-        public async Task<IActionResult> GetByUser(string userId, [FromQuery] string? role)
+        public async Task<IActionResult> GetByUser(string userId, [FromQuery] string? role, CancellationToken ct)
         {
-            var data = await _service.GetNotificationsForUserAsync(userId, role);
+            var data = await _service.GetNotificationsForUserAsync(userId, role, ct);
             return Ok(new
             {
                 message = "Retrieved notifications history successfully.",
@@ -46,9 +46,9 @@ namespace Testorder_service.Controllers
         /// <param name="role">Target role identifier.</param>
         /// <returns>List of notifications.</returns>
         [HttpGet("role/{role}")]
-        public async Task<IActionResult> GetByRole(string role)
+        public async Task<IActionResult> GetByRole(string role, CancellationToken ct)
         {
-            var data = await _service.GetNotificationsByRoleAsync(role);
+            var data = await _service.GetNotificationsByRoleAsync(role, ct);
             return Ok(new
             {
                 message = "Retrieved notifications by role successfully.",
@@ -63,9 +63,9 @@ namespace Testorder_service.Controllers
         /// <param name="id">Notification identifier.</param>
         /// <returns>HTTP status confirming update.</returns>
         [HttpPut("{id}/read")]
-        public async Task<IActionResult> MarkAsRead(string id)
+        public async Task<IActionResult> MarkAsRead(string id, CancellationToken ct)
         {
-            var success = await _service.MarkAsReadAsync(id);
+            var success = await _service.MarkAsReadAsync(id, ct);
             if (!success)
                 return NotFound(new { message = $"Notification '{id}' was not found." });
 
@@ -78,9 +78,9 @@ namespace Testorder_service.Controllers
         /// <param name="userId">Recipient user identifier.</param>
         /// <returns>HTTP status confirming update.</returns>
         [HttpPut("user/{userId}/read-all")]
-        public async Task<IActionResult> MarkAllAsRead(string userId)
+        public async Task<IActionResult> MarkAllAsRead(string userId, CancellationToken ct)
         {
-            var success = await _service.MarkAllAsReadAsync(userId);
+            var success = await _service.MarkAllAsReadAsync(userId, ct);
             return Ok(new { message = "All notifications marked as read.", success });
         }
 
@@ -90,7 +90,7 @@ namespace Testorder_service.Controllers
         /// <param name="dto">Notification creation payload.</param>
         /// <returns>Created notification record.</returns>
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateNotificationDto dto)
+        public async Task<IActionResult> Create([FromBody] CreateNotificationDto dto, CancellationToken ct)
         {
             if (dto == null)
                 return BadRequest(new { message = "Payload cannot be null." });
@@ -98,7 +98,7 @@ namespace Testorder_service.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var created = await _service.CreateNotificationAsync(dto);
+            var created = await _service.CreateNotificationAsync(dto, ct);
             return Ok(new
             {
                 message = "Notification created successfully.",

@@ -1,18 +1,22 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson.Serialization.Attributes;
 
-namespace Testorder_service.Models.Entities
+namespace BMS.Core.Entities
 {
     /// <summary>
     /// Represents an in-system notification record dispatched to patients, doctors, or staff members.
     /// Captures appointment reminders, test result readiness, receipt generation, and system alerts.
+    /// Persisted in the <c>notifications</c> collection (I3-034).
     /// </summary>
+    [BsonIgnoreExtraElements]
     public class Notification
     {
         /// <summary>
         /// Unique primary identifier for the notification record.
         /// </summary>
         [Key]
+        [BsonId]
         public string NotificationId { get; set; } = null!;
 
         /// <summary>

@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
-using Testorder_service.Services.Interface;
+using System.Threading;
+using BMS.Application.DTOs.Notifications;
+using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
 
-namespace Testorder_service.Services.Implement
+namespace BMS.Application.Services
 {
     /// <summary>
     /// Service managing notification retrieval, lifecycle, and dispatching.
@@ -19,6 +20,7 @@ namespace Testorder_service.Services.Implement
         private readonly INotificationRepository _repo;
         private readonly ILogger<NotificationService> _logger;
 
+        /// <summary>Creates the service over the notification repository.</summary>
         public NotificationService(INotificationRepository repo, ILogger<NotificationService> logger)
         {
             _repo = repo;
@@ -28,59 +30,43 @@ namespace Testorder_service.Services.Implement
         /// <summary>
         /// Retrieves past notifications for a specific user from MongoDB.
         /// </summary>
-        public async Task<IEnumerable<NotificationDto>> GetNotificationsForUserAsync(string userId, string? role)
+        public async Task<IReadOnlyList<NotificationDto>> GetNotificationsForUserAsync(string userId, string? role, CancellationToken ct = default)
         {
             var normalizedRole = NormalizeRoleName(role);
-            var entities = (await _repo.GetByUserAndRoleAsync(userId, normalizedRole)).ToList();
-            return entities.Select(MapToDto);
+            var entities = await _repo.GetByUserAndRoleAsync(userId, normalizedRole, ct);
+            return entities.Select(MapToDto).ToList();
         }
 
         /// <summary>
         /// Retrieves notifications broadcasted or targeted to a specific role.
         /// </summary>
-        public async Task<IEnumerable<NotificationDto>> GetNotificationsByRoleAsync(string role)
+        public async Task<IReadOnlyList<NotificationDto>> GetNotificationsByRoleAsync(string role, CancellationToken ct = default)
         {
             var normalizedRole = NormalizeRoleName(role);
-            var entities = await _repo.GetByRoleAsync(normalizedRole);
-            return entities.Select(MapToDto);
+            var entities = await _repo.GetByRoleAsync(normalizedRole, ct);
+            return entities.Select(MapToDto).ToList();
         }
 
         /// <summary>
         /// Marks a single notification as read by the recipient.
         /// </summary>
-        public async Task<bool> MarkAsReadAsync(string notificationId)
-        {
-            var entity = await _repo.GetByIdAsync(notificationId);
-            if (entity == null) return false;
-
-            entity.IsRead = true;
-            entity.ReadAt = DateTime.UtcNow;
-
-            await _repo.UpdateAsync(entity);
-            await _repo.SaveChangesAsync();
-            return true;
-        }
+        public Task<bool> MarkAsReadAsync(string notificationId, CancellationToken ct = default) =>
+            _repo.MarkAsReadAsync(notificationId, DateTime.UtcNow, ct);
 
         /// <summary>
         /// Marks all unread notifications for a user as read in bulk.
         /// </summary>
-        public async Task<bool> MarkAllAsReadAsync(string userId)
+        public async Task<bool> MarkAllAsReadAsync(string userId, CancellationToken ct = default)
         {
-            var list = await _repo.GetByUserIdAsync(userId);
-            foreach (var item in list)
-            {
-                item.IsRead = true;
-                item.ReadAt = DateTime.UtcNow;
-                await _repo.UpdateAsync(item);
-            }
-            await _repo.SaveChangesAsync();
+            // Single UpdateMany instead of one update per notification (no N+1 writes).
+            await _repo.MarkAllAsReadAsync(userId, DateTime.UtcNow, ct);
             return true;
         }
 
         /// <summary>
         /// Creates and dispatches a real notification triggered by domain actions.
         /// </summary>
-        public async Task<NotificationDto> CreateNotificationAsync(CreateNotificationDto dto)
+        public async Task<NotificationDto> CreateNotificationAsync(CreateNotificationDto dto, CancellationToken ct = default)
         {
             var randomSuffix = Guid.NewGuid().ToString("N")[..8].ToUpper();
             var entity = new Notification
@@ -96,8 +82,7 @@ namespace Testorder_service.Services.Implement
                 CreatedAt = DateTime.UtcNow
             };
 
-            await _repo.AddAsync(entity);
-            await _repo.SaveChangesAsync();
+            await _repo.AddAsync(entity, ct);
 
             return MapToDto(entity);
         }
@@ -105,6 +90,8 @@ namespace Testorder_service.Services.Implement
         /// <summary>
         /// Normalizes role aliases into system standard role identifiers.
         /// </summary>
+        // TODO(senior-dev, Đợt 2): numeric aliases here (4=LabUser, 5=Patient, 6=Receptionist) disagree with the
+        // agreed role IDs (4 Lab, 5 Receptionist, 6 Patient); switch to the shared role constants.
         private static string NormalizeRoleName(string? role)
         {
             if (string.IsNullOrWhiteSpace(role)) return "Patient";
