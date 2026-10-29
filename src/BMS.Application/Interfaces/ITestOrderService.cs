@@ -29,7 +29,8 @@ public interface ITestOrderService
 
     /// <summary>
     /// User-requested status change. Only Cancelled is allowed: Doctor = own order before sampling (else 403/409),
-    /// Manager = exception cancel of any unfinished order.
+    /// Manager = exception cancel until a result is signed, including collected samples (Quy trình Đợt 3A Q5): reason
+    /// required (400 CANCEL_REASON_REQUIRED), signed result → 409 ORDER_RESULT_SIGNED, Completed → 409. Every cancel is audited.
     /// </summary>
     Task<TestOrderResponseDto> UpdateOrderStatusAsync(string id, UpdateTestOrderStatusRequestDto request, string actorUserId,
         bool actorIsManager, CancellationToken ct = default);

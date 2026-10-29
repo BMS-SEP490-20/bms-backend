@@ -82,6 +82,7 @@ namespace BMS.Application.Services
         {
             var entity = await _repo.GetByIdAsync(id, ct)
                 ?? throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để cập nhật.");
+            ThrowIfSigned(entity);
 
             var oldStatus = entity.Status;
             var changes = new TestResultFieldChanges(
@@ -95,7 +96,7 @@ namespace BMS.Application.Services
                 Items: dto.Parameters is { Count: > 0 } ? ToItems(dto.Parameters) : null);
 
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
-                throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để cập nhật.");
+                throw await NotUpdatedAsync(entity.Id, "Không tìm thấy kết quả xét nghiệm để cập nhật.", ct);
 
             // Notify the patient when the result moves into "waiting_review" (former email side effect).
             if (oldStatus != WaitingReviewStatus && dto.Status == WaitingReviewStatus)
@@ -106,8 +107,11 @@ namespace BMS.Application.Services
         public async Task DeleteAsync(string id, CancellationToken ct = default)
         {
             // Soft delete: results are medical records and stay available for audit / timeline.
-            if (!await _repo.SoftDeleteAsync(id, ct))
-                throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để xóa.");
+            var entity = await _repo.GetByIdAsync(id, ct)
+                ?? throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để xóa.");
+            ThrowIfSigned(entity);
+            if (!await _repo.SoftDeleteAsync(entity.Id, ct))
+                throw await NotUpdatedAsync(entity.Id, "Không tìm thấy kết quả xét nghiệm để xóa.", ct);
         }
 
         /// <inheritdoc />
@@ -129,6 +133,7 @@ namespace BMS.Application.Services
         {
             var entity = await _repo.GetByIdAsync(id, ct)
                 ?? throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
+            ThrowIfSigned(entity); // a signature is final; re-approving would overwrite the signer
 
             // BUSINESS RULE: Approval transitions the result to 'Completed' and digitally seals it,
             // making it viewable by the patient and preventing subsequent unauthorized edits.
@@ -148,7 +153,7 @@ namespace BMS.Application.Services
                 ApprovedAt: now);
 
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
-                throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
+                throw await NotUpdatedAsync(entity.Id, $"Test result '{id}' was not found.", ct);
 
             // SIDE EFFECT: Automatically synchronize parent appointment status to 'completed'
             // so billing, reception, and patient portals reflect the final test state.
@@ -167,6 +172,22 @@ namespace BMS.Application.Services
 
             var approved = await _repo.GetByIdAsync(entity.Id, ct) ?? entity;
             return ToDto(approved);
+        }
+
+        /// <summary>Quy trình Đợt 3A Q5: a signed result is read-only (409 RESULT_SIGNED_READ_ONLY).</summary>
+        private static void ThrowIfSigned(TestResult entity)
+        {
+            if (TestResultRules.IsSigned(entity))
+                throw new ConflictStateException("RESULT_SIGNED_READ_ONLY", "Kết quả đã được ký duyệt, chỉ được xem, không được sửa hay xóa.");
+        }
+
+        // The repository refuses writes to signed rows atomically; tell "signed meanwhile" apart from "not found".
+        private async Task<AppException> NotUpdatedAsync(string id, string notFoundMessage, CancellationToken ct)
+        {
+            var current = await _repo.GetByIdAsync(id, ct);
+            return current != null && TestResultRules.IsSigned(current)
+                ? new ConflictStateException("RESULT_SIGNED_READ_ONLY", "Kết quả đã được ký duyệt, chỉ được xem, không được sửa hay xóa.")
+                : new ResourceNotFoundException(NotFoundCode, notFoundMessage);
         }
 
         private async Task NotifyWaitingReviewAsync(TestResult result, CancellationToken ct)

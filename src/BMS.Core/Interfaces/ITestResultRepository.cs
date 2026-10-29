@@ -19,12 +19,19 @@ namespace BMS.Core.Interfaces
         Task AddAsync(TestResult entity, CancellationToken ct = default);
 
         /// <summary>
-        /// Atomically sets the given fields (<c>$set</c>) on one result. Returns false when it does not exist.
+        /// Atomically sets the given fields (<c>$set</c>) on one result that is NOT signed yet. Returns false when it
+        /// does not exist or is signed (signed results are read-only, Quy trình Đợt 3A Q5).
         /// </summary>
         Task<bool> UpdateFieldsAsync(string id, TestResultFieldChanges changes, CancellationToken ct = default);
 
-        /// <summary>Soft-deletes a result. Returns false when it does not exist.</summary>
+        /// <summary>Soft-deletes an unsigned result. Returns false when it does not exist or is signed.</summary>
         Task<bool> SoftDeleteAsync(string id, CancellationToken ct = default);
+
+        /// <summary>
+        /// True when any active result linked to the order is signed: by sample (<paramref name="sampleKeys"/> = sample ids
+        /// and SMP- barcodes) or by <c>appointmentId</c> (<paramref name="orderKeys"/> = order id and ORD- number).
+        /// </summary>
+        Task<bool> AnySignedForOrderAsync(IReadOnlyCollection<string> sampleKeys, IReadOnlyCollection<string> orderKeys, CancellationToken ct = default);
 
         /// <summary>Returns all results of one appointment / test order.</summary>
         Task<IReadOnlyList<TestResult>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default);

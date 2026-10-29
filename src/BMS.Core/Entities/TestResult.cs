@@ -17,6 +17,13 @@ public enum ResultValidationStatus
     Rejected = 4
 }
 
+/// <summary>Signature predicate shared by result editing and order cancellation (Quy trình Đợt 3A Q5).</summary>
+public static class TestResultRules
+{
+    /// <summary>A result is signed once approved: it is then read-only and its order can no longer be cancelled.</summary>
+    public static bool IsSigned(TestResult r) => r.ValidationStatus == ResultValidationStatus.DoctorApproved || r.ApprovedAt != null;
+}
+
 /// <summary>
 /// Clinical evaluation flag for a test result measurement compared against biological reference intervals.
 /// </summary>
