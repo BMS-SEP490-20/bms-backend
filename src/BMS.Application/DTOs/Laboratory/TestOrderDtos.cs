@@ -60,6 +60,7 @@ public class CreateTestOrderRequestDto
     public string? DoctorName { get; set; }
 
     /// <summary>ICD-10 diagnosis codes, at least one (BA:L37). Missing or malformed → 400 MSG-ERR-DOC-01.</summary>
+    /// <remarks>Drafts (<see cref="SaveAsDraft"/>) may omit them; given codes must still be well-formed (Quy trình Đợt 3A Q4).</remarks>
     /// <remarks>WHY no [Required]: the business error code must be MSG-ERR-DOC-01, which model validation cannot emit.</remarks>
     public List<string>? Icd10Codes { get; set; }
 
@@ -126,6 +127,13 @@ public class TestOrderItemDto
     public string TurnaroundTime { get; set; } = string.Empty;
     public string PreparationNotes { get; set; } = string.Empty;
     public decimal Price { get; set; }
+}
+
+/// <summary>Submit of a draft order: ICD-10 codes to add to the ones already stored on the draft.</summary>
+public class SubmitTestOrderRequestDto
+{
+    public List<string>? Icd10Codes { get; set; }
+    public string? Icd10Code { get; set; }
 }
 
 /// <summary>

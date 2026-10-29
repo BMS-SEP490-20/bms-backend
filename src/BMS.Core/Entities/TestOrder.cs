@@ -43,6 +43,18 @@ public static class TestOrderStatusRules
     public static readonly TestOrderStatus[] ManagerCancellable =
         [.. BeforeCollection, TestOrderStatus.SampleCollected, TestOrderStatus.InAnalysis];
 
+    /// <summary>
+    /// Billing gate (Quy trình Đợt 3A Q4): a draft is not billable (409 ORDER_NOT_SUBMITTED) and a submitted order
+    /// must carry ICD-10 (legacy rows without it → 400 MSG-ERR-DOC-01) before any fee is quoted or charged.
+    /// </summary>
+    public static void EnsureReadyForBilling(TestOrder o)
+    {
+        if (o.Status == TestOrderStatus.Draft)
+            throw new BMS.Core.Exceptions.ConflictStateException("ORDER_NOT_SUBMITTED", "Đơn còn nháp; bác sĩ phải gửi đơn (kèm ICD-10) trước khi tính phí.");
+        if (o.Icd10Codes == null || o.Icd10Codes.Count == 0)
+            throw new BMS.Core.Exceptions.DomainValidationException("MSG-ERR-DOC-01", "Đơn chưa có mã chẩn đoán ICD-10, chưa thể tính phí.");
+    }
+
     /// <summary>Sampling gate (BA:L38): paid, or STAT with payment deferred (post-check).</summary>
     public static bool CanCollectSample(TestOrder o) =>
         o.Status == TestOrderStatus.PaidPendingSample
@@ -123,7 +135,7 @@ public class TestOrder
     [BsonElement("status")]
     public TestOrderStatus Status { get; set; } = TestOrderStatus.Ordered;
 
-    /// <summary>ICD-10 codes (≥1, format ^[A-Z][0-9]{2}(\.[0-9]{1,2})?$) — BA:L37, L81.</summary>
+    /// <summary>ICD-10 codes (≥1 once submitted; a Draft may have none — Quy trình Đợt 3A Q4; format ^[A-Z][0-9]{2}(\.[0-9]{1,2})?$) — BA:L37, L81.</summary>
     [BsonElement("icd10_codes")]
     public List<string> Icd10Codes { get; set; } = new();
 

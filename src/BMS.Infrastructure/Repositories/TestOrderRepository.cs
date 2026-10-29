@@ -66,6 +66,19 @@ public sealed class TestOrderRepository(IMongoDatabase database) : ITestOrderRep
     }
 
     /// <inheritdoc />
+    public async Task<TestOrder?> TrySubmitDraftAsync(string id, string doctorId, IReadOnlyList<string> icd10Codes, bool paymentDeferred,
+        DateTime nowUtc, CancellationToken ct = default) =>
+        await _orders.FindOneAndUpdateAsync(
+            F.Eq(o => o.Id, id) & F.Eq(o => o.Status, TestOrderStatus.Draft) & F.Eq(o => o.DoctorId, doctorId),
+            Builders<TestOrder>.Update
+                .Set(o => o.Status, TestOrderStatus.AwaitingPayment)
+                .Set(o => o.Icd10Codes, icd10Codes.ToList())
+                .Set(o => o.PaymentDeferred, paymentDeferred)
+                .Set(o => o.UpdatedAt, nowUtc)
+                .Set(o => o.StatusChangedBy, doctorId),
+            new FindOneAndUpdateOptions<TestOrder> { ReturnDocument = ReturnDocument.After }, ct);
+
+    /// <inheritdoc />
     public async Task<TestOrder?> TryMarkPaidAsync(string id, string actorUserId, DateTime nowUtc, CancellationToken ct = default)
     {
         var options = new FindOneAndUpdateOptions<TestOrder> { ReturnDocument = ReturnDocument.After };

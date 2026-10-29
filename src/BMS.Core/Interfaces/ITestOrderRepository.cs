@@ -31,6 +31,13 @@ public interface ITestOrderRepository
         string actorUserId, DateTime nowUtc, string? note, CancellationToken ct = default);
 
     /// <summary>
+    /// Atomically submits a draft of <paramref name="doctorId"/>: Draft → AwaitingPayment with the final ICD-10 codes
+    /// and PaymentDeferred (STAT). Returns null when the order is no longer a draft of that doctor.
+    /// </summary>
+    Task<TestOrder?> TrySubmitDraftAsync(string id, string doctorId, IReadOnlyList<string> icd10Codes, bool paymentDeferred,
+        DateTime nowUtc, CancellationToken ct = default);
+
+    /// <summary>
     /// Records payment exactly once: AwaitingPayment/Ordered → PaidPendingSample with paid_at; for a STAT order
     /// already sampled (payment deferred) only paid_at is set. Returns null when already paid or not payable.
     /// </summary>
