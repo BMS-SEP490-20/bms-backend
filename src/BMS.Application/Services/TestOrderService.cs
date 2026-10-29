@@ -84,8 +84,11 @@ public sealed partial class TestOrderService(
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(doctorUserId)) throw new ForbiddenAccessException();
 
-        // 1. ICD-10 first: a missing or malformed code must reject the order before anything is looked up or saved.
-        var icd = NormalizeIcd10(request);
+        // 1. ICD-10 first: a missing (non-draft) or malformed code must reject the order before anything is looked up
+        //    or saved. Quy trình Đợt 3A Q4: a draft may be saved without ICD-10; it is required on submit.
+        var icd = request.SaveAsDraft
+            ? NormalizeIcd10Codes(request.Icd10Codes, request.Icd10Code, required: false)
+            : NormalizeIcd10(request);
 
         if (request.Items == null || request.Items.Count == 0)
             throw new DomainValidationException("ORDER_ITEMS_REQUIRED", "Vui lòng chọn ít nhất một xét nghiệm.");
@@ -200,6 +203,29 @@ public sealed partial class TestOrderService(
         return Map(updated);
     }
 
+    /// <inheritdoc />
+    public async Task<TestOrderResponseDto> SubmitDraftAsync(string id, SubmitTestOrderRequestDto request, string doctorUserId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(doctorUserId)) throw new ForbiddenAccessException();
+        var order = await FindAsync(id, ct) ?? throw new ResourceNotFoundException("ORDER_NOT_FOUND", "Không tìm thấy đơn xét nghiệm.");
+        if (!string.Equals(order.DoctorId, doctorUserId, StringComparison.Ordinal))
+            throw new ForbiddenAccessException("Bác sĩ chỉ được gửi đơn nháp do chính mình tạo.");
+        if (order.Status != TestOrderStatus.Draft)
+            throw new ConflictStateException("ORDER_NOT_DRAFT", "Đơn không còn ở trạng thái nháp.");
+
+        // Quy trình Đợt 3A Q4: ICD-10 is mandatory from submit on, i.e. before the fee can be calculated.
+        var icd = NormalizeIcd10Codes(order.Icd10Codes.Concat(request.Icd10Codes ?? []), request.Icd10Code, required: true);
+        var deferred = order.Priority == SamplePriority.Stat;
+        var now = clock.GetUtcNow().UtcDateTime;
+        var submitted = await orders.TrySubmitDraftAsync(order.Id, doctorUserId, icd, deferred, now, ct)
+                        ?? throw new ConflictStateException("ORDER_NOT_DRAFT", "Đơn vừa được gửi hoặc hủy, vui lòng tải lại.");
+        logger.LogInformation("Draft order {OrderNumber} submitted by doctor {DoctorId} ({Count} ICD-10 codes)",
+            submitted.OrderNumber, doctorUserId, icd.Count);
+        return Map(submitted);
+    }
+
     private static void ThrowIfNotCancellable(TestOrderStatus status, bool manager)
     {
         if (status == TestOrderStatus.Cancelled)
@@ -214,11 +240,18 @@ public sealed partial class TestOrderService(
         string.IsNullOrWhiteSpace(id) ? null : await orders.GetByIdAsync(id, ct) ?? await orders.GetByOrderNumberAsync(id, ct);
 
     /// <summary>Merges, trims and upper-cases ICD-10 codes; throws 400 MSG-ERR-DOC-01 if none or any malformed.</summary>
-    public static List<string> NormalizeIcd10(CreateTestOrderRequestDto request)
+    public static List<string> NormalizeIcd10(CreateTestOrderRequestDto request) =>
+        NormalizeIcd10Codes(request.Icd10Codes, request.Icd10Code, required: true);
+
+    /// <summary>
+    /// Merges, trims, upper-cases and de-duplicates ICD-10 codes. Any malformed code → 400 MSG-ERR-DOC-01; none at all
+    /// → 400 MSG-ERR-DOC-01 only when <paramref name="required"/> (drafts may have none, Quy trình Đợt 3A Q4).
+    /// </summary>
+    public static List<string> NormalizeIcd10Codes(IEnumerable<string?>? codes, string? single, bool required)
     {
-        var raw = (request.Icd10Codes ?? []).Append(request.Icd10Code)
+        var raw = (codes ?? []).Append(single)
             .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!.Trim().ToUpperInvariant()).Distinct().ToList();
-        if (raw.Count == 0)
+        if (raw.Count == 0 && required)
             throw new DomainValidationException("MSG-ERR-DOC-01", "Vui lòng nhập ít nhất một mã chẩn đoán ICD-10.");
         var bad = raw.Where(c => !Icd10().IsMatch(c)).ToList();
         if (bad.Count > 0)

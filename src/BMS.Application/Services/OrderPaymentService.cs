@@ -23,6 +23,7 @@ public sealed class OrderPaymentService(
     public async Task<CalculateFeeResultDto> QuoteAsync(string orderId, OrderPaymentRequestDto request, CancellationToken ct = default)
     {
         var order = await LoadAsync(orderId, ct);
+        TestOrderStatusRules.EnsureReadyForBilling(order);
         return await ComputeAsync(order, request, ct);
     }
 
@@ -102,8 +103,9 @@ public sealed class OrderPaymentService(
     {
         if (order.PaidAt != null)
             throw new ConflictStateException("ORDER_ALREADY_PAID", "Đơn đã được thanh toán.");
-        if (order.Status is TestOrderStatus.Cancelled or TestOrderStatus.Draft)
-            throw new ConflictStateException("ORDER_NOT_PAYABLE", "Đơn đã hủy hoặc còn nháp, không thể thanh toán.");
+        if (order.Status is TestOrderStatus.Cancelled)
+            throw new ConflictStateException("ORDER_NOT_PAYABLE", "Đơn đã hủy, không thể thanh toán.");
+        TestOrderStatusRules.EnsureReadyForBilling(order);
     }
 
     private static Invoice NewInvoice(TestOrder order, CalculateFeeResultDto fee, DateTime now, string invoiceCode) => new()

@@ -21,6 +21,13 @@ public interface ITestOrderService
     Task<TestOrderResponseDto> CreateTestOrderAsync(CreateTestOrderRequestDto request, string doctorUserId, CancellationToken ct = default);
 
     /// <summary>
+    /// Submits the doctor's own draft (Draft → AwaitingPayment; STAT → PaymentDeferred). ICD-10 becomes mandatory here
+    /// (stored codes merged with the request): none or malformed → 400 MSG-ERR-DOC-01; not a draft → 409 ORDER_NOT_DRAFT;
+    /// another doctor's draft → 403.
+    /// </summary>
+    Task<TestOrderResponseDto> SubmitDraftAsync(string id, SubmitTestOrderRequestDto request, string doctorUserId, CancellationToken ct = default);
+
+    /// <summary>
     /// User-requested status change. Only Cancelled is allowed: Doctor = own order before sampling (else 403/409),
     /// Manager = exception cancel of any unfinished order.
     /// </summary>

@@ -1,6 +1,6 @@
 // Đợt 3 step 2 checks: UC32 test orders with ICD-10 (TIEU-CHI Đợt 3 Bước 1, SMK-BS-02..06, QĐ10).
 // ICD-10 required + format (400 MSG-ERR-DOC-01, nothing saved), DoctorId from the token, catalog prices,
-// AwaitingPayment / STAT deferred payment, tube colors, cancel rules (own / other doctor / collected / non-cancel
+// AwaitingPayment / STAT deferred payment, drafts without ICD-10 + submit (Quy trình Đợt 3A Q4), tube colors, cancel rules (own / other doctor / collected / non-cancel
 // target / Manager exception), races, 401/403. Writes only to a disposable database.
 using System.Net;
 using System.Net.Http.Json;
@@ -10,6 +10,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using BMS.Api.Controllers.Laboratory;
 using BMS.Api.Middleware;
+using BMS.Application.DTOs.Billing;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
@@ -136,6 +137,77 @@ try
         Assert(TubeRules.For("PT", "Prothrombin time").Color == "LightBlue" && TubeRules.For("APTT").Color == "LightBlue");
         Assert(TubeRules.For("SEPTIC-PANEL").Color == "Red"); // "PT" must not match inside other words
         Assert(TubeRules.Fluoride.DrawOrder == 6 && TubeRules.Edta.DrawOrder == 5 && TubeRules.Citrate.DrawOrder == 2);
+    });
+
+    // ---------- Quy trình Đợt 3A Q4: drafts without ICD-10, ICD-10 required on submit (before fee calculation) ----------
+    var billing = new BillingSettingsService(new BillingSettingsRepository(db), new AuditLogService(new AuditLogRepository(db)), clock);
+    var fees = new CalculateFeeService(new ServicePackageRepository(db, names), new TestOrderRepository(db), billing, clock);
+    var pay = new OrderPaymentService(new TestOrderRepository(db), new InvoiceRepository(db), new PatientRepository(db), seq, billing, clock,
+        NullLogger<OrderPaymentService>.Instance);
+    CreateTestOrderRequestDto Draft(string? icd, params string[] codes) { var r = Req(icd, codes); r.SaveAsDraft = true; return r; }
+
+    await Check("draft: saved without ICD-10 (Draft, no codes); malformed ICD on a draft still 400; draft not collectable", async () =>
+    {
+        var d = await svc.CreateTestOrderAsync(Draft(null, "CBC"), "doc-1");
+        Assert(d.Status == "Draft" && d.Icd10Codes.Count == 0 && !d.PaymentDeferred, d.Status);
+        var blank = Draft("  ", "CBC");
+        Assert((await svc.CreateTestOrderAsync(blank, "doc-1")).Status == "Draft");
+        Assert((await Throws<DomainValidationException>(() => svc.CreateTestOrderAsync(Draft("XYZ", "CBC"), "doc-1"))).Code == "MSG-ERR-DOC-01");
+        Assert(!TestOrderStatusRules.CanCollectSample((await orderCol.Find(x => x.Id == d.Id).SingleAsync())));
+        // Non-draft still requires ICD-10 (unchanged rule).
+        Assert((await Throws<DomainValidationException>(() => svc.CreateTestOrderAsync(Req(null, "CBC"), "doc-1"))).Code == "MSG-ERR-DOC-01");
+    });
+
+    await Check("draft: no fee before submit -> estimate/quote/pay/vnpay 409 ORDER_NOT_SUBMITTED, no invoice written", async () =>
+    {
+        var d = await svc.CreateTestOrderAsync(Draft(null, "CBC", "BIO"), "doc-1");
+        Assert((await Throws<ConflictStateException>(() => fees.EstimateOrderFeeAsync(d.Id, null, null, false))).Code == "ORDER_NOT_SUBMITTED");
+        Assert((await Throws<ConflictStateException>(() => pay.QuoteAsync(d.Id, new OrderPaymentRequestDto { PaymentMethod = "Cash" }))).Code == "ORDER_NOT_SUBMITTED");
+        Assert((await Throws<ConflictStateException>(() => pay.PayAtCounterAsync(d.Id, new OrderPaymentRequestDto { PaymentMethod = "Cash" }, "rec-1", null))).Code == "ORDER_NOT_SUBMITTED");
+        Assert((await Throws<ConflictStateException>(() => pay.StartVnPayAsync(d.Id, new OrderPaymentRequestDto { PaymentMethod = "VNPay" }, "rec-1", false))).Code == "ORDER_NOT_SUBMITTED");
+        Assert(await db.GetCollection<Invoice>("invoices").CountDocumentsAsync(i => i.OrderId == d.Id) == 0);
+        // A submitted order that somehow has no ICD-10 (legacy row) is not billable either.
+        var legacy = await svc.CreateTestOrderAsync(Req("E11.9", "CBC"), "doc-1");
+        await orderCol.UpdateOneAsync(x => x.Id == legacy.Id, Builders<TestOrder>.Update.Set(x => x.Icd10Codes, new List<string>()));
+        Assert((await Throws<DomainValidationException>(() => pay.QuoteAsync(legacy.Id, new OrderPaymentRequestDto()))).Code == "MSG-ERR-DOC-01");
+    });
+
+    await Check("submit: no ICD -> 400 MSG-ERR-DOC-01 (stays Draft); other doctor 403; 'e11.9' -> AwaitingPayment [E11.9] then fee 400,000; again 409; STAT -> deferred", async () =>
+    {
+        var d = await svc.CreateTestOrderAsync(Draft(null, "CBC", "BIO"), "doc-1");
+        Assert((await Throws<DomainValidationException>(() => svc.SubmitDraftAsync(d.Id, new(), "doc-1"))).Code == "MSG-ERR-DOC-01");
+        Assert((await Throws<DomainValidationException>(() => svc.SubmitDraftAsync(d.Id, new() { Icd10Code = "E11.999" }, "doc-1"))).Code == "MSG-ERR-DOC-01");
+        Assert((await orderCol.Find(x => x.Id == d.Id).SingleAsync()).Status == TestOrderStatus.Draft);
+        Assert((await Throws<ForbiddenAccessException>(() => svc.SubmitDraftAsync(d.Id, new() { Icd10Code = "E11.9" }, "doc-2"))).StatusCode == 403);
+        var s1 = await svc.SubmitDraftAsync(d.OrderNumber, new() { Icd10Code = " e11.9 " }, "doc-1");
+        Assert(s1.Status == "AwaitingPayment" && s1.Icd10Codes.SequenceEqual(new[] { "E11.9" }) && !s1.PaymentDeferred);
+        Assert((await fees.EstimateOrderFeeAsync(d.Id, null, null, false))!.NetTotalPayable == 400_000m);
+        Assert((await Throws<ConflictStateException>(() => svc.SubmitDraftAsync(d.Id, new() { Icd10Code = "E11.9" }, "doc-1"))).Code == "ORDER_NOT_DRAFT");
+        // Draft that already had a code: submit needs nothing more.
+        var withCode = await svc.CreateTestOrderAsync(Draft("I10", "GLU"), "doc-1");
+        Assert((await svc.SubmitDraftAsync(withCode.Id, new(), "doc-1")).Icd10Codes.SequenceEqual(new[] { "I10" }));
+        var statDraft = Draft(null, "CBC"); statDraft.Priority = "STAT";
+        var sd = await svc.CreateTestOrderAsync(statDraft, "doc-1");
+        Assert(!sd.PaymentDeferred);
+        var ss = await svc.SubmitDraftAsync(sd.Id, new() { Icd10Codes = new() { "R50.9" } }, "doc-1");
+        Assert(ss.PaymentDeferred && TestOrderStatusRules.CanCollectSample((await orderCol.Find(x => x.Id == sd.Id).SingleAsync())));
+    });
+
+    await Check("HTTP submit: 401 anon; 403 Admin/Manager/Lab/Receptionist/Patient; Doctor no ICD 400; Doctor 200", async () =>
+    {
+        await using var app = await StartAsync(s => s.AddScoped<ITestOrderService>(_ => NewSvc()));
+        using var http = Client(app);
+        var d = await svc.CreateTestOrderAsync(Draft(null, "CBC"), "check-Doctor");
+        var url = $"/api/TestOrders/{d.Id}/submit";
+        Assert((await http.PostAsJsonAsync(url, new { icd10Code = "E11.9" })).StatusCode == HttpStatusCode.Unauthorized);
+        foreach (var role in new[] { "Admin", "Manager", "Lab", "Receptionist", "Patient" })
+            Assert((await As(http, role).PostAsJsonAsync(url, new { icd10Code = "E11.9" })).StatusCode == HttpStatusCode.Forbidden, role);
+        var noIcd = await As(http, "Doctor").PostAsJsonAsync(url, new { });
+        Assert(noIcd.StatusCode == HttpStatusCode.BadRequest && (await noIcd.Content.ReadAsStringAsync()).Contains("MSG-ERR-DOC-01"));
+        var ok = await As(http, "Doctor").PostAsJsonAsync(url, new { icd10Code = "E11.9" });
+        var t = await ok.Content.ReadAsStringAsync();
+        Assert(ok.StatusCode == HttpStatusCode.OK && t.Contains("\"status\":\"AwaitingPayment\""), t);
+        await app.StopAsync();
     });
 
     var cancel = new UpdateTestOrderStatusRequestDto { Status = "Cancelled", Notes = "BN đổi ý" };

@@ -86,6 +86,7 @@ public class CalculateFeeService : ICalculateFeeService
         if (string.IsNullOrWhiteSpace(orderId) || _orders == null) return null;
         var order = await _orders.GetByIdAsync(orderId, cancellationToken) ?? await _orders.GetByOrderNumberAsync(orderId, cancellationToken);
         if (order == null) return null;
+        TestOrderStatusRules.EnsureReadyForBilling(order); // Quy trình Đợt 3A Q4: no fee for a draft / order without ICD-10
         // WHY the stored item prices: they were taken from the catalog when the doctor ordered; UC53 and UC55
         // must charge exactly that (a later catalog change does not re-price an open order).
         return WithReference(FeeCalculator.Compute(OrderLines(order), homeCollection, insuranceCard, voucherCode, false,

@@ -67,6 +67,22 @@ public class TestOrdersController(ITestOrderService testOrderService) : Controll
     }
 
     /// <summary>
+    /// Submits the signed-in doctor's own draft. ICD-10 is mandatory here (body codes are merged with the draft's):
+    /// 400 MSG-ERR-DOC-01 when none or malformed; 403 another doctor's draft; 409 ORDER_NOT_DRAFT.
+    /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
+    [HttpPost("{id}/submit")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitDraft(string id, [FromBody] SubmitTestOrderRequestDto? request, CancellationToken ct)
+    {
+        var submitted = await testOrderService.SubmitDraftAsync(id, request ?? new SubmitTestOrderRequestDto(), CurrentUserId(), ct);
+        return Ok(new { success = true, message = $"Đã gửi phiếu chỉ định {submitted.OrderNumber}.", data = submitted });
+    }
+
+    /// <summary>
     /// Cancels an order (only "Cancelled" is accepted). Doctor: own order before sampling — other doctor's order 403,
     /// sample collected 409, any other target status 403. Manager: exception cancel of an unfinished order.
     /// </summary>
