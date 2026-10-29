@@ -1,16 +1,19 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson.Serialization.Attributes;
 
-namespace Testorder_service.Models.Entities
+namespace BMS.Core.Entities
 {
     /// <summary>
     /// Represents patient feedback, ratings, and reviews regarding laboratory and clinic services.
     /// Patients submit feedback, and Clinic Managers review and reply.
-    /// Doctors, Receptionists, and Admins can also inspect feedbacks.
+    /// Doctors, Receptionists, and Admins can also inspect feedbacks. Persisted in <c>patient_feedbacks</c> (I3-094).
     /// </summary>
+    [BsonIgnoreExtraElements]
     public class PatientFeedback
     {
         [Key]
+        [BsonId]
         public string FeedbackId { get; set; } = null!;
 
         public string PatientId { get; set; } = null!;
@@ -48,4 +51,7 @@ namespace Testorder_service.Models.Entities
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
+
+    /// <summary>Feedback counters computed by the database (DELETED entries excluded).</summary>
+    public sealed record PatientFeedbackStatistics(long TotalFeedbacks, double AverageRating, long RespondedFeedbacks, long PendingFeedbacks, IReadOnlyDictionary<int, long> RatingDistribution);
 }
