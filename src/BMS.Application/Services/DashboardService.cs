@@ -1,3 +1,5 @@
+using BMS.Application.DTOs.Dashboard;
+using BMS.Core.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,9 +29,15 @@ public class DashboardService : IDashboardService
     private readonly IMongoCollection<BsonDocument>? _notificationsCol;
     private readonly IMongoCollection<BsonDocument>? _accountsCol;
 
-    public DashboardService(BmsDbContext context, IMongoDatabase? database = null)
+    private readonly IAdminOpsDashboardReader? _adminOps;
+    private readonly TimeProvider _clock;
+
+    public DashboardService(BmsDbContext context, IMongoDatabase? database = null,
+        IAdminOpsDashboardReader? adminOps = null, TimeProvider? clock = null)
     {
         _context = context;
+        _adminOps = adminOps;
+        _clock = clock ?? TimeProvider.System;
         _database = database;
         if (database != null)
         {
@@ -53,8 +61,13 @@ public class DashboardService : IDashboardService
     /// Computes summary cards and role-specific data payloads for the authenticated user and active role.
     /// Interacts directly with database without mock stubs.
     /// </summary>
-    public async Task<DashboardStatsDto> GetDashboardStatsAsync(string userId, string role)
+    public async Task<DashboardStatsDto> GetDashboardStatsAsync(string userId, string role, CancellationToken ct = default)
     {
+        // WHY: decision 10 + DOT2 follow-up 6 — Admin must not receive patient names, samples, results or panic
+        // data, so the Admin branch returns before any clinical collection is read.
+        if (string.Equals(role?.Trim(), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
+            return await BuildAdminStatsAsync(ct);
+
         await Task.Yield();
         var normalizedRole = (role ?? "Patient").Trim().ToLowerInvariant();
 
@@ -430,8 +443,6 @@ public class DashboardService : IDashboardService
             }
 
             case "manager":
-            case "administrator":
-            case "admin":
             default:
             {
                 long totalOrders = 0;
@@ -475,5 +486,32 @@ public class DashboardService : IDashboardService
         }
 
         return stats;
+    }
+
+    /// <inheritdoc />
+    public async Task<AdminOpsDashboardDto> GetAdminOpsAsync(CancellationToken ct)
+    {
+        if (_adminOps == null) throw new InvalidOperationException("Admin ops reader is not configured.");
+        return await _adminOps.ReadAsync(_clock.GetUtcNow().UtcDateTime, ct);
+    }
+
+    /// <summary>Summary cards for Admin built only from the ops snapshot.</summary>
+    private async Task<DashboardStatsDto> BuildAdminStatsAsync(CancellationToken ct)
+    {
+        var ops = await GetAdminOpsAsync(ct);
+        var totalUsers = ops.UsersPerRole.Values.Sum();
+        return new DashboardStatsDto
+        {
+            Role = RoleNames.Admin,
+            UserName = RoleNames.Admin,
+            Timestamp = ops.GeneratedAtUtc,
+            SummaryCards = new List<StatCardDto>
+            {
+                new() { Key = "users", Title = "Tài khoản", Value = totalUsers.ToString(), Icon = "people", ColorVariant = "primary", Subtitle = "Theo 6 vai trò" },
+                new() { Key = "locked", Title = "Tài khoản bị khóa", Value = ops.LockedAccounts.ToString(), Icon = "lock", ColorVariant = "warning", Subtitle = "Khóa hoặc đang lockout" },
+                new() { Key = "backup", Title = "Sao lưu gần nhất", Value = ops.Backup.LastStatus ?? "Chưa có", Icon = "hdd", ColorVariant = "info", Subtitle = "UC80" },
+                new() { Key = "iot", Title = "Thiết bị IoT", Value = $"{ops.IotDevices.Online}/{ops.IotDevices.Online + ops.IotDevices.Offline}", Icon = "cpu", ColorVariant = "success", Subtitle = "Đang hoạt động / tổng" }
+            }
+        };
     }
 }
