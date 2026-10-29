@@ -67,3 +67,6 @@ nunit-*.xml
 # Recursive build outputs
 **/[Bb]in/
 **/[Oo]bj/
+
+# Visual Studio per-user cache (never commit; DOT2 follow-up)
+.vs/
