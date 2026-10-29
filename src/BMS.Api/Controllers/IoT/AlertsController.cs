@@ -13,7 +13,8 @@ namespace BMS.Api.Controllers.IoT;
 /// Conforms to: Production Standards, ISO 15189 Quality Management & AGENTS-CODE.md.
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+// "api/[controller]" was removed: it resolves to api/Alerts, which is the same route as api/alerts below
+// (routing is case-insensitive) and made every alerts request fail with AmbiguousMatchException (HTTP 500).
 [Route("api/iot/alerts")]
 [Route("api/v1/iot/alerts")]
 [Route("api/alerts")]
@@ -176,8 +177,9 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Simulates a sensor excursion alarm for training drills and testing escalation alerts.
     /// </summary>
+    // "~/api/iot/alerts/simulate" is already produced by "simulate" under the api/iot/alerts prefix; declaring it
+    // twice made POST api/iot/alerts/simulate ambiguous.
     [HttpPost("simulate")]
-    [HttpPost("~/api/iot/alerts/simulate")]
     public async Task<IActionResult> SimulateAlert([FromBody] SimulateAlertRequestDto request, CancellationToken ct)
     {
         var alert = await _alertService.TriggerSimulatedAlertAsync(request, ct);
