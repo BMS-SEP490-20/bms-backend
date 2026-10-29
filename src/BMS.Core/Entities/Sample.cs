@@ -199,6 +199,19 @@ public class Sample : ISupportInitialize
     [BsonIgnoreIfNull]
     public string? Notes { get; set; }
 
+    /// <summary>Physical storage location of the tube (rack / fridge), used by Print Barcodes (#58).</summary>
+    [BsonElement("storage_location")]
+    [BsonIgnoreIfNull]
+    public string? StorageLocation { get; set; }
+
+    /// <summary>
+    /// Soft-delete flag (<c>is_deleted</c>), already honoured by UC71 Sample Timeline and UC76 Test History.
+    /// Declared explicitly so full-document replaces do not drop it (ExtraElements are cleared on load).
+    /// </summary>
+    [BsonElement("is_deleted")]
+    [BsonIgnoreIfDefault]
+    public bool IsDeleted { get; set; }
+
     [BsonElement("status_history")]
     public List<SampleStatusHistoryEntry> StatusHistory { get; set; } = [];
 
