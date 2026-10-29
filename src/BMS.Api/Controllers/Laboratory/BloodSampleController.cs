@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs.BloodSamples;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -12,6 +13,8 @@ namespace BMS.Api.Controllers.Laboratory
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
+// WHY: UC39/UC44: CRUD Lab; validate Lab, Manager; barcode label Lab, Receptionist. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
     public class BloodSampleController : ControllerBase
     {
         private const int MaxPageSize = 100;
@@ -24,6 +27,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Lists blood samples with server-side paging (newest first).</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken ct = default)
         {
@@ -46,6 +50,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Gets a blood sample by id or barcode.</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id, CancellationToken ct)
         {
@@ -55,6 +60,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Registers a blood sample; the server generates a barcode when none is sent.</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] BloodSampleCreateDto dto, CancellationToken ct)
         {
@@ -66,6 +72,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Partially updates a blood sample (null fields unchanged).</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] BloodSampleUpdateDto dto, CancellationToken ct)
         {
@@ -75,6 +82,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Soft-deletes a blood sample (kept for audit / timeline).</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
@@ -84,6 +92,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Lists the blood samples of one appointment / test order.</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpGet("by-appointment/{appointmentId}")]
         public async Task<IActionResult> GetByAppointmentId(string appointmentId, CancellationToken ct)
         {
@@ -115,9 +124,8 @@ namespace BMS.Api.Controllers.Laboratory
         /// Body: { "status": "validated", "notes": "Volume sufficient, no hemolysis", "labUserId": "tech_01" }
         /// </code>
         /// </example>
+        [Authorize(Roles = RoleSets.LabOrManager)]
         [HttpPut("{id}/validate")]
-        // TODO(senior-dev, Đợt 2): role names "lab_user,manager" do not match the agreed 6-role constants.
-        [Authorize(Roles = "lab_user,manager")]
         public async Task<IActionResult> ValidateSample(string id, [FromBody] BloodSampleValidateDto dto, CancellationToken ct)
         {
             if (dto == null) return BadRequest("Invalid validation data.");
@@ -143,9 +151,8 @@ namespace BMS.Api.Controllers.Laboratory
         /// GET /TestOrder/BloodSample/SA000123/barcode-label
         /// </code>
         /// </example>
+        [Authorize(Roles = RoleSets.LabOrReception)]
         [HttpGet("{id}/barcode-label")]
-        // TODO(senior-dev, Đợt 2): role names do not match the agreed 6-role constants.
-        [Authorize(Roles = "receptionist,lab_user,manager,admin")]
         public async Task<IActionResult> GetBarcodeLabel(string id, CancellationToken ct)
         {
             var sample = await _service.GetByIdAsync(id, ct);

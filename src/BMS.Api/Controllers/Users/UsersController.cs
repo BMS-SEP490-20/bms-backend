@@ -1,3 +1,6 @@
+using BMS.Api.Authorization;
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -17,6 +20,8 @@ namespace BMS.Api.Controllers.Users;
 [Route("api/v1/users")]
 [Route("api/users")]
 [Produces("application/json")]
+// WHY: UC14: Admin; UC08/09 /me and PUT own profile any role (ownership checked in action). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
@@ -39,6 +44,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// Retrieves personal profile of currently authenticated user (UC08).
     /// </summary>
+    [Authorize(Roles = RoleSets.AnyRole)]
     [HttpGet("me")]
     [ProducesResponseType(typeof(ApiResponse<UserProfileResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
@@ -77,6 +83,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// Convenience endpoint seeding and retrieving default clinical patient profile for development and UI testing.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpGet("demo")]
     [ProducesResponseType(typeof(ApiResponse<UserProfileResponseDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetDemoProfile(CancellationToken ct = default)
@@ -88,6 +95,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Master User & Employee Accounts Retrieval directly from MongoDB 'accounts'.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpGet]
     public async Task<IActionResult> GetAllUsers(
         [FromQuery] string? search = null,
@@ -143,6 +151,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Retrieves a single user account by identifier.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUserById(string id, CancellationToken ct = default)
     {
@@ -168,12 +177,18 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Creates a new employee or user account in MongoDB 'accounts'.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPost]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserAccountDto request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.FullName))
         {
             return BadRequest(new { success = false, message = "Username and FullName are required." });
+        }
+        // WHY (TIEU-CHI R9, SMK-ADM-03): only the six seeded role IDs may be assigned.
+        if (RoleNames.FromRoleId(request.RoleId) is null)
+        {
+            return BadRequest(new { success = false, message = "RoleId phải từ 1 đến 6." });
         }
 
         // Check if username or email already exists
@@ -233,9 +248,18 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Updates an existing user account in MongoDB.
     /// </summary>
+    [Authorize(Roles = RoleSets.AnyRole)]
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserAccountDto request, CancellationToken ct = default)
     {
+        // WHY (matrix UC09 own / UC14 Admin): any role may edit its own profile; only Admin edits other accounts,
+        // and only Admin may change role or active status (prevents self-escalation).
+        var isAdmin = User.IsInRole(RoleNames.Admin);
+        if (!isAdmin && !this.IsSelf(id)) return Forbid();
+        if (!isAdmin && (request.RoleId != 0 || request.IsActive.HasValue))
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Chỉ Admin được đổi vai trò hoặc trạng thái tài khoản." });
+        if (request.RoleId != 0 && RoleNames.FromRoleId(request.RoleId) is null)
+            return BadRequest(new { success = false, message = "RoleId phải từ 1 đến 6." });
         FilterDefinition<BsonDocument> filter = ObjectId.TryParse(id, out var objId)
             ? Builders<BsonDocument>.Filter.Eq("_id", objId)
             : Builders<BsonDocument>.Filter.Eq("_id", id);
@@ -275,6 +299,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Deactivates or removes a user account in MongoDB.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteUser(string id, CancellationToken ct = default)
     {
@@ -300,6 +325,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Toggles active status of an account.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPatch("{id}/status")]
     public async Task<IActionResult> ToggleStatus(string id, [FromBody] ToggleStatusDto request, CancellationToken ct = default)
     {
@@ -324,6 +350,7 @@ public class UsersController : ControllerBase
     /// <summary>
     /// UC14 - Administrative password reset for any system account.
     /// </summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPost("{id}/reset-password")]
     public async Task<IActionResult> ResetPassword(string id, [FromBody] AdminResetPasswordDto request, CancellationToken ct = default)
     {
@@ -369,19 +396,9 @@ public class UsersController : ControllerBase
         else if (doc.Contains("status") && doc["status"].IsInt32) isActive = doc["status"].AsInt32 == 1;
         else if (doc.Contains("Status") && doc["Status"].IsInt32) isActive = doc["Status"].AsInt32 == 1;
 
-        string role = roleId switch
-        {
-            1 => "admin",
-            2 => "doctor",
-            3 => "lab_user",
-            4 => "manager",
-            5 => "nurse",
-            6 => "receptionist",
-            7 => "cashier",
-            8 => "warehouse",
-            9 => "patient",
-            _ => "patient"
-        };
+        // 6-role seed (decision 30/10 point 1). Lower-case canonical names keep the existing web contract shape.
+        // Legacy RoleId 9 (old self-registration) is a patient.
+        string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? 6 : roleId) ?? "unknown").ToLowerInvariant();
 
         var created = doc.Contains("CreatedAt") ? doc["CreatedAt"].ToUniversalTime().ToString("o")
             : (doc.Contains("createdAt") ? doc["createdAt"].ToUniversalTime().ToString("o") : DateTime.UtcNow.ToString("o"));
@@ -408,7 +425,8 @@ public class CreateUserAccountDto
     public string FullName { get; set; } = string.Empty;
     public string? Email { get; set; }
     public string? PhoneNumber { get; set; }
-    public int RoleId { get; set; } = 9;
+    /// <summary>Required: 1 Admin, 2 Manager, 3 Lab, 4 Doctor, 5 Receptionist, 6 Patient (0 = not supplied => 400).</summary>
+    public int RoleId { get; set; }
     public string? Password { get; set; }
 }
 

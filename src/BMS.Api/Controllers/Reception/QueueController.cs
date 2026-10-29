@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Reception;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -13,6 +15,8 @@ namespace BMS.Api.Controllers.Reception;
 /// </summary>
 [ApiController]
 [Route("api/reception/queue")]
+// WHY: UC27: Receptionist. Live board requires login until Phát approves a public masked board (C3). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Receptionist)]
 public class QueueController : ControllerBase
 {
     private readonly IQueueService _queueService;

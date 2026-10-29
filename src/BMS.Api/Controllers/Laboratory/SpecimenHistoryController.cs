@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Roles;
@@ -17,6 +18,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/laboratory/specimens")]
 [Route("api/specimens")]
 [Produces("application/json")]
+// WHY: UC70: view Lab, Manager, Doctor; events/storage Lab. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class SpecimenHistoryController : ControllerBase
 {
@@ -34,6 +36,7 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Truy vấn danh sách lịch sử bệnh phẩm có phân trang và bộ lọc (UC70).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("history")]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<SpecimenHistoryListItemDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSpecimenHistory(
@@ -49,6 +52,7 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Lấy chi tiết lịch sử mẫu bệnh phẩm theo mã vạch Barcode hoặc ID (UC70).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("{barcode}/history")]
     [ProducesResponseType(typeof(ApiResponse<SpecimenHistoryDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -72,6 +76,7 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Lấy danh sách lịch sử tất cả các mẫu bệnh phẩm của một bệnh nhân (UC70).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("patient/{patientId}/history")]
     [ProducesResponseType(typeof(ApiResponse<List<SpecimenHistoryListItemDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPatientSpecimens(
@@ -87,8 +92,8 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Ghi nhận bổ sung một sự kiện theo dõi mẫu (Collection, InTransit, Received, Processing, MachineAnalysis) (UC70).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("{barcode}/events")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<SpecimenHistoryDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -126,8 +131,8 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Cập nhật vị trí lưu trữ mẫu, tủ bảo quản lạnh, kệ, khay và thông số bảo quản (UC70).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPut("{barcode}/storage")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<SpecimenHistoryDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

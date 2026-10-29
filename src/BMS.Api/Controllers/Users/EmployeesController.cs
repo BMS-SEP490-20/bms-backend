@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Users;
@@ -8,6 +10,8 @@ namespace BMS.Api.Controllers.Users;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: Stub: employee directory, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Admin)]
 public class EmployeesController : ControllerBase
 {
     /// <summary>

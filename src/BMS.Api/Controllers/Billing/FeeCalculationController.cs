@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +16,8 @@ namespace BMS.Api.Controllers.Billing;
 [ApiController]
 [Route("api/billing")]
 [Route("api/fees")]
+// WHY: UC53: fee calculation only by Receptionist; Manager denied (decision 10). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Receptionist)]
 public class FeeCalculationController : ControllerBase
 {
     private readonly ICalculateFeeService _calculateFeeService;

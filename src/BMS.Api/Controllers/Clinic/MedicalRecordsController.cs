@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Appointment;
 using BMS.Application.DTOs.MedicalRecords;
 using BMS.Application.Interfaces;
@@ -13,6 +14,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/medical-records")]
+// WHY: UC33: Doctor writes; Doctor, Manager (view), Patient (own) read. Admin denied. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class MedicalRecordsController : ControllerBase
 {
@@ -30,6 +32,7 @@ public class MedicalRecordsController : ControllerBase
     /// <summary>
     /// Gets all medical history records for a specific patient.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet("patient/{patientId}")]
     [ProducesResponseType(typeof(List<MedicalRecordDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByPatient(string patientId, CancellationToken ct)
@@ -49,6 +52,7 @@ public class MedicalRecordsController : ControllerBase
     /// <summary>
     /// Gets details of a specific medical record by ID or RecordCode.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(MedicalRecordDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -73,8 +77,8 @@ public class MedicalRecordsController : ControllerBase
     /// <summary>
     /// Creates a new electronic medical record with ICD-10 and physiological validation (Doctor only).
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpPost]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalRecordDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateMedicalRecordDto dto, CancellationToken ct)
@@ -113,8 +117,8 @@ public class MedicalRecordsController : ControllerBase
     /// <summary>
     /// Updates an existing medical record within the legal 24-hour window (Doctor only).
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpPut("{id}")]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalRecordDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateMedicalRecordDto dto, CancellationToken ct)
@@ -153,8 +157,8 @@ public class MedicalRecordsController : ControllerBase
     /// <summary>
     /// Soft deletes a medical record with an audit justification reason (Doctor/Admin only).
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteMedicalRecordRequest request, CancellationToken ct)

@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.WalkIn.DTOs;
 using BMS.Application.Interfaces;
@@ -12,7 +13,8 @@ namespace BMS.WalkIn.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/walk-in")]
-[Authorize(Roles = "Receptionist,Admin")]
+// WHY: UC26: Receptionist only (Admin removed). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Receptionist)]
 public class WalkInController : ControllerBase
 {
     private readonly IWalkInService _service;

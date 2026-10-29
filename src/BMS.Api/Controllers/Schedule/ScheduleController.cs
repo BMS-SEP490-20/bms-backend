@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Schedule.DTOs;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -8,7 +9,8 @@ namespace BMS.Schedule.Controllers;
 /// <summary>UC31 – Manage Personal Schedule (CRUD doctor_shifts).</summary>
 [ApiController]
 [Route("api/schedules")]
-[Authorize]
+// WHY: UC31: Doctor, Lab, Receptionist (own personal schedule). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.ScheduleOwners)]
 public class ScheduleController : ControllerBase
 {
     private readonly IScheduleService _service;

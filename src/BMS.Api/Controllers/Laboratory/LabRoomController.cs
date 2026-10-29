@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BMS.Application.DTOs.Laboratory;
@@ -11,6 +12,8 @@ namespace BMS.Api.Controllers.Laboratory
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
+// WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.AdminOrManager)]
     public class LabRoomController : ControllerBase
     {
         private readonly ILabRoomService _service;

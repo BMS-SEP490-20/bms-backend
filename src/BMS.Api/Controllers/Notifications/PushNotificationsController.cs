@@ -1,3 +1,6 @@
+using BMS.Api.Authorization;
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +17,8 @@ namespace BMS.Api.Controllers.Notifications;
 [ApiController]
 [Route("api/v1/notifications")]
 [Route("api/notifications")]
+// WHY: UC58: dispatch Lab, Manager, Receptionist; tokens/inbox own; logs Admin, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class PushNotificationsController : ControllerBase
 {
     private readonly IPushNotificationService _notificationService;
@@ -26,6 +31,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Dispatches a push notification to a recipient user across channels (UC58).
     /// </summary>
+    [Authorize(Roles = RoleSets.NotificationDispatchers)]
     [HttpPost("dispatch")]
     public async Task<IActionResult> DispatchNotification([FromBody] DispatchNotificationRequestDto request, CancellationToken cancellationToken = default)
     {
@@ -71,6 +77,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Registers or updates an FCM / Web Push device token for a user.
     /// </summary>
+    [Authorize(Roles = RoleSets.AnyRole)]
     [HttpPost("register-token")]
     public async Task<IActionResult> RegisterDeviceToken([FromBody] RegisterDeviceTokenRequestDto request, CancellationToken cancellationToken = default)
     {
@@ -78,6 +85,8 @@ public class PushNotificationsController : ControllerBase
         {
             return BadRequest(new { success = false, message = "UserId and DeviceToken are required." });
         }
+        // WHY (R14): a device token may only be registered for the caller's own account.
+        if (!this.IsSelf(request.UserId)) return Forbid();
 
         try
         {
@@ -101,9 +110,12 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Retrieves user notifications with pagination.
     /// </summary>
+    [Authorize(Roles = RoleSets.AnyRole)]
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserNotifications(string userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
     {
+    // WHY (R14): own inbox only; userId in the URL must be the token account.
+    if (!this.IsSelf(userId)) return Forbid();
         if (string.IsNullOrWhiteSpace(userId))
         {
             return BadRequest(new { success = false, message = "UserId is required." });
@@ -131,6 +143,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Marks a specific notification as READ.
     /// </summary>
+    [Authorize(Roles = RoleSets.AnyRole)]
     [HttpPatch("{id}/read")]
     public async Task<IActionResult> MarkAsRead(string id, CancellationToken cancellationToken = default)
     {
@@ -162,9 +175,12 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Marks all unread notifications for a user as READ.
     /// </summary>
+    [Authorize(Roles = RoleSets.AnyRole)]
     [HttpPatch("user/{userId}/read-all")]
     public async Task<IActionResult> MarkAllAsRead(string userId, CancellationToken cancellationToken = default)
     {
+    // WHY (R14): own inbox only; userId in the URL must be the token account.
+    if (!this.IsSelf(userId)) return Forbid();
         if (string.IsNullOrWhiteSpace(userId))
         {
             return BadRequest(new { success = false, message = "UserId is required." });
@@ -193,6 +209,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Retrieves notification audit logs with filters (Status, Channel, Priority, Date Range).
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpGet("logs")]
     public async Task<IActionResult> GetAuditLogs([FromQuery] PushNotificationQueryParameters query, CancellationToken cancellationToken = default)
     {

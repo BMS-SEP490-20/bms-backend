@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -13,6 +15,8 @@ namespace BMS.Api.Controllers
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
+// WHY: UC64: Admin only (C5). POST is system-only per matrix; kept Admin until a server-side audit writer replaces it (open question). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Admin)]
     public class AuditLogController : ControllerBase
     {
         private readonly IAuditLogService _service;

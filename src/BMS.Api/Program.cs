@@ -171,12 +171,13 @@ app.MapHub<BMS.Api.Hubs.QueueHub>("/hubs/queue");
 // HEALTH CHECK
 // =========================================================
 
+// Health probe stays public (no data); everything else is behind the fallback policy.
 app.MapGet("/", () => Results.Ok(new
 {
     system = "BMS Blood Laboratory Management System API",
     status = "Online",
     version = "1.0.0",
     docs = "/openapi/v1.json"
-}));
+})).AllowAnonymous();
 
 app.Run();

@@ -86,7 +86,12 @@ public static class ServiceCollectionExtensions
                 };
             });
 
-        services.AddAuthorization();
+        // WHY (TIEU-CHI R4, decision 18): default-deny. Any endpoint without its own [Authorize]/[AllowAnonymous]
+        // requires an authenticated user, so a new controller can never ship anonymous by accident.
+        // Public endpoints (login, OTP, password reset, catalog, tracking by code) opt out with [AllowAnonymous].
+        services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build());
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
         services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
         return services;

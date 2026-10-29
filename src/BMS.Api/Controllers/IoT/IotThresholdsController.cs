@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using BMS.Application.DTOs.IoT;
@@ -12,6 +14,8 @@ namespace BMS.Api.Controllers.IoT;
 /// </summary>
 [ApiController]
 [Route("api/iot/thresholds")]
+// WHY: UC67: view Admin, Manager, Lab; change Admin, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class IotThresholdsController : ControllerBase
 {
     private readonly IIotThresholdService _thresholdService;
@@ -24,6 +28,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Retrieves threshold configuration summary including devices, rules, and recipients.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet]
     public async Task<IActionResult> GetThresholdsSummary()
     {
@@ -38,6 +43,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Retrieves threshold configuration for a specific device ID.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet("{deviceId}")]
     public async Task<IActionResult> GetThreshold(string deviceId)
     {
@@ -61,6 +67,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Updates low/high alert thresholds and telemetry intervals for an individual device.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPut("{deviceId}")]
     public async Task<IActionResult> UpdateThreshold(string deviceId, [FromBody] UpdateIotThresholdRequestDto request)
     {
@@ -95,6 +102,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Batch updates alert thresholds across multiple IoT devices ("Save all").
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost("batch")]
     public async Task<IActionResult> BatchUpdateThresholds([FromBody] BatchUpdateIotThresholdsRequestDto request)
     {
@@ -121,6 +129,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Resets all IoT alert thresholds to standard regulatory defaults.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost("reset-defaults")]
     public async Task<IActionResult> ResetDefaults()
     {
@@ -139,6 +148,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Retrieves list of designated alert notification recipients.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet("recipients")]
     public async Task<IActionResult> GetRecipients()
     {
@@ -153,6 +163,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Adds a new personnel recipient to the IoT alert escalation chain.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost("recipients")]
     public async Task<IActionResult> AddRecipient([FromBody] AddIotAlertRecipientRequestDto request)
     {
@@ -168,6 +179,7 @@ public class IotThresholdsController : ControllerBase
     /// <summary>
     /// Removes a personnel recipient from the IoT alert escalation chain.
     /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpDelete("recipients/{recipientId}")]
     public async Task<IActionResult> RemoveRecipient(string recipientId)
     {

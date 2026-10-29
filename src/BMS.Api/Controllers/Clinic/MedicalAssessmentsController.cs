@@ -1,3 +1,5 @@
+using BMS.Api.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,6 +23,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/medical-assessments")]
+// WHY: UC50: Doctor writes; Doctor, Manager (view), Patient (own) read. Admin denied (decision 10). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class MedicalAssessmentsController : ControllerBase
 {
@@ -38,8 +41,8 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Creates a new clinical medical assessment (UC50).
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpPost]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateMedicalAssessmentDto dto, CancellationToken ct)
@@ -84,6 +87,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Searches and filters medical assessments with pagination.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet]
     [ProducesResponseType(typeof(List<MedicalAssessmentDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> Query([FromQuery] MedicalAssessmentFilterDto filter, CancellationToken ct)
@@ -106,6 +110,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Gets details of a medical assessment by ID or Code.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
@@ -134,6 +139,7 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Gets all medical assessments for a specific patient.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet("patient/{patientId}")]
     [ProducesResponseType(typeof(List<MedicalAssessmentDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByPatient(string patientId, CancellationToken ct)
@@ -154,10 +160,13 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Retrieves active encounters or appointments of a patient for clinical association.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet("patient/{patientId}/encounters")]
     [ProducesResponseType(typeof(List<PatientEncounterDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetEncounters(string patientId, CancellationToken ct)
     {
+        // Unlike the other reads, this service call has no viewer argument, so the Patient "own" rule is applied here.
+        if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
         var encounters = await _service.GetPatientEncountersAsync(patientId, ct);
         return Ok(new
         {
@@ -170,8 +179,8 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Updates an existing draft medical assessment.
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpPut("{id}")]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateMedicalAssessmentDto dto, CancellationToken ct)
@@ -216,8 +225,8 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Finalizes and locks a medical assessment (Doctor only).
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpPatch("{id}/finalize")]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(typeof(MedicalAssessmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Finalize(string id, [FromBody] FinalizeMedicalAssessmentDto dto, CancellationToken ct)
@@ -248,8 +257,8 @@ public class MedicalAssessmentsController : ControllerBase
     /// <summary>
     /// Soft deletes a medical assessment with an audit reason.
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Doctor,Admin")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteMedicalRecordRequest request, CancellationToken ct)

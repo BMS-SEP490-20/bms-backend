@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -14,6 +16,8 @@ namespace BMS.Api.Controllers.QCs
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
+// WHY: UC74: Lab writes; Manager view. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
     public class QcFlagController : ControllerBase
     {
         private readonly IQcFlagService _service;
@@ -26,6 +30,7 @@ namespace BMS.Api.Controllers.QCs
         /// <summary>
         /// Retrieves list of QC flags filtered by status, severity, analyzer, or parameter.
         /// </summary>
+        [Authorize(Roles = RoleSets.LabOrManager)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] string? status, [FromQuery] string? severity, [FromQuery] string? analyzerId, [FromQuery] string? parameter, CancellationToken ct)
         {
@@ -41,6 +46,7 @@ namespace BMS.Api.Controllers.QCs
         /// <summary>
         /// Retrieves statistical counts for QC flags.
         /// </summary>
+        [Authorize(Roles = RoleSets.LabOrManager)]
         [HttpGet("statistics")]
         public async Task<IActionResult> GetStatistics(CancellationToken ct)
         {
@@ -55,6 +61,7 @@ namespace BMS.Api.Controllers.QCs
         /// <summary>
         /// Retrieves a single QC flag by ID.
         /// </summary>
+        [Authorize(Roles = RoleSets.LabOrManager)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id, CancellationToken ct)
         {
@@ -72,6 +79,7 @@ namespace BMS.Api.Controllers.QCs
         /// <summary>
         /// Creates/triggers a new QC flag manually or from analyzer rules.
         /// </summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateQcFlagDto dto, CancellationToken ct)
         {
@@ -92,6 +100,7 @@ namespace BMS.Api.Controllers.QCs
         /// <summary>
         /// Updates an existing QC flag, changes investigation status or records corrective actions.
         /// </summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] UpdateQcFlagDto dto, CancellationToken ct)
         {
@@ -112,6 +121,7 @@ namespace BMS.Api.Controllers.QCs
         /// <summary>
         /// Deletes a QC flag record.
         /// </summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {

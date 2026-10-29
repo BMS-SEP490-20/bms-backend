@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.Api.Authorization;
 using BMS.Application.DTOs.Common;
@@ -16,6 +17,7 @@ namespace BMS.Api.Controllers.PatientDomain;
 [Route("api/patients")]
 [Route("api/v1/patients")]
 [Produces("application/json")]
+// WHY: UC30/UC25: search/view Manager, Doctor, Lab, Receptionist; Patient /me; guest profile Receptionist. Admin denied (decision 10). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class PatientsController(
     IPatientService patients,
@@ -24,8 +26,8 @@ public class PatientsController(
     /// <summary>
     /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Staff / Admin / Doctor / Receptionist).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResult<PatientInformationDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<PatientInformationDto>>> SearchPatients(
         [FromQuery] PatientSearchRequest request,
@@ -38,8 +40,8 @@ public class PatientsController(
     /// <summary>
     /// Retrieves the authenticated user's own patient profile, vitals, dependents, and recent clinical history.
     /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
     [HttpGet("me")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(PatientInformationDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PatientInformationDto>> GetMyProfile(CancellationToken ct)
@@ -58,8 +60,9 @@ public class PatientsController(
     /// Retrieves detailed patient information by Patient ID, Patient Code, or CCCD/CMND.
     /// Staff/Doctors/Receptionists can view any patient; Patients can only view their own profile.
     /// </summary>
+    // Patient is admitted here but the service limits a Patient to their own profile (CanViewAllPatientsAsync = false).
+    [Authorize(Roles = RoleSets.ClinicalStaffOrReception + "," + RoleNames.Patient)]
     [HttpGet("{id}")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(PatientInformationDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -77,10 +80,10 @@ public class PatientsController(
     /// Strictly restricted to authenticated Receptionist role.
     /// Accessible via POST /api/patients/guests, POST /api/patients/guest, or POST /api/patients.
     /// </summary>
+    [Authorize(Roles = RoleNames.Receptionist)]
     [HttpPost("guests")]
     [HttpPost("guest")]
     [HttpPost]
-    [Authorize]
     [ProducesResponseType(typeof(PatientInformationDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -107,20 +110,8 @@ public class PatientsController(
 
     private bool IsReceptionist()
     {
-        if (User.Identity?.IsAuthenticated != true)
-            return false;
-
-        var roles = User.FindAll("role")
-            .Concat(User.FindAll(ClaimTypes.Role))
-            .Select(c => c.Value)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (roles.Contains("Receptionist") || roles.Contains("RECEPTIONIST") ||
-            roles.Contains("Admin") || roles.Contains("ADMIN") || roles.Contains("Administrator"))
-            return true;
-
-        var roleIdClaim = User.FindFirstValue("roleId") ?? User.FindFirstValue("role_id");
-        return roleIdClaim == "5" || roleIdClaim == "1";
+        // WHY (TIEU-CHI R10, matrix UC25): only Lễ tân creates guest profiles; Admin was removed (decision 10).
+        return User.Identity?.IsAuthenticated == true && User.IsInRole(RoleNames.Receptionist);
     }
 
     private string? CurrentUserId =>
@@ -128,12 +119,11 @@ public class PatientsController(
 
     private async Task<bool> CanViewAllPatientsAsync()
     {
+        // WHY: anonymous callers used to get "view all" (PII leak, matrix UC30). The class attribute now
+        // rejects anonymous and Admin callers; staff roles admitted there may list patients, a Patient may not.
         if (User.Identity?.IsAuthenticated != true)
-            return true;
-
-        var roles = User.FindAll("role").Concat(User.FindAll(ClaimTypes.Role))
-            .Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (!roles.Contains("Patient"))
+            return false;
+        if (!User.IsInRole(RoleNames.Patient))
             return true;
 
         var policy = $"{PermissionPolicy.Prefix}{Permissions.ViewPatients},{Permissions.ManageAppointment},{Permissions.CheckIn}";

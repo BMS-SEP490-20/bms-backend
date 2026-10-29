@@ -325,6 +325,7 @@ public class DashboardService : IDashboardService
                 break;
             }
 
+            case "lab": // canonical role 3 claim (Đợt 2)
             case "laboratoryuser":
             case "labuser":
             {
