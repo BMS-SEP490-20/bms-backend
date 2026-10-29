@@ -1,59 +1,81 @@
-﻿using Microsoft.EntityFrameworkCore;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using MongoDB.Driver;
 
-using TestOrder.Repositories.Interface;
-using Testorder_service.Data;
-using Testorder_service.Models.Entities;
+namespace BMS.Infrastructure.Repositories;
 
-namespace TestOrder.Repositories.Implement
+/// <summary>
+/// MongoDB implementation of <see cref="IBloodSampleRepository"/> on <c>blood_samples</c>.
+/// Replaces the legacy EF Core repository; reuses the existing <see cref="Sample"/> mapping
+/// so Print Barcodes / Validate Sample operate on the same specimens as the lab queue.
+/// </summary>
+public sealed class BloodSampleRepository : IBloodSampleRepository
 {
-    public class BloodSampleRepository : IBloodSampleRepository
+    private readonly IMongoCollection<Sample> _samples;
+
+    /// <summary>Creates the repository bound to <c>blood_samples</c>.</summary>
+    public BloodSampleRepository(IMongoDatabase database)
     {
-        private readonly TestOrderManagementDbContext _context;
+        _samples = database.GetCollection<Sample>("blood_samples");
+    }
 
-        public BloodSampleRepository(TestOrderManagementDbContext context)
-        {
-            _context = context;
-        }
+    private static FilterDefinitionBuilder<Sample> F => Builders<Sample>.Filter;
+    private static FilterDefinition<Sample> Active => F.Ne(x => x.IsDeleted, true);
+    private static FilterDefinition<Sample> ByIdOrBarcode(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.Barcode, id)) & Active;
 
-        public async Task<IEnumerable<BloodSample>> GetAllAsync()
-        {
-            return await _context.BloodSamples
-                .AsNoTracking()
-                .ToListAsync();
-        }
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<Sample> Items, long Total)> GetPagedAsync(int page, int pageSize, CancellationToken ct = default)
+    {
+        var total = await _samples.CountDocumentsAsync(Active, cancellationToken: ct);
+        var items = await _samples.Find(Active).SortByDescending(x => x.CreatedAt)
+            .Skip((page - 1) * pageSize).Limit(pageSize).ToListAsync(ct);
+        return (items, total);
+    }
 
-        public async Task<BloodSample?> GetByIdAsync(string id)
-        {
-            return await _context.BloodSamples
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.SampleId == id);
-        }
+    /// <inheritdoc />
+    public async Task<Sample?> GetByIdAsync(string id, CancellationToken ct = default) =>
+        await _samples.Find(ByIdOrBarcode(id)).FirstOrDefaultAsync(ct);
 
-        public async Task<BloodSample> CreateAsync(BloodSample entity)
-        {
-            _context.BloodSamples.Add(entity);
-            await _context.SaveChangesAsync();
-            return entity;
-        }
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Sample>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default) =>
+        await _samples.Find(F.Eq(x => x.TestOrderId, appointmentId) & Active).SortBy(x => x.CreatedAt).Limit(200).ToListAsync(ct);
 
-        public async Task UpdateAsync(BloodSample entity)
-        {
-            _context.BloodSamples.Update(entity);
-            await _context.SaveChangesAsync();
-        }
+    /// <inheritdoc />
+    public Task<bool> BarcodeExistsAsync(string barcode, CancellationToken ct = default) =>
+        _samples.Find(F.Eq(x => x.Barcode, barcode)).AnyAsync(ct);
 
-        public async Task DeleteAsync(BloodSample entity)
-        {
-            _context.BloodSamples.Remove(entity);
-            await _context.SaveChangesAsync();
-        }
-        public async Task<IEnumerable<BloodSample>> GetByAppointmentIdAsync(string appointmentId)
-        {
-            return await _context.BloodSamples
-                .AsNoTracking()
-                .Where(x => x.AppointmentId == appointmentId)
-                .ToListAsync();
-        }
+    /// <inheritdoc />
+    public Task CreateAsync(Sample entity, CancellationToken ct = default) =>
+        _samples.InsertOneAsync(entity, cancellationToken: ct);
 
+    /// <inheritdoc />
+    public async Task<bool> UpdateFieldsAsync(string id, SampleFieldChanges c, SampleStatusHistoryEntry? history, CancellationToken ct = default)
+    {
+        var u = Builders<Sample>.Update;
+        var updates = new List<UpdateDefinition<Sample>> { u.Set(x => x.UpdatedAt, DateTime.UtcNow) };
+        if (c.SampleType is not null) updates.Add(u.Set(x => x.SampleType, c.SampleType));
+        if (c.CollectedAt is not null) updates.Add(u.Set(x => x.CollectedAt, c.CollectedAt.Value));
+        if (c.VolumeMl is not null) updates.Add(u.Set(x => x.VolumeMl, c.VolumeMl.Value));
+        if (c.Status is not null) updates.Add(u.Set(x => x.StatusString, c.Status));
+        if (c.StorageLocation is not null) updates.Add(u.Set(x => x.StorageLocation, c.StorageLocation));
+        if (c.Notes is not null) updates.Add(u.Set(x => x.Notes, c.Notes));
+        if (c.AssignedTechnicianId is not null) updates.Add(u.Set(x => x.AssignedTechnicianId, c.AssignedTechnicianId));
+        if (c.RejectionReason is not null) updates.Add(u.Set(x => x.RejectionReason, c.RejectionReason));
+        if (c.ReceivedAt is not null) updates.Add(u.Set(x => x.ReceivedAt, c.ReceivedAt));
+        if (c.ReceivedBy is not null) updates.Add(u.Set(x => x.ReceivedBy, c.ReceivedBy));
+        if (c.RejectedAt is not null) updates.Add(u.Set(x => x.RejectedAt, c.RejectedAt));
+        if (history is not null) updates.Add(u.Push(x => x.StatusHistory, history));
+
+        var result = await _samples.UpdateOneAsync(ByIdOrBarcode(id), u.Combine(updates), cancellationToken: ct);
+        return result.MatchedCount > 0;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> SoftDeleteAsync(string id, CancellationToken ct = default)
+    {
+        var u = Builders<Sample>.Update;
+        var result = await _samples.UpdateOneAsync(ByIdOrBarcode(id),
+            u.Set(x => x.IsDeleted, true).Set(x => x.UpdatedAt, DateTime.UtcNow), cancellationToken: ct);
+        return result.MatchedCount > 0;
     }
 }

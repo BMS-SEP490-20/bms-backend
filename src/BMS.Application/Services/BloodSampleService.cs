@@ -1,143 +1,154 @@
-using TestOrder.Models.DTO;
-using TestOrder.Repositories.Interface;
-using TestOrder.Services.Interface;
-using Testorder_service.Models.Entities;
+using System.Security.Cryptography;
+using BMS.Application.DTOs.BloodSamples;
+using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using BMS.Core.Exceptions;
+using BMS.Core.Interfaces;
 
-namespace TestOrder.Services.Implement
+namespace BMS.Application.Services
 {
+    /// <summary>
+    /// Print Barcodes (#58) and Validate Sample (#73) on the shared <c>blood_samples</c> collection.
+    /// Status values are restricted to <see cref="SampleStatus"/> so this API cannot write states the
+    /// lab queue / timeline do not understand. Every status change is recorded in <c>status_history</c>.
+    /// </summary>
     public class BloodSampleService : IBloodSampleService
     {
+        private const int MaxBarcodeAttempts = 5;
+        private const string ValidatedStatus = "validated";
+        private const string RejectedStatus = "rejected";
         private readonly IBloodSampleRepository _repo;
 
+        /// <summary>Creates the service over the blood sample repository.</summary>
         public BloodSampleService(IBloodSampleRepository repo)
         {
             _repo = repo;
         }
 
-        public async Task<IEnumerable<BloodSampleReadDto>> GetAllAsync()
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<BloodSampleReadDto> Items, long Total)> GetPagedAsync(int page, int pageSize, CancellationToken ct = default)
         {
-            var list = await _repo.GetAllAsync();
-            return list.Select(x => new BloodSampleReadDto
-            {
-                SampleId = x.SampleId,
-                AppointmentId = x.AppointmentId,
-                SampleType = x.SampleType,
-                CollectedAt = x.CollectedAt,
-                Volume = x.Volume,
-                Status = x.Status,
-                StorageLocation = x.StorageLocation,
-                Notes = x.Notes,
-                LabUserId = x.LabUserId
-            });
+            var (items, total) = await _repo.GetPagedAsync(page, pageSize, ct);
+            return (items.Select(ToDto).ToList(), total);
         }
 
-        public async Task<BloodSampleReadDto?> GetByIdAsync(string id)
+        /// <inheritdoc />
+        public async Task<BloodSampleReadDto?> GetByIdAsync(string id, CancellationToken ct = default)
         {
-            var x = await _repo.GetByIdAsync(id);
-            if (x == null) return null;
-
-            return new BloodSampleReadDto
-            {
-                SampleId = x.SampleId,
-                AppointmentId = x.AppointmentId,
-                SampleType = x.SampleType,
-                CollectedAt = x.CollectedAt,
-                Volume = x.Volume,
-                Status = x.Status,
-                StorageLocation = x.StorageLocation,
-                Notes = x.Notes,
-                LabUserId = x.LabUserId
-
-            };
+            var x = await _repo.GetByIdAsync(id, ct);
+            return x is null ? null : ToDto(x);
         }
 
-        public async Task<BloodSampleReadDto> CreateAsync(BloodSampleCreateDto dto)
+        /// <inheritdoc />
+        public async Task<BloodSampleReadDto> CreateAsync(BloodSampleCreateDto dto, CancellationToken ct = default)
         {
-            var random = new Random();
-            var entity = new BloodSample
+            var status = dto.Status is null ? SampleStatus.Collected : ParseStatusOrThrow(dto.Status);
+            var barcode = string.IsNullOrWhiteSpace(dto.Barcode) ? await GenerateUniqueBarcodeAsync(ct) : dto.Barcode.Trim();
+            if (!string.IsNullOrWhiteSpace(dto.Barcode) && await _repo.BarcodeExistsAsync(barcode, ct))
+                throw new DomainValidationException("SAMPLE_BARCODE_DUPLICATE", "Mã vạch mẫu đã tồn tại.");
+
+            var now = DateTime.UtcNow;
+            var entity = new Sample
             {
-                SampleId = $"SA{random.Next(0, 999999):D6}",
-                AppointmentId = dto.AppointmentId,
+                Barcode = barcode,
+                TestOrderId = dto.AppointmentId,
                 SampleType = dto.SampleType,
-                CollectedAt = dto.CollectedAt,
-                Volume = dto.Volume,
-                Status = dto.Status,
+                CollectedAt = dto.CollectedAt ?? now,
+                VolumeMl = dto.Volume.HasValue ? (double)dto.Volume.Value : 0,
+                Status = status,
                 StorageLocation = dto.StorageLocation,
                 Notes = dto.Notes,
-                LabUserId = dto.LabUserId
-
+                AssignedTechnicianId = dto.LabUserId,
+                CreatedAt = now,
+                StatusHistory = [new SampleStatusHistoryEntry { ToStatus = status.ToString(), ChangedAt = now, ChangedBy = dto.LabUserId }]
             };
 
-            var created = await _repo.CreateAsync(entity);
+            await _repo.CreateAsync(entity, ct);
+            return ToDto(entity);
+        }
 
-            return new BloodSampleReadDto
+        /// <inheritdoc />
+        public async Task<bool> UpdateAsync(string id, BloodSampleUpdateDto dto, CancellationToken ct = default)
+        {
+            var current = await _repo.GetByIdAsync(id, ct);
+            if (current is null) return false;
+
+            string? newStatus = dto.Status is null ? null : ParseStatusOrThrow(dto.Status).ToString();
+            var history = newStatus is not null && newStatus != current.StatusString
+                ? new SampleStatusHistoryEntry { FromStatus = current.StatusString, ToStatus = newStatus, ChangedAt = DateTime.UtcNow, ChangedBy = dto.LabUserId, Notes = dto.Notes }
+                : null;
+
+            var changes = new SampleFieldChanges(
+                SampleType: dto.SampleType,
+                CollectedAt: dto.CollectedAt,
+                VolumeMl: dto.Volume.HasValue ? (double)dto.Volume.Value : null,
+                Status: newStatus,
+                StorageLocation: dto.StorageLocation,
+                Notes: dto.Notes,
+                AssignedTechnicianId: dto.LabUserId);
+            return await _repo.UpdateFieldsAsync(current.Id, changes, history, ct);
+        }
+
+        /// <inheritdoc />
+        public Task<bool> DeleteAsync(string id, CancellationToken ct = default) => _repo.SoftDeleteAsync(id, ct);
+
+        /// <inheritdoc />
+        public async Task<bool> ValidateSampleAsync(string id, string status, string notes, string labUserId, CancellationToken ct = default)
+        {
+            var current = await _repo.GetByIdAsync(id, ct);
+            if (current is null) return false;
+
+            var now = DateTime.UtcNow;
+            var operatorId = string.IsNullOrWhiteSpace(labUserId) ? null : labUserId;
+            // Validate Sample (#73) maps onto the ISO 15189 reception step: an accepted specimen is Received,
+            // a rejected one is Rejected with the reason kept, instead of writing free-text statuses.
+            SampleFieldChanges changes = status.Trim().ToLowerInvariant() switch
             {
-                SampleId = created.SampleId,
-                AppointmentId = created.AppointmentId,
-                SampleType = created.SampleType,
-                CollectedAt = created.CollectedAt,
-                Volume =  created.Volume,
-                Status = created.Status,
-                StorageLocation = created.StorageLocation,
-                Notes = created.Notes,
-                LabUserId = created.LabUserId
+                ValidatedStatus => new(Status: SampleStatus.Received.ToString(), Notes: notes, AssignedTechnicianId: operatorId,
+                    ReceivedAt: now, ReceivedBy: operatorId),
+                RejectedStatus => new(Status: SampleStatus.Rejected.ToString(), Notes: notes, AssignedTechnicianId: operatorId,
+                    RejectionReason: notes, RejectedAt: now),
+                _ => throw new DomainValidationException("INVALID_VALIDATION_STATUS", "Trạng thái kiểm định chỉ nhận 'validated' hoặc 'rejected'.")
             };
+            var history = new SampleStatusHistoryEntry { FromStatus = current.StatusString, ToStatus = changes.Status!, ChangedAt = now, ChangedBy = operatorId, Notes = notes };
+            return await _repo.UpdateFieldsAsync(current.Id, changes, history, ct);
         }
 
-        public async Task<bool> UpdateAsync(string id, BloodSampleUpdateDto dto)
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<BloodSampleReadDto>> GetBloodSampleByAppointmentIdAsync(string appointmentId, CancellationToken ct = default)
         {
-            var entity = await _repo.GetByIdAsync(id);
-            if (entity == null) return false;
-
-            entity.SampleType = dto.SampleType ?? entity.SampleType;
-            entity.CollectedAt = dto.CollectedAt ?? entity.CollectedAt;
-            entity.Volume = dto.Volume ?? entity.Volume;
-            entity.Status = dto.Status ?? entity.Status;
-            entity.StorageLocation = dto.StorageLocation ?? entity.StorageLocation;
-            entity.Notes = dto.Notes ?? entity.Notes;
-            entity.LabUserId = dto.LabUserId ?? entity.LabUserId;
-            await _repo.UpdateAsync(entity);
-            return true;
+            var list = await _repo.GetByAppointmentIdAsync(appointmentId, ct);
+            return list.Select(ToDto).ToList();
         }
 
-        public async Task<bool> DeleteAsync(string id)
-        {
-            var entity = await _repo.GetByIdAsync(id);
-            if (entity == null) return false;
+        private static SampleStatus ParseStatusOrThrow(string raw) =>
+            Enum.TryParse<SampleStatus>(raw.Trim(), true, out var s) && Enum.IsDefined(s)
+                ? s
+                : throw new DomainValidationException("INVALID_SAMPLE_STATUS", $"Trạng thái mẫu '{raw}' không hợp lệ.");
 
-            await _repo.DeleteAsync(entity);
-            return true;
-        } 
-        public async Task<bool> ValidateSampleAsync(string id, string status, string notes, string labUserId)
+        // Barcode format follows the BMS convention SMP-YYYYMMDD-XXXX (same as LabQueueService).
+        private async Task<string> GenerateUniqueBarcodeAsync(CancellationToken ct)
         {
-            var entity = await _repo.GetByIdAsync(id);
-            if (entity == null) return false;
-
-            entity.Status = status;
-            entity.Notes = notes;
-            if (!string.IsNullOrEmpty(labUserId)) {
-                entity.LabUserId = labUserId;
+            for (var i = 0; i < MaxBarcodeAttempts; i++)
+            {
+                var candidate = $"SMP-{DateTime.UtcNow:yyyyMMdd}-{RandomNumberGenerator.GetInt32(0, 10000):D4}";
+                if (!await _repo.BarcodeExistsAsync(candidate, ct)) return candidate;
             }
-            await _repo.UpdateAsync(entity);
-            return true;
-        }
-        public async Task<IEnumerable<BloodSampleReadDto>> GetBloodSampleByAppointmentIdAsync(string appointmentId)
-        {
-            var list = await _repo.GetByAppointmentIdAsync(appointmentId);
-            return list.Select(x => new BloodSampleReadDto
-            {
-                SampleId = x.SampleId,
-                AppointmentId = x.AppointmentId,
-                SampleType = x.SampleType,
-                CollectedAt = x.CollectedAt,
-                Volume = x.Volume,
-                Status = x.Status,
-                StorageLocation = x.StorageLocation,
-                Notes = x.Notes,
-                LabUserId = x.LabUserId
-            });
+            throw new DomainValidationException("SAMPLE_BARCODE_EXHAUSTED", "Không thể cấp mã vạch mẫu, vui lòng thử lại.");
         }
 
+        private static BloodSampleReadDto ToDto(Sample x) => new()
+        {
+            SampleId = x.Id,
+            Barcode = string.IsNullOrWhiteSpace(x.Barcode) ? x.Id : x.Barcode,
+            AppointmentId = x.TestOrderId,
+            SampleType = x.SampleType,
+            CollectedAt = x.CollectedAt,
+            Volume = (decimal)x.VolumeMl,
+            Status = x.StatusString,
+            StorageLocation = x.StorageLocation,
+            Notes = x.Notes,
+            LabUserId = x.AssignedTechnicianId
+        };
     }
 }
-
