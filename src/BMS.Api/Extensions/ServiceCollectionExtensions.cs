@@ -39,6 +39,7 @@ public static class ServiceCollectionExtensions
             TestCriteria: config["MongoDB:TestCriteriaCollectionName"] ?? "test_criteria",
             PasswordResetTokens: config["MongoDB:PasswordResetTokensCollectionName"] ?? "password_reset_tokens"));
 
+        services.AddSingleton<IUserRoleMigration, BMS.Infrastructure.Migrations.UserRoleMigration>();
         services.AddHostedService<MongoInitializer>();
         return services;
     }

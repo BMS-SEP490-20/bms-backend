@@ -88,6 +88,8 @@ public class User : ISupportInitialize
         get {
         if (!RoleId.HasValue) return UserRole.Patient;
         // WHY: accounts self-registered before Đợt 2 were stored with RoleId 9; they are patients.
+        // Safety net only: UserRoleMigration converts stored 9 → 6 at startup.
+        // TODO(phat, DOT2-followup-5): remove the RoleId 9 branch once schema_migrations shows the migration ran in every environment.
         if (RoleId.Value == LegacyPatientRoleId) return UserRole.Patient;
         return Enum.IsDefined(typeof(UserRole), RoleId.Value) ? (UserRole)RoleId.Value : UserRole.Patient;
     }
