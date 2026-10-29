@@ -28,18 +28,29 @@ public class DashboardController : ControllerBase
     /// backward compatibility with the web client but ignored.
     /// </remarks>
     [HttpGet("stats")]
-    public async Task<IActionResult> GetDashboardStats([FromQuery] string? role, [FromQuery] string? userId)
+    public async Task<IActionResult> GetDashboardStats([FromQuery] string? role, [FromQuery] string? userId, CancellationToken ct)
     {
         _ = role; _ = userId;
         var targetRole = User.FindFirstValue("role") ?? User.FindFirstValue(ClaimTypes.Role);
         var targetUserId = User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(targetRole) || string.IsNullOrEmpty(targetUserId)) return Forbid();
 
-        var stats = await _dashboardService.GetDashboardStatsAsync(targetUserId, targetRole);
+        var stats = await _dashboardService.GetDashboardStatsAsync(targetUserId, targetRole, ct);
         return Ok(new
         {
             success = true,
             data = stats
         });
     }
+
+    /// <summary>
+    /// UC12 – Admin operations dashboard: users per role, locked accounts, login activity, backup status,
+    /// audit-log row count, IoT devices online/offline, total revenue.
+    /// </summary>
+    /// <remarks>WHY: DOT2 follow-up 6 — Admin gets ops data only (no patients, results, panic or samples).</remarks>
+    [HttpGet("admin-ops")]
+    [Authorize(Roles = RoleNames.Admin)]
+    [ProducesResponseType(typeof(BMS.Application.DTOs.Dashboard.AdminOpsDashboardDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAdminOps(CancellationToken ct)
+        => Ok(new { success = true, data = await _dashboardService.GetAdminOpsAsync(ct) });
 }
