@@ -354,6 +354,7 @@ public class AuthService : IAuthService
 
         // WHY: the fallback must follow the 6-role seed (1 Admin, 2 Manager, 3 Lab, 4 Doctor,
         // 5 Receptionist, 6 Patient). The token service derives the role claim from this ID.
+        // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
         var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? (int)user.Role;
         var roleName = RoleNames.FromRoleId(roleId) ?? throw new RoleNotAssignedException();
 

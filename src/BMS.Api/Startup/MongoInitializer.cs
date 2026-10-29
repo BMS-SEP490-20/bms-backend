@@ -15,6 +15,7 @@ public sealed partial class MongoInitializer(
     IPasswordHasher hasher,
     IConfiguration config,
     IHostEnvironment env,
+    IUserRoleMigration roleMigration,
     ILogger<MongoInitializer> logger) : IHostedService
 {
     [GeneratedRegex(@"^\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}$")]
@@ -25,6 +26,9 @@ public sealed partial class MongoInitializer(
         try
         {
             await CreateIndexesAsync(ct);
+            // WHY: one-time, idempotent data fix for the 6-role model (DOT2 follow-up 5); runs in every
+            // environment because production data also holds RoleId 9 accounts.
+            await roleMigration.MigrateLegacyPatientRoleIdAsync(ct);
             if (env.IsDevelopment())
             {
                 await FixSampleHashesAsync(ct);

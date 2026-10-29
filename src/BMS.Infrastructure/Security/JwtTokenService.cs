@@ -42,6 +42,7 @@ public sealed class JwtTokenService : ITokenService
     {
         // WHY (R8): the role claim must be one of the six canonical names, derived from the seeded RoleId,
         // never from a display name in the roles collection. No resolvable role => no token.
+        // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
         var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? role?.Id;
         var roleName = RoleNames.FromRoleId(roleId) ?? RoleNames.Normalize(role?.RoleName)
             ?? throw new RoleNotAssignedException();
