@@ -1,3 +1,6 @@
+using BMS.Api.Authorization;
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -19,6 +22,8 @@ namespace BMS.Api.Controllers.IoT;
 [Route("api/v1/iot/alerts")]
 [Route("api/alerts")]
 [Route("api/v1/alerts")]
+// WHY: UC68: view/acknowledge Lab, Manager; resolve + CRITICAL report Manager; simulate Admin (dev); telemetry = device key (C13). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class AlertsController : ControllerBase
 {
     private readonly IIotAlertService _alertService;
@@ -31,6 +36,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves filtered list of IoT threshold violation alerts.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet]
     public async Task<IActionResult> GetAlerts([FromQuery] IotAlertQueryParameters parameters, CancellationToken ct)
     {
@@ -47,6 +53,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves currently active IoT threshold violation alarms.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("active")]
     public async Task<IActionResult> GetActiveAlerts(CancellationToken ct)
     {
@@ -63,6 +70,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves executive surveillance summary KPIs (active, critical, acknowledged, resolved today).
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("summary")]
     public async Task<IActionResult> GetAlertSummary(CancellationToken ct)
     {
@@ -78,6 +86,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves detailed record of an alert by ID.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetAlertById(string id, CancellationToken ct)
     {
@@ -101,6 +110,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Acknowledges an active alert, logging operator ownership.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPut("{id}/acknowledge")]
     public async Task<IActionResult> AcknowledgeAlert(string id, [FromBody] AcknowledgeAlertRequestDto request, CancellationToken ct)
     {
@@ -127,6 +137,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Resolves an alert, documenting corrective actions taken to restore environmental safety.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPut("{id}/resolve")]
     public async Task<IActionResult> ResolveAlert(string id, [FromBody] ResolveAlertRequestDto request, CancellationToken ct)
     {
@@ -153,6 +164,8 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Evaluates incoming sensor telemetry against thresholds and generates instant alarms if breached.
     /// </summary>
+    [AllowAnonymous] // JWT not used: IoT devices authenticate with X-Device-Key (C13)
+    [RequireDeviceKey]
     [HttpPost("~/api/iot/telemetry/evaluate")]
     [HttpPost("~/api/v1/iot/telemetry/evaluate")]
     [HttpPost("evaluate")]
@@ -179,6 +192,7 @@ public class AlertsController : ControllerBase
     /// </summary>
     // "~/api/iot/alerts/simulate" is already produced by "simulate" under the api/iot/alerts prefix; declaring it
     // twice made POST api/iot/alerts/simulate ambiguous.
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPost("simulate")]
     public async Task<IActionResult> SimulateAlert([FromBody] SimulateAlertRequestDto request, CancellationToken ct)
     {

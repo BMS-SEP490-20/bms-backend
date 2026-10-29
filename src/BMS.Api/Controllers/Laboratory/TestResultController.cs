@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using BMS.Application.DTOs.TestResults;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -11,6 +13,8 @@ namespace BMS.Api.Controllers.Laboratory
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
+// WHY: UC46/UC49: enter Lab; view Lab, Doctor, Manager; approve Manager only (decision 1). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
     public class TestResultController : ControllerBase
     {
         private const int MaxPageSize = 100;
@@ -23,6 +27,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Lists test results with server-side paging.</summary>
+        [Authorize(Roles = RoleSets.ClinicalStaff)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken ct = default)
         {
@@ -45,6 +50,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Gets a test result by id.</summary>
+        [Authorize(Roles = RoleSets.ClinicalStaff)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id, CancellationToken ct)
         {
@@ -56,6 +62,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Creates a test result with its parameters.</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateFullTestResultDto dto, CancellationToken ct)
         {
@@ -76,6 +83,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Updates a test result (partial).</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] UpdateTestResultDto dto, CancellationToken ct)
         {
@@ -84,6 +92,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Soft-deletes a test result.</summary>
+        [Authorize(Roles = RoleNames.Lab)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
@@ -92,6 +101,7 @@ namespace BMS.Api.Controllers.Laboratory
         }
 
         /// <summary>Lists the test results of one appointment.</summary>
+        [Authorize(Roles = RoleSets.ClinicalStaff)]
         [HttpGet("by-appointment/{appointmentId}")]
         public async Task<IActionResult> GetByAppointmentId(string appointmentId, CancellationToken ct)
         {
@@ -111,15 +121,16 @@ namespace BMS.Api.Controllers.Laboratory
 
         /// <summary>
         /// Reviews, verifies, and digitally approves blood test results prior to publishing them to the patient.
-        /// Intended for Doctor and Lab Manager roles.
+        /// Manager only (decision 30/10 #1, matrix UC49); the approver identity comes from the token.
         /// </summary>
         /// <param name="id">Test result identifier.</param>
         /// <param name="dto">Approval payload containing approver info and digital stamp.</param>
         /// <param name="ct">Request cancellation token.</param>
         /// <returns>HTTP response containing approval status and updated result.</returns>
+        // WHY: only the Manager signs results (decision 30/10 #1, UC49 "QL duy nhất").
+        [Authorize(Roles = RoleNames.Manager)]
         [HttpPost("{id}/approve")]
         [HttpPut("{id}/approve")]
-        // TODO(senior-dev, Đợt 2): no [Authorize] yet; restrict to the Manager role (role 2) per BA rules.
         public async Task<IActionResult> Approve(string id, [FromBody] ApproveTestResultDto dto, CancellationToken ct)
         {
             if (dto == null)
@@ -134,6 +145,10 @@ namespace BMS.Api.Controllers.Laboratory
                 });
             }
 
+            // WHY (BR-APP-02): the signature must name the signed-in Manager, not whoever the body claims.
+            dto.ApproverId = User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+            dto.ApproverName = User.FindFirst("name")?.Value ?? dto.ApproverId;
+            dto.ApproverRole = RoleNames.Manager;
             var result = await _service.ApproveAsync(id, dto, ct);
             return Ok(new
             {

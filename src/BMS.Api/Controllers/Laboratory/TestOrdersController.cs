@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -14,6 +15,8 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: UC32: create Doctor; list Doctor, Lab, Receptionist, Manager; status Doctor (cancel own) / Manager (exceptions). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class TestOrdersController : ControllerBase
 {
     private readonly ITestOrderService _testOrderService;
@@ -26,6 +29,7 @@ public class TestOrdersController : ControllerBase
     /// <summary>
     /// Retrieves standard clinical test catalog items with tube, pricing, and fasting specifications.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet("catalog")]
     public async Task<IActionResult> GetCatalog()
     {
@@ -40,6 +44,7 @@ public class TestOrdersController : ControllerBase
     /// <summary>
     /// Retrieves test orders filtered by patient ID, doctor ID, or status.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet]
     public async Task<IActionResult> GetOrders([FromQuery] string? patientId, [FromQuery] string? doctorId, [FromQuery] string? status)
     {
@@ -55,6 +60,7 @@ public class TestOrdersController : ControllerBase
     /// <summary>
     /// Retrieves a test order by ID or order number.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetOrderById(string id)
     {
@@ -78,6 +84,7 @@ public class TestOrdersController : ControllerBase
     /// <summary>
     /// Creates a new physician laboratory test order (UC32).
     /// </summary>
+    [Authorize(Roles = RoleNames.Doctor)]
     [HttpPost]
     [ProducesResponseType(typeof(TestOrderResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -146,6 +153,7 @@ public class TestOrdersController : ControllerBase
     /// <summary>
     /// Updates the status of an existing test order.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpPut("{id}/status")]
     public async Task<IActionResult> UpdateOrderStatus(string id, [FromBody] UpdateTestOrderStatusRequestDto request)
     {

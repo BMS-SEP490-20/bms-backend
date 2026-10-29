@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Billing;
@@ -8,6 +10,8 @@ namespace BMS.Api.Controllers.Billing;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: UC55 refund: Manager (C5 default). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Manager)]
 public class RefundsController : ControllerBase
 {
     /// <summary>

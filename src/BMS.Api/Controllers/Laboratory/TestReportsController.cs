@@ -1,3 +1,6 @@
+using BMS.Api.Authorization;
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using BMS.Application.DTOs.Laboratory;
@@ -12,6 +15,8 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: UC42: generate Lab (after Manager signs); view Patient (own), Doctor, Lab, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class TestReportsController : ControllerBase
 {
     private readonly ITestReportService _testReportService;
@@ -24,10 +29,13 @@ public class TestReportsController : ControllerBase
     /// <summary>
     /// Retrieves full diagnostic report for a specific test order.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
     [HttpGet("order/{orderId}")]
     public async Task<IActionResult> GetReportByOrder(string orderId)
     {
         var report = await _testReportService.GetReportByOrderIdAsync(orderId);
+        // Patient: own report only, same 404 otherwise (R14).
+        if (report != null && !await this.MayAccessPatientAsync(report.PatientId, HttpContext.RequestAborted)) report = null;
         if (report == null)
         {
             return NotFound(new
@@ -47,10 +55,12 @@ public class TestReportsController : ControllerBase
     /// <summary>
     /// Retrieves test report by report ID.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetReportById(string id)
     {
         var report = await _testReportService.GetReportByIdAsync(id);
+        if (report != null && !await this.MayAccessPatientAsync(report.PatientId, HttpContext.RequestAborted)) report = null;
         if (report == null)
         {
             return NotFound(new
@@ -70,6 +80,7 @@ public class TestReportsController : ControllerBase
     /// <summary>
     /// Compiles and generates official diagnostic report for an order.
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("order/{orderId}/generate")]
     public async Task<IActionResult> GenerateReport(string orderId, [FromBody] GenerateTestReportRequestDto request)
     {
@@ -88,9 +99,16 @@ public class TestReportsController : ControllerBase
     /// <summary>
     /// Exports report PDF payload and formatted printable HTML document.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
     [HttpGet("order/{orderId}/pdf")]
     public async Task<IActionResult> ExportPdf(string orderId)
     {
+        if (User.IsInRole(RoleNames.Patient))
+        {
+            var owned = await _testReportService.GetReportByOrderIdAsync(orderId);
+            if (owned == null || !await this.MayAccessPatientAsync(owned.PatientId, HttpContext.RequestAborted))
+                return NotFound(new { success = false, message = "Không tìm thấy phiếu kết quả." });
+        }
         var export = await _testReportService.ExportReportPdfAsync(orderId);
         if (export == null)
         {

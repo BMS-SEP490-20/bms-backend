@@ -1,3 +1,5 @@
+using BMS.Api.Authorization;
+using BMS.Core.Constants;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using BMS.Infrastructure.Data;
@@ -21,6 +23,7 @@ namespace BMS.Api.Controllers.Notifications;
 [Route("api/notifications/test-results")]
 [Route("api/test-result-notifications")]
 [Produces("application/json")]
+// WHY: UC60: send Lab (after sign-off); patient views own; completed-patient list Lab, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class TestResultNotificationsController : ControllerBase
 {
@@ -42,8 +45,8 @@ public class TestResultNotificationsController : ControllerBase
     /// Phát hành thông báo kết quả xét nghiệm mới (UC60).
     /// Được gọi tự động khi duyệt kết quả hoặc do KTV / Bác sĩ phát hành thủ công.
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("dispatch")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor,Receptionist")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> DispatchNotification(
@@ -72,6 +75,7 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Truy vấn danh sách thông báo kết quả xét nghiệm có phân trang và bộ lọc (UC60).
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<TestResultNotificationListItemDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetNotifications(
@@ -87,6 +91,7 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Xem chi tiết một thông báo kết quả xét nghiệm theo ID hoặc mã thông báo (UC60).
     /// </summary>
+    [Authorize(Roles = RoleSets.LabManagerOrPatient)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -95,6 +100,8 @@ public class TestResultNotificationsController : ControllerBase
         CancellationToken ct = default)
     {
         var result = await _notificationService.GetNotificationByIdAsync(id, ct);
+        // A patient asking for someone else's notification gets the same 404 as a missing one (anti-BOLA, R14).
+        if (result != null && !await this.MayAccessPatientAsync(result.PatientId, ct)) result = null;
         if (result == null)
         {
             return NotFound(ApiResponse<object>.Fail(
@@ -108,12 +115,15 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Lấy danh sách thông báo kết quả xét nghiệm của một bệnh nhân cụ thể (UC60 / Mobile).
     /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
     [HttpGet("patient/{patientId}")]
     [ProducesResponseType(typeof(ApiResponse<List<TestResultNotificationDetailDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPatientNotifications(
         string patientId,
         CancellationToken ct = default)
     {
+        // WHY (R14, smoke SMK-BN-08): patientId is in the URL, so ownership is checked against the token account.
+        if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
         var list = await _notificationService.GetPatientNotificationsAsync(patientId, ct);
         return Ok(ApiResponse<List<TestResultNotificationDetailDto>>.Ok(
             list,
@@ -123,12 +133,14 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Đếm số lượng thông báo chưa đọc của bệnh nhân (UC60 / Mobile / Web Badge).
     /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
     [HttpGet("patient/{patientId}/unread-count")]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPatientUnreadCount(
         string patientId,
         CancellationToken ct = default)
     {
+        if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
         var count = await _notificationService.GetUnreadCountAsync(patientId, ct);
         return Ok(ApiResponse<int>.Ok(count, "Số lượng thông báo chưa đọc."));
     }
@@ -136,12 +148,16 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Đánh dấu một thông báo là đã đọc (UC60).
     /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
     [HttpPut("{id}/read")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     public async Task<IActionResult> MarkAsRead(
         string id,
         CancellationToken ct = default)
     {
+        var owned = await _notificationService.GetNotificationByIdAsync(id, ct);
+        if (owned == null || !await this.MayAccessPatientAsync(owned.PatientId, ct))
+            return NotFound(ApiResponse<bool>.Fail("Không tìm thấy thông báo cần đánh dấu đã đọc.", "MSG-ERR-NOTIF-NOT-FOUND"));
         var success = await _notificationService.MarkAsReadAsync(id, ct);
         if (!success)
         {
@@ -154,8 +170,8 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Gửi lại thông báo kết quả xét nghiệm qua SMS / Email / Push (UC60).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("{id}/resend")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor,Receptionist")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResendNotification(
@@ -178,8 +194,8 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Lấy thống kê tình hình gửi thông báo và cảnh báo hoảng loạn toàn viện (UC60 / Web Dashboard).
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("stats")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor,Receptionist")]
     [ProducesResponseType(typeof(ApiResponse<NotificationStatsDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetNotificationStats(CancellationToken ct = default)
     {
@@ -197,9 +213,9 @@ public class TestResultNotificationsController : ControllerBase
     /// Lấy danh sách bệnh nhân và đơn xét nghiệm đã hoàn thành để chọn phát hành thông báo (UC60).
     /// Truy vấn trực tiếp từ MongoDB blood_samples, test_results và patients.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("completed-patients")]
     [HttpGet("completed-tests")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(ApiResponse<List<CompletedTestPatientDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCompletedPatients(CancellationToken ct = default)
     {

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.IoT;
@@ -8,6 +10,8 @@ namespace BMS.Api.Controllers.IoT;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: UC69: Lab, Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.AdminManagerLab)]
 public class SensorLogsController : ControllerBase
 {
     /// <summary>

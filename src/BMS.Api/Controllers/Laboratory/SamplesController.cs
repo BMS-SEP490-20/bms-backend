@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.Api.Authorization;
 using BMS.Application.DTOs;
@@ -17,14 +18,16 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/samples")]
 [Route("api/v1/samples")]
 [Produces("application/json")]
+// WHY: UC17/40/45/47: queue Lab, Manager (view); collection Lab; status Lab, Manager; rerun Lab; rerun view + Doctor. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class SamplesController(ILabQueueService labQueueService) : ControllerBase
 {
     /// <summary>
     /// UC17 - Xem Hàng đợi Xét nghiệm (View Lab Queue)
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet]
     [HttpGet("queue")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetLabQueue(
         [FromQuery] string? status,
         [FromQuery] string? search,
@@ -62,8 +65,8 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// Lấy chi tiết mẫu theo ID, Barcode hoặc RFID tag.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("{id}")]
-    [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSampleDetails(string id)
@@ -85,10 +88,10 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// Ghi nhận thời gian lấy mẫu bệnh phẩm cho một mẫu đã có theo ID hoặc Barcode (Record Sample Time use case).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("{id}/collection-time")]
     [HttpPatch("{id}/collection-time")]
     [HttpPut("{id}/collection-time")]
-    [HasPermission($"{Permissions.CollectSample},{Permissions.ReceiveSample},{Permissions.ViewAllLab}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -110,9 +113,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// Tạo mới hoặc ghi nhận thời gian lấy mẫu bệnh phẩm gắn với Bệnh nhân và Lịch hẹn (Record Sample Time use case).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("record-collection")]
     [HttpPost]
-    [HasPermission($"{Permissions.CollectSample},{Permissions.ReceiveSample},{Permissions.ViewAllLab}")]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -133,9 +136,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// Cập nhật trạng thái vòng đời mẫu bệnh phẩm với kiểm tra chuyển trạng thái ISO 15189 hợp lệ (Update Sample Status use case).
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPut("{id}/status")]
     [HttpPatch("{id}/status")]
-    [HasPermission($"{Permissions.ReceiveSample},{Permissions.RunAnalyzer},{Permissions.EnterResult},{Permissions.CollectSample},{Permissions.ViewAllLab}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -157,8 +160,8 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// UC47 - Yêu cầu chạy lại mẫu (Request Sample Rerun)
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost("{id}/rerun")]
-    [HasPermission($"{Permissions.RunAnalyzer},{Permissions.EnterResult},{Permissions.ApproveResult},{Permissions.ViewAllLab}")]
     public async Task<IActionResult> RequestSampleRerun(string id, [FromBody] SampleRerunRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.Reason))
@@ -178,6 +181,7 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// UC47 - Lấy danh sách yêu cầu chạy lại mẫu đang mở (Open Sample Rerun Requests)
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("reruns")]
     public async Task<IActionResult> GetRerunRequests()
     {
@@ -188,6 +192,7 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     /// <summary>
     /// UC47 - Lấy thông tin chi tiết để yêu cầu chạy lại mẫu (Sample Rerun Details & Context)
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("{id}/rerun-details")]
     public async Task<IActionResult> GetSampleRerunDetails(string id)
     {

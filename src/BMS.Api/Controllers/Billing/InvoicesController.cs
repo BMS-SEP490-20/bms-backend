@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.Application.DTOs.Billing;
 using BMS.Application.Interfaces;
@@ -13,11 +15,14 @@ namespace BMS.Api.Controllers.Billing;
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
+// WHY: UC54: Receptionist; Manager view only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class InvoicesController(IReceiptService receiptService) : ControllerBase
 {
     /// <summary>
     /// Retrieves paginated list of billing invoices with optional filters.
     /// </summary>
+    [Authorize(Roles = RoleSets.ReceptionOrManager)]
     [HttpGet]
     public async Task<IActionResult> GetInvoices(
         [FromQuery] string? patientId,
@@ -42,6 +47,7 @@ public class InvoicesController(IReceiptService receiptService) : ControllerBase
     /// <summary>
     /// Retrieves invoice details by identifier or invoice code.
     /// </summary>
+    [Authorize(Roles = RoleSets.ReceptionOrManager)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetInvoiceById(string id, CancellationToken ct = default)
     {
@@ -65,6 +71,7 @@ public class InvoicesController(IReceiptService receiptService) : ControllerBase
     /// <summary>
     /// Creates a new billing invoice for patient consultation / lab testing.
     /// </summary>
+    [Authorize(Roles = RoleNames.Receptionist)]
     [HttpPost]
     public async Task<IActionResult> CreateInvoice(
         [FromBody] CreateInvoiceRequest request,
@@ -87,6 +94,7 @@ public class InvoicesController(IReceiptService receiptService) : ControllerBase
     /// <summary>
     /// Records payment for an invoice (Cash, POS, VNPay, Transfer).
     /// </summary>
+    [Authorize(Roles = RoleNames.Receptionist)]
     [HttpPost("{id}/pay")]
     public async Task<IActionResult> PayInvoice(
         string id,
