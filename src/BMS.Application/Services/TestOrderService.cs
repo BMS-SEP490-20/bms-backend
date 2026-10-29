@@ -1,325 +1,287 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
+using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
-using BMS.Infrastructure.Data;
+using BMS.Core.Utilities;
+using Microsoft.Extensions.Logging;
 
 namespace BMS.Application.Services;
 
-/// <summary>
-/// Service managing laboratory test order creation, validation, and retrieval (UC32).
-/// Follows Clean Architecture and ISO 15189 pre-analytical standards.
-/// </summary>
-public class TestOrderService : ITestOrderService
+/// <inheritdoc />
+/// <remarks>
+/// WHY rewritten (Đợt 3): the old service trusted DoctorId and Price from the body, defaulted the price to the
+/// client value, had no ICD-10, put every order straight into "Ordered" and pre-created specimen slots in the
+/// in-memory BmsDbContext before payment. Rules now: TIEU-CHI Đợt 3 Bước 1 and QĐ10.
+/// </remarks>
+public sealed partial class TestOrderService(
+    ITestOrderRepository orders,
+    IPatientRepository patients,
+    IUserRepository users,
+    IServicePackageRepository packages,
+    ISequenceGenerator sequences,
+    TimeProvider clock,
+    ILogger<TestOrderService> logger) : ITestOrderService
 {
-    private readonly ITestOrderRepository _orderRepository;
-    private readonly IUserRepository _userRepository;
-    private readonly BmsDbContext _dbContext;
+    /// <summary>ICD-10 format accepted (GAP C4; QĐ C7: format only, no WHO list lookup).</summary>
+    [GeneratedRegex(@"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$")]
+    public static partial Regex Icd10();
 
-    private readonly IServicePackageRepository? _packageRepository;
+    private const int MaxOrdersPerDay = 9999;
 
-    public TestOrderService(
-        ITestOrderRepository orderRepository,
-        IUserRepository userRepository,
-        BmsDbContext dbContext,
-        IServicePackageRepository? packageRepository = null)
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<TestCatalogItemDto>> GetAvailableCatalogAsync(CancellationToken ct = default)
     {
-        _orderRepository = orderRepository;
-        _userRepository = userRepository;
-        _dbContext = dbContext;
-        _packageRepository = packageRepository;
-    }
-
-    public async Task<IEnumerable<TestCatalogItemDto>> GetAvailableCatalogAsync()
-    {
-        if (_packageRepository != null)
+        var paged = await packages.SearchAsync(new ServicePackageQuery(null, true, null, null, "Code", false, 1, 200), ct);
+        return paged.Items.Select(pkg =>
         {
-            try
+            var tube = TubeRules.For(pkg.Code, pkg.Name, pkg.Category);
+            return new TestCatalogItemDto
             {
-                var query = new ServicePackageQuery(
-                    Keyword: null,
-                    IsActive: true,
-                    MinPrice: null,
-                    MaxPrice: null,
-                    SortBy: "Code",
-                    SortDesc: false,
-                    Page: 1,
-                    PageSize: 100);
-
-                var paged = await _packageRepository.SearchAsync(query);
-                if (paged.Items.Count > 0)
-                {
-                    return paged.Items.Select(pkg => new TestCatalogItemDto
-                    {
-                        Code = pkg.Code,
-                        Name = pkg.Name,
-                        Category = !string.IsNullOrEmpty(pkg.Category) ? pkg.Category : string.Empty,
-                        TubeType = string.Empty,
-                        TubeColor = string.Empty,
-                        VolumeMl = 0.0,
-                        TurnaroundTime = string.Empty,
-                        PreparationNotes = string.Empty,
-                        FastingRequired = false,
-                        FastingHours = 0,
-                        Price = pkg.Price
-                    }).ToList();
-                }
-            }
-            catch
-            {
-                // Return empty list on failure
-            }
-        }
-
-        return Enumerable.Empty<TestCatalogItemDto>();
-    }
-
-    public async Task<IEnumerable<TestOrderResponseDto>> GetOrdersAsync(string? patientId = null, string? doctorId = null, string? status = null)
-    {
-        TestOrderStatus? orderStatus = null;
-        if (!string.IsNullOrEmpty(status) && Enum.TryParse<TestOrderStatus>(status, true, out var parsedStatus))
-        {
-            orderStatus = parsedStatus;
-        }
-
-        var orders = await _orderRepository.GetAllAsync(patientId, doctorId, orderStatus);
-        return orders.Select(MapToResponseDto);
-    }
-
-    public async Task<TestOrderResponseDto?> GetOrderByIdAsync(string id)
-    {
-        var order = await _orderRepository.GetByIdAsync(id) ?? await _orderRepository.GetByOrderNumberAsync(id);
-        return order == null ? null : MapToResponseDto(order);
-    }
-
-    public async Task<TestOrderResponseDto> CreateTestOrderAsync(CreateTestOrderRequestDto request, string? currentUserId = null)
-    {
-        if (request == null) throw new ArgumentNullException(nameof(request));
-        if (request.Items == null || !request.Items.Any())
-        {
-            throw new ArgumentException("At least one test or test package must be included in the order.", nameof(request.Items));
-        }
-
-        // Look up patient info from database (mandatory)
-        if (string.IsNullOrWhiteSpace(request.PatientId))
-        {
-            throw new KeyNotFoundException("Patient ID is required.");
-        }
-
-        var patientUser = await _userRepository.GetByIdAsync(request.PatientId);
-        if (patientUser == null)
-        {
-            throw new KeyNotFoundException($"Patient with ID '{request.PatientId}' not found.");
-        }
-
-        var patientName = !string.IsNullOrWhiteSpace(patientUser.FullName) ? patientUser.FullName : (request.PatientName ?? string.Empty);
-        var patientGender = !string.IsNullOrWhiteSpace(patientUser.Gender) ? patientUser.Gender : (request.PatientGender ?? string.Empty);
-        var patientAge = request.PatientAge ?? 0;
-
-        // Resolve doctor info from authenticated context
-        var docId = currentUserId ?? request.DoctorId;
-        if (string.IsNullOrWhiteSpace(docId))
-        {
-            throw new UnauthorizedAccessException("Authenticated doctor identity is required.");
-        }
-
-        var docUser = await _userRepository.GetByIdAsync(docId);
-        if (docUser == null)
-        {
-            throw new UnauthorizedAccessException("Doctor account could not be found.");
-        }
-
-        string doctorName = docUser.FullName;
-
-        // Parse Priority
-        var priority = SamplePriority.Normal;
-        if (!string.IsNullOrEmpty(request.Priority))
-        {
-            if (request.Priority.Equals("Urgent", StringComparison.OrdinalIgnoreCase))
-                priority = SamplePriority.Urgent;
-            else if (request.Priority.Equals("STAT", StringComparison.OrdinalIgnoreCase))
-                priority = SamplePriority.Stat;
-        }
-
-        // Build item details and calculate fasting requirements
-        var orderItems = new List<TestOrderItem>();
-        decimal totalAmount = 0;
-        bool fastingRequired = false;
-        int maxFastingHours = 0;
-
-        foreach (var itemReq in request.Items)
-        {
-            ServicePackage? pkg = null;
-            if (_packageRepository != null && !string.IsNullOrWhiteSpace(itemReq.TestCode))
-            {
-                try
-                {
-                    var search = await _packageRepository.SearchAsync(new ServicePackageQuery(
-                        Keyword: itemReq.TestCode,
-                        IsActive: true,
-                        MinPrice: null,
-                        MaxPrice: null,
-                        SortBy: "Code",
-                        SortDesc: false,
-                        Page: 1,
-                        PageSize: 5));
-                    pkg = search.Items.FirstOrDefault(p => p.Code.Equals(itemReq.TestCode, StringComparison.OrdinalIgnoreCase) || p.Id.Equals(itemReq.TestCode, StringComparison.OrdinalIgnoreCase));
-                }
-                catch { }
-            }
-
-            var item = new TestOrderItem
-            {
-                TestCode = itemReq.TestCode,
-                TestName = itemReq.TestName ?? pkg?.Name ?? itemReq.TestCode,
-                Category = itemReq.Category ?? pkg?.Category ?? string.Empty,
-                TubeType = itemReq.TubeType ?? string.Empty,
-                VolumeMl = itemReq.VolumeMl ?? 0.0,
-                TurnaroundTime = itemReq.TurnaroundTime ?? string.Empty,
-                PreparationNotes = itemReq.PreparationNotes ?? string.Empty,
-                Price = itemReq.Price ?? pkg?.Price ?? 0m
+                Code = pkg.Code,
+                Name = pkg.Name,
+                Category = pkg.Category ?? string.Empty,
+                TubeType = tube.TubeType,
+                TubeColor = tube.Color,
+                VolumeMl = 0,
+                TurnaroundTime = string.Empty,
+                PreparationNotes = pkg.PreparationNotes ?? string.Empty,
+                FastingRequired = IsFasting(pkg.PreparationNotes),
+                FastingHours = FastingHours(pkg.PreparationNotes),
+                Price = pkg.Price
             };
+        }).ToList();
+    }
 
-            totalAmount += item.Price;
-
-            if (item.PreparationNotes.Contains("Fast", StringComparison.OrdinalIgnoreCase))
-            {
-                fastingRequired = true;
-                if (item.PreparationNotes.Contains("12h")) maxFastingHours = Math.Max(maxFastingHours, 12);
-                else if (item.PreparationNotes.Contains("8h")) maxFastingHours = Math.Max(maxFastingHours, 8);
-            }
-
-            orderItems.Add(item);
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<TestOrderResponseDto>> GetOrdersAsync(string? patientId = null, string? doctorId = null,
+        string? status = null, CancellationToken ct = default)
+    {
+        TestOrderStatus? parsed = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<TestOrderStatus>(status, true, out var s) || !Enum.IsDefined(s))
+                throw new DomainValidationException("ORDER_STATUS_INVALID", "Trạng thái đơn không hợp lệ.");
+            parsed = s;
         }
+        var list = await orders.GetAllAsync(patientId, doctorId, parsed, 200, ct);
+        return list.Select(Map).ToList();
+    }
 
-        var orderStatus = request.SaveAsDraft ? TestOrderStatus.Draft : TestOrderStatus.Ordered;
+    /// <inheritdoc />
+    public async Task<TestOrderResponseDto?> GetOrderByIdAsync(string id, CancellationToken ct = default)
+    {
+        var order = await FindAsync(id, ct);
+        return order == null ? null : Map(order);
+    }
 
+    /// <inheritdoc />
+    public async Task<TestOrderResponseDto> CreateTestOrderAsync(CreateTestOrderRequestDto request, string doctorUserId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(doctorUserId)) throw new ForbiddenAccessException();
+
+        // 1. ICD-10 first: a missing or malformed code must reject the order before anything is looked up or saved.
+        var icd = NormalizeIcd10(request);
+
+        if (request.Items == null || request.Items.Count == 0)
+            throw new DomainValidationException("ORDER_ITEMS_REQUIRED", "Vui lòng chọn ít nhất một xét nghiệm.");
+        var priority = ParsePriority(request.Priority);
+
+        var patient = await patients.GetByIdOrCodeAsync(request.PatientId.Trim(), ct)
+                      ?? throw new ResourceNotFoundException("PATIENT_NOT_FOUND", "Không tìm thấy bệnh nhân.");
+
+        // 2. Prices only from the server catalog (one query, no N+1). Unknown code → error, never a default price.
+        var codes = request.Items.Select(i => (i.TestCode ?? string.Empty).Trim().ToUpperInvariant())
+            .Where(c => c.Length > 0).Distinct().ToList();
+        if (codes.Count == 0)
+            throw new DomainValidationException("ORDER_ITEMS_REQUIRED", "Vui lòng chọn ít nhất một xét nghiệm.");
+        var catalog = (await packages.GetActiveByCodesAsync(codes, ct)).ToDictionary(p => p.Code, StringComparer.Ordinal);
+        var missing = codes.Where(c => !catalog.ContainsKey(c)).ToList();
+        if (missing.Count > 0)
+            throw new DomainValidationException("ORDER_TEST_NOT_IN_CATALOG",
+                $"Không tìm thấy xét nghiệm trong danh mục: {string.Join(", ", missing)}.");
+
+        var items = codes.Select(c =>
+        {
+            var pkg = catalog[c];
+            var tube = TubeRules.For(pkg.Code, pkg.Name, pkg.Category);
+            return new TestOrderItem
+            {
+                TestCode = pkg.Code,
+                TestName = pkg.Name,
+                Category = pkg.Category ?? string.Empty,
+                TubeType = tube.TubeType,
+                TubeColor = tube.Color,
+                VolumeMl = 0,
+                TurnaroundTime = string.Empty,
+                PreparationNotes = pkg.PreparationNotes ?? string.Empty,
+                Price = pkg.Price
+            };
+        }).ToList();
+
+        var doctor = await users.GetByIdAsync(doctorUserId, ct);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var localDate = ClinicTime.LocalDate(now);
+        var seq = await sequences.NextAsync($"order:{localDate:yyyy-MM-dd}", ct);
+        if (seq > MaxOrdersPerDay) throw new SequenceExhaustedException("ORD-");
+
+        var isStat = priority == SamplePriority.Stat;
         var order = new TestOrder
         {
-            PatientId = request.PatientId,
-            PatientName = patientName,
-            PatientGender = patientGender,
-            PatientAge = patientAge,
-            DoctorId = request.DoctorId ?? currentUserId ?? string.Empty,
-            DoctorName = doctorName,
+            OrderNumber = $"ORD-{localDate:yyyyMMdd}-{seq:D4}",
+            PatientId = patient.Id,
+            PatientName = patient.FullName,
+            PatientGender = patient.GenderString,
+            PatientAge = AgeOn(patient.DateOfBirth, localDate),
+            DoctorId = doctorUserId,
+            DoctorName = doctor?.FullName ?? string.Empty,
             Priority = priority,
-            Status = orderStatus,
-            ClinicalIndication = request.ClinicalIndication,
-            SpecialInstructions = request.SpecialInstructions,
-            ScheduledDate = request.ScheduledDate ?? DateTime.UtcNow.Date,
-            TotalAmount = totalAmount,
-            FastingRequired = fastingRequired,
-            FastingHours = maxFastingHours,
-            Items = orderItems,
-            CreatedBy = currentUserId ?? string.Empty,
-            CreatedAt = DateTime.UtcNow
+            // WHY: Routine/Urgent wait for payment (BA:L38); STAT skips the payment gate (post-check) but still
+            // owes the fee, so it stays AwaitingPayment with PaymentDeferred = true.
+            Status = request.SaveAsDraft ? TestOrderStatus.Draft : TestOrderStatus.AwaitingPayment,
+            PaymentDeferred = isStat && !request.SaveAsDraft,
+            Icd10Codes = icd,
+            ClinicalIndication = request.ClinicalIndication.Trim(),
+            SpecialInstructions = string.IsNullOrWhiteSpace(request.SpecialInstructions) ? null : request.SpecialInstructions.Trim(),
+            ScheduledDate = request.ScheduledDate ?? localDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            TotalAmount = items.Sum(i => i.Price),
+            FastingRequired = items.Any(i => IsFasting(i.PreparationNotes)),
+            FastingHours = items.Select(i => FastingHours(i.PreparationNotes)).DefaultIfEmpty(0).Max(),
+            Items = items,
+            CreatedBy = doctorUserId,
+            CreatedAt = now
         };
-
-        var created = await _orderRepository.CreateAsync(order);
-
-        // Pre-analytical tube batching: Automatically generate specimen collection slots for Phlebotomy (UC37)
-        if (!request.SaveAsDraft)
-        {
-            var distinctTubes = orderItems
-                .GroupBy(i => i.TubeType)
-                .Select(g => new
-                {
-                    TubeType = g.Key,
-                    PackageName = string.Join(", ", g.Select(x => x.TestName).Distinct()),
-                    SampleType = g.Key.Contains("EDTA") ? "Blood" : "Serum",
-                    VolumeMl = g.Sum(x => x.VolumeMl)
-                });
-
-            int tubeIndex = 1;
-            foreach (var tube in distinctTubes)
-            {
-                var barcode = $"BC-{DateTime.UtcNow:yyyyMMdd}-{created.OrderNumber.Replace("ORD-", "")}-{tubeIndex:D2}";
-                var sample = new Sample
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Barcode = barcode,
-                    TestOrderId = created.OrderNumber,
-                    PatientId = created.PatientId,
-                    PatientName = created.PatientName,
-                    PatientGender = created.PatientGender,
-                    PatientAge = created.PatientAge,
-                    TestPackageName = tube.PackageName,
-                    SampleType = tube.SampleType,
-                    TubeColor = tube.TubeType.Contains("EDTA") ? "Lavender" : (tube.TubeType.Contains("NaF") ? "Green" : "Gold"),
-                    VolumeMl = Math.Min(tube.VolumeMl, 6.0),
-                    Status = SampleStatus.PendingCollection,
-                    Priority = created.Priority,
-                    LabRoom = "Phòng Lấy Máu & Bệnh Phẩm 101",
-                    Notes = $"Order: {created.OrderNumber}. {created.ClinicalIndication}"
-                };
-
-                lock (_dbContext.Samples)
-                {
-                    _dbContext.Samples.Add(sample);
-                }
-                tubeIndex++;
-            }
-        }
-
-        return MapToResponseDto(created);
+        await orders.InsertAsync(order, ct);
+        logger.LogInformation("Test order {OrderNumber} created by doctor {DoctorId} for {Patient} ({Priority}, {Status}, {Count} tests)",
+            order.OrderNumber, doctorUserId, PiiMasker.MaskName(order.PatientName), order.Priority, order.Status, items.Count);
+        return Map(order);
     }
 
-    public async Task<TestOrderResponseDto?> UpdateOrderStatusAsync(string id, UpdateTestOrderStatusRequestDto request)
+    /// <inheritdoc />
+    public async Task<TestOrderResponseDto> UpdateOrderStatusAsync(string id, UpdateTestOrderStatusRequestDto request,
+        string actorUserId, bool actorIsManager, CancellationToken ct = default)
     {
-        var order = await _orderRepository.GetByIdAsync(id) ?? await _orderRepository.GetByOrderNumberAsync(id);
-        if (order == null) return null;
+        if (!Enum.TryParse<TestOrderStatus>(request.Status?.Trim(), true, out var target) || !Enum.IsDefined(target))
+            throw new DomainValidationException("ORDER_STATUS_INVALID", "Trạng thái đơn không hợp lệ.");
+        // QĐ10: users may only cancel; payment, sampling and results move the order automatically.
+        if (target != TestOrderStatus.Cancelled)
+            throw new ForbiddenAccessException("Chỉ được hủy đơn; các trạng thái khác do hệ thống tự cập nhật.");
 
-        if (Enum.TryParse<TestOrderStatus>(request.Status, true, out var newStatus))
+        var order = await FindAsync(id, ct) ?? throw new ResourceNotFoundException("ORDER_NOT_FOUND", "Không tìm thấy đơn xét nghiệm.");
+        TestOrderStatus[] from;
+        if (actorIsManager)
         {
-            order.Status = newStatus;
-            order.UpdatedAt = DateTime.UtcNow;
-            if (!string.IsNullOrEmpty(request.Notes))
-            {
-                order.SpecialInstructions = (order.SpecialInstructions + " | Status note: " + request.Notes).Trim();
-            }
-            await _orderRepository.UpdateAsync(order);
+            from = TestOrderStatusRules.ManagerCancellable;
         }
-
-        return MapToResponseDto(order);
-    }
-
-    private static TestOrderResponseDto MapToResponseDto(TestOrder order)
-    {
-        return new TestOrderResponseDto
+        else
         {
-            Id = order.Id,
-            OrderNumber = order.OrderNumber,
-            PatientId = order.PatientId,
-            PatientName = order.PatientName,
-            PatientGender = order.PatientGender,
-            PatientAge = order.PatientAge,
-            DoctorId = order.DoctorId,
-            DoctorName = order.DoctorName,
-            Priority = order.Priority.ToString(),
-            Status = order.Status.ToString(),
-            ClinicalIndication = order.ClinicalIndication,
-            SpecialInstructions = order.SpecialInstructions,
-            ScheduledDate = order.ScheduledDate,
-            TotalAmount = order.TotalAmount,
-            FastingRequired = order.FastingRequired,
-            FastingHours = order.FastingHours,
-            CreatedAt = order.CreatedAt,
-            CreatedBy = order.CreatedBy,
-            Items = order.Items.Select(i => new TestOrderItemDto
-            {
-                TestCode = i.TestCode,
-                TestName = i.TestName,
-                Category = i.Category,
-                TubeType = i.TubeType,
-                VolumeMl = i.VolumeMl,
-                TurnaroundTime = i.TurnaroundTime,
-                PreparationNotes = i.PreparationNotes,
-                Price = i.Price
-            }).ToList()
-        };
+            if (!string.Equals(order.DoctorId, actorUserId, StringComparison.Ordinal))
+                throw new ForbiddenAccessException("Bác sĩ chỉ được hủy đơn do chính mình chỉ định.");
+            from = TestOrderStatusRules.BeforeCollection;
+        }
+        ThrowIfNotCancellable(order.Status, actorIsManager);
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var note = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
+        var updated = await orders.TryTransitionAsync(order.Id, from, TestOrderStatus.Cancelled, actorUserId, now, note, ct);
+        if (updated == null)
+        {
+            // Lost a race (e.g. sample collected meanwhile): report the state that blocked us.
+            var current = await orders.GetByIdAsync(order.Id, ct);
+            ThrowIfNotCancellable(current?.Status ?? order.Status, actorIsManager);
+            throw new ConflictStateException("ORDER_STATE_CHANGED", "Đơn vừa được cập nhật, vui lòng tải lại.");
+        }
+        logger.LogInformation("Test order {OrderNumber} cancelled by {ActorId} ({Role})", updated.OrderNumber, actorUserId,
+            actorIsManager ? RoleNames.Manager : RoleNames.Doctor);
+        return Map(updated);
     }
+
+    private static void ThrowIfNotCancellable(TestOrderStatus status, bool manager)
+    {
+        if (status == TestOrderStatus.Cancelled)
+            throw new ConflictStateException("ORDER_ALREADY_CANCELLED", "Đơn đã được hủy trước đó.");
+        if (status == TestOrderStatus.Completed)
+            throw new ConflictStateException("ORDER_COMPLETED", "Đơn đã hoàn tất, không thể hủy.");
+        if (!manager && TestOrderStatusRules.IsSampleCollectedOrLater(status))
+            throw new ConflictStateException("ORDER_SAMPLE_COLLECTED", "Mẫu đã được lấy, không thể hủy đơn. Vui lòng liên hệ Quản lý.");
+    }
+
+    private async Task<TestOrder?> FindAsync(string id, CancellationToken ct) =>
+        string.IsNullOrWhiteSpace(id) ? null : await orders.GetByIdAsync(id, ct) ?? await orders.GetByOrderNumberAsync(id, ct);
+
+    /// <summary>Merges, trims and upper-cases ICD-10 codes; throws 400 MSG-ERR-DOC-01 if none or any malformed.</summary>
+    public static List<string> NormalizeIcd10(CreateTestOrderRequestDto request)
+    {
+        var raw = (request.Icd10Codes ?? []).Append(request.Icd10Code)
+            .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!.Trim().ToUpperInvariant()).Distinct().ToList();
+        if (raw.Count == 0)
+            throw new DomainValidationException("MSG-ERR-DOC-01", "Vui lòng nhập ít nhất một mã chẩn đoán ICD-10.");
+        var bad = raw.Where(c => !Icd10().IsMatch(c)).ToList();
+        if (bad.Count > 0)
+            throw new DomainValidationException("MSG-ERR-DOC-01", $"Mã ICD-10 không đúng định dạng: {string.Join(", ", bad)} (ví dụ đúng: E11.9).");
+        return raw;
+    }
+
+    private static SamplePriority ParsePriority(string? value) => (value ?? "Routine").Trim().ToUpperInvariant() switch
+    {
+        "" or "ROUTINE" or "NORMAL" => SamplePriority.Normal,
+        "URGENT" => SamplePriority.Urgent,
+        "STAT" => SamplePriority.Stat,
+        _ => throw new DomainValidationException("ORDER_PRIORITY_INVALID", "Mức ưu tiên phải là Routine, Urgent hoặc STAT.")
+    };
+
+    private static int AgeOn(DateTime? dob, DateOnly today)
+    {
+        if (dob == null) return 0;
+        var birth = DateOnly.FromDateTime(dob.Value);
+        var age = today.Year - birth.Year;
+        if (birth > today.AddYears(-age)) age--;
+        return Math.Max(0, age);
+    }
+
+    private static bool IsFasting(string? notes) =>
+        !string.IsNullOrEmpty(notes) && (notes.Contains("fast", StringComparison.OrdinalIgnoreCase) || notes.Contains("nhịn ăn", StringComparison.OrdinalIgnoreCase));
+
+    private static int FastingHours(string? notes) =>
+        !IsFasting(notes) ? 0 : notes!.Contains("12") ? 12 : notes.Contains('8') ? 8 : 0;
+
+    private static TestOrderResponseDto Map(TestOrder o) => new()
+    {
+        Id = o.Id,
+        OrderNumber = o.OrderNumber,
+        PatientId = o.PatientId,
+        PatientName = o.PatientName,
+        PatientGender = o.PatientGender,
+        PatientAge = o.PatientAge,
+        DoctorId = o.DoctorId,
+        DoctorName = o.DoctorName,
+        Priority = o.Priority == SamplePriority.Normal ? "Routine" : o.Priority == SamplePriority.Stat ? "STAT" : o.Priority.ToString(),
+        Status = o.Status.ToString(),
+        ClinicalIndication = o.ClinicalIndication,
+        Icd10Codes = o.Icd10Codes,
+        PaymentDeferred = o.PaymentDeferred,
+        SpecialInstructions = o.SpecialInstructions,
+        ScheduledDate = o.ScheduledDate,
+        TotalAmount = o.TotalAmount,
+        FastingRequired = o.FastingRequired,
+        FastingHours = o.FastingHours,
+        CreatedAt = o.CreatedAt,
+        CreatedBy = o.CreatedBy,
+        Items = o.Items.Select(i => new TestOrderItemDto
+        {
+            TestCode = i.TestCode,
+            TestName = i.TestName,
+            Category = i.Category,
+            TubeType = i.TubeType,
+            TubeColor = i.TubeColor ?? string.Empty,
+            VolumeMl = i.VolumeMl,
+            TurnaroundTime = i.TurnaroundTime,
+            PreparationNotes = i.PreparationNotes,
+            Price = i.Price
+        }).ToList()
+    };
 }

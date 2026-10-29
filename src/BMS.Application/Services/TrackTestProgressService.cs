@@ -188,7 +188,7 @@ public class TrackTestProgressService : ITrackTestProgressService
         });
 
         // Step 2: SAMPLE_COLLECTED
-        bool step2Done = (sample != null && sample.CollectedAt != default) || (order != null && order.Status >= TestOrderStatus.SampleCollected);
+        bool step2Done = (sample != null && sample.CollectedAt != default) || (order != null && TestOrderStatusRules.IsSampleCollectedOrLater(order.Status));
         steps.Add(new TrackingStepDto
         {
             StepNumber = 2,
