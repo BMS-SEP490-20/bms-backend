@@ -15,7 +15,8 @@ namespace BMS.Api.Controllers
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
-// WHY: UC64: Admin only (C5). POST is system-only per matrix; kept Admin until a server-side audit writer replaces it (open question). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+// WHY: UC64: Admin only (C5). Audit rows are written only by the system through IAuditLogService.LogAsync;
+// the public POST endpoint was removed (Quy trình ruling on DOT2 open question 1) so nobody can forge audit entries.
 [Authorize(Roles = RoleNames.Admin)]
     public class AuditLogController : ControllerBase
     {
@@ -72,26 +73,6 @@ namespace BMS.Api.Controllers
             {
                 message = "Retrieved audit log.",
                 data = log
-            });
-        }
-
-        /// <summary>
-        /// Dispatches a new audit log event.
-        /// </summary>
-        [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateAuditLogDto dto, CancellationToken ct)
-        {
-            if (dto == null)
-                return BadRequest(new { message = "Payload cannot be null." });
-
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var created = await _service.LogAsync(dto, ct);
-            return StatusCode(201, new
-            {
-                message = "Audit log recorded successfully.",
-                data = created
             });
         }
     }
