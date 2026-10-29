@@ -1,187 +1,88 @@
-using BMS.Core.Constants;
-using System.Collections.Generic;
 using System.Security.Claims;
-using System.Threading.Tasks;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Laboratory;
 
 /// <summary>
-/// Controller managing clinical laboratory test orders and physician requisitions (UC32 / Iteration 2).
-/// Conforms to: Production Standards, Clean Architecture & AGENTS.md.
+/// Clinical test orders (UC32). Thin controller: rules live in <see cref="ITestOrderService"/>; errors are
+/// <c>AppException</c>s mapped to ProblemDetails (with <c>code</c>) by the global handler.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 // WHY: UC32: create Doctor; list Doctor, Lab, Receptionist, Manager; status Doctor (cancel own) / Manager (exceptions). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
-public class TestOrdersController : ControllerBase
+public class TestOrdersController(ITestOrderService testOrderService) : ControllerBase
 {
-    private readonly ITestOrderService _testOrderService;
-
-    public TestOrdersController(ITestOrderService testOrderService)
-    {
-        _testOrderService = testOrderService;
-    }
-
-    /// <summary>
-    /// Retrieves standard clinical test catalog items with tube, pricing, and fasting specifications.
-    /// </summary>
+    /// <summary>Active catalog with server prices and tube colors.</summary>
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet("catalog")]
-    public async Task<IActionResult> GetCatalog()
-    {
-        var items = await _testOrderService.GetAvailableCatalogAsync();
-        return Ok(new
-        {
-            success = true,
-            data = items
-        });
-    }
+    public async Task<IActionResult> GetCatalog(CancellationToken ct) =>
+        Ok(new { success = true, data = await testOrderService.GetAvailableCatalogAsync(ct) });
 
-    /// <summary>
-    /// Retrieves test orders filtered by patient ID, doctor ID, or status.
-    /// </summary>
+    /// <summary>Orders filtered by patient, doctor or status (newest first, max 200).</summary>
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet]
-    public async Task<IActionResult> GetOrders([FromQuery] string? patientId, [FromQuery] string? doctorId, [FromQuery] string? status)
+    public async Task<IActionResult> GetOrders([FromQuery] string? patientId, [FromQuery] string? doctorId, [FromQuery] string? status,
+        CancellationToken ct)
     {
-        var orders = await _testOrderService.GetOrdersAsync(patientId, doctorId, status);
-        return Ok(new
-        {
-            success = true,
-            total = ((List<TestOrderResponseDto>)orders).Count,
-            data = orders
-        });
+        var orders = await testOrderService.GetOrdersAsync(patientId, doctorId, status, ct);
+        return Ok(new { success = true, total = orders.Count, data = orders });
     }
 
-    /// <summary>
-    /// Retrieves a test order by ID or order number.
-    /// </summary>
+    /// <summary>Order by id or ORD- number.</summary>
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetOrderById(string id)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOrderById(string id, CancellationToken ct)
     {
-        var order = await _testOrderService.GetOrderByIdAsync(id);
-        if (order == null)
-        {
-            return NotFound(new
-            {
-                success = false,
-                message = $"Test order '{id}' not found."
-            });
-        }
-
-        return Ok(new
-        {
-            success = true,
-            data = order
-        });
+        var order = await testOrderService.GetOrderByIdAsync(id, ct);
+        return order == null
+            ? NotFound(new { success = false, code = "ORDER_NOT_FOUND", message = "Không tìm thấy đơn xét nghiệm." })
+            : Ok(new { success = true, data = order });
     }
 
     /// <summary>
-    /// Creates a new physician laboratory test order (UC32).
+    /// Creates an order for the signed-in doctor. 201 AwaitingPayment (STAT: PaymentDeferred = true);
+    /// 400 MSG-ERR-DOC-01 when ICD-10 is missing/malformed; 400 when a test is not in the catalog.
+    /// DoctorId and prices in the body are ignored.
     /// </summary>
     [Authorize(Roles = RoleNames.Doctor)]
     [HttpPost]
     [ProducesResponseType(typeof(TestOrderResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateTestOrderRequestDto request)
+    public async Task<IActionResult> CreateOrder([FromBody] CreateTestOrderRequestDto request, CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = "Validation failed.",
-                errors = ModelState
-            });
-        }
-
-        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                            ?? User.FindFirst("sub")?.Value;
-
-        if (string.IsNullOrEmpty(currentUserId) && string.IsNullOrEmpty(request.DoctorId))
-        {
-            return Unauthorized(new
-            {
-                success = false,
-                message = "Vui lòng đăng nhập để tạo phiếu chỉ định xét nghiệm."
-            });
-        }
-
-        try
-        {
-            var created = await _testOrderService.CreateTestOrderAsync(request, currentUserId);
-            return CreatedAtAction(nameof(GetOrderById), new { id = created.OrderNumber }, new
-            {
-                success = true,
-                message = $"Test order '{created.OrderNumber}' created successfully.",
-                data = created
-            });
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
+        var created = await testOrderService.CreateTestOrderAsync(request, CurrentUserId(), ct);
+        return CreatedAtAction(nameof(GetOrderById), new { id = created.OrderNumber },
+            new { success = true, message = $"Đã tạo phiếu chỉ định {created.OrderNumber}.", data = created });
     }
 
     /// <summary>
-    /// Updates the status of an existing test order.
+    /// Cancels an order (only "Cancelled" is accepted). Doctor: own order before sampling — other doctor's order 403,
+    /// sample collected 409, any other target status 403. Manager: exception cancel of an unfinished order.
     /// </summary>
     [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpPut("{id}/status")]
-    public async Task<IActionResult> UpdateOrderStatus(string id, [FromBody] UpdateTestOrderStatusRequestDto request)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateOrderStatus(string id, [FromBody] UpdateTestOrderStatusRequestDto request, CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = "Validation failed.",
-                errors = ModelState
-            });
-        }
-
-        var updated = await _testOrderService.UpdateOrderStatusAsync(id, request);
-        if (updated == null)
-        {
-            return NotFound(new
-            {
-                success = false,
-                message = $"Test order '{id}' not found."
-            });
-        }
-
-        return Ok(new
-        {
-            success = true,
-            message = $"Test order status updated to '{updated.Status}'.",
-            data = updated
-        });
+        var updated = await testOrderService.UpdateOrderStatusAsync(id, request, CurrentUserId(), User.IsInRole(RoleNames.Manager), ct);
+        return Ok(new { success = true, message = $"Đơn {updated.OrderNumber}: {updated.Status}.", data = updated });
     }
+
+    // WHY from the token only: GAP C3.4 / steering (c) — the acting user is never taken from the request body.
+    private string CurrentUserId() =>
+        User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? string.Empty;
 }

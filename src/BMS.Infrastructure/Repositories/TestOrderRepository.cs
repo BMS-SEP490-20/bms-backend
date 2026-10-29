@@ -1,242 +1,67 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
-using BMS.Infrastructure.Data;
 using MongoDB.Driver;
 
 namespace BMS.Infrastructure.Repositories;
 
-/// <summary>
-/// Repository implementation for laboratory test orders (UC32).
-/// Supports MongoDB collection 'test_orders' with in-memory synchronization.
-/// </summary>
-public class TestOrderRepository : ITestOrderRepository
+/// <inheritdoc />
+public sealed class TestOrderRepository(IMongoDatabase database) : ITestOrderRepository
 {
-    private readonly IMongoCollection<TestOrder>? _collection;
-    private readonly BmsDbContext _dbContext;
+    /// <summary>MongoDB collection name.</summary>
+    public const string CollectionName = "test_orders";
 
-    public TestOrderRepository(IMongoDatabase? database, BmsDbContext dbContext)
+    private readonly IMongoCollection<TestOrder> _orders = database.GetCollection<TestOrder>(CollectionName);
+    private static readonly FilterDefinitionBuilder<TestOrder> F = Builders<TestOrder>.Filter;
+
+    /// <summary>Unique order number; list filters by patient, doctor, status (INV-5).</summary>
+    public static IEnumerable<CreateIndexModel<TestOrder>> Indexes()
     {
-        _dbContext = dbContext;
-        if (database != null)
+        var k = Builders<TestOrder>.IndexKeys;
+        yield return new(k.Ascending(o => o.OrderNumber), new CreateIndexOptions<TestOrder>
         {
-            try
-            {
-                _collection = database.GetCollection<TestOrder>("test_orders");
-            }
-            catch
-            {
-                _collection = null;
-            }
-        }
+            Name = "ux_test_orders_number",
+            Unique = true,
+            PartialFilterExpression = F.Type(o => o.OrderNumber, MongoDB.Bson.BsonType.String)
+        });
+        yield return new(k.Ascending(o => o.PatientId).Descending(o => o.CreatedAt), new CreateIndexOptions { Name = "ix_test_orders_patient_created" });
+        yield return new(k.Ascending(o => o.DoctorId).Descending(o => o.CreatedAt), new CreateIndexOptions { Name = "ix_test_orders_doctor_created" });
+        yield return new(k.Ascending(o => o.Status).Descending(o => o.CreatedAt), new CreateIndexOptions { Name = "ix_test_orders_status_created" });
     }
 
-    public async Task<TestOrder?> GetByIdAsync(string id)
-    {
-        if (_collection != null)
-        {
-            try
-            {
-                var doc = await _collection.Find(o => o.Id == id).FirstOrDefaultAsync();
-                if (doc != null) return doc;
-            }
-            catch
-            {
-                // Fall back to in-memory store
-            }
-        }
+    /// <inheritdoc />
+    public async Task<TestOrder?> GetByIdAsync(string id, CancellationToken ct = default) =>
+        await _orders.Find(o => o.Id == id).FirstOrDefaultAsync(ct);
 
-        lock (_dbContext.TestOrders)
-        {
-            return _dbContext.TestOrders.FirstOrDefault(o => o.Id == id);
-        }
+    /// <inheritdoc />
+    public async Task<TestOrder?> GetByOrderNumberAsync(string orderNumber, CancellationToken ct = default) =>
+        await _orders.Find(o => o.OrderNumber == orderNumber).FirstOrDefaultAsync(ct);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<TestOrder>> GetAllAsync(string? patientId, string? doctorId, TestOrderStatus? status,
+        int limit = 200, CancellationToken ct = default)
+    {
+        var filter = F.Empty;
+        if (!string.IsNullOrWhiteSpace(patientId)) filter &= F.Eq(o => o.PatientId, patientId);
+        if (!string.IsNullOrWhiteSpace(doctorId)) filter &= F.Eq(o => o.DoctorId, doctorId);
+        if (status.HasValue) filter &= F.Eq(o => o.Status, status.Value);
+        return await _orders.Find(filter).SortByDescending(o => o.CreatedAt).Limit(Math.Clamp(limit, 1, 500)).ToListAsync(ct);
     }
 
-    public async Task<TestOrder?> GetByOrderNumberAsync(string orderNumber)
+    /// <inheritdoc />
+    public Task InsertAsync(TestOrder order, CancellationToken ct = default) =>
+        _orders.InsertOneAsync(order, cancellationToken: ct);
+
+    /// <inheritdoc />
+    public async Task<TestOrder?> TryTransitionAsync(string id, IReadOnlyCollection<TestOrderStatus> from, TestOrderStatus to,
+        string actorUserId, DateTime nowUtc, string? note, CancellationToken ct = default)
     {
-        if (_collection != null)
-        {
-            try
-            {
-                var doc = await _collection.Find(o => o.OrderNumber == orderNumber).FirstOrDefaultAsync();
-                if (doc != null) return doc;
-            }
-            catch
-            {
-                // Fall back to in-memory store
-            }
-        }
-
-        lock (_dbContext.TestOrders)
-        {
-            return _dbContext.TestOrders.FirstOrDefault(o => o.OrderNumber.Equals(orderNumber, StringComparison.OrdinalIgnoreCase));
-        }
-    }
-
-    public async Task<IEnumerable<TestOrder>> GetAllAsync(string? patientId = null, string? doctorId = null, TestOrderStatus? status = null)
-    {
-        if (_collection != null)
-        {
-            try
-            {
-                var builder = Builders<TestOrder>.Filter;
-                var filter = builder.Empty;
-
-                if (!string.IsNullOrEmpty(patientId))
-                {
-                    filter &= builder.Eq(o => o.PatientId, patientId);
-                }
-
-                if (!string.IsNullOrEmpty(doctorId))
-                {
-                    filter &= builder.Eq(o => o.DoctorId, doctorId);
-                }
-
-                if (status.HasValue)
-                {
-                    filter &= builder.Eq(o => o.Status, status.Value);
-                }
-
-                var list = await _collection.Find(filter).SortByDescending(o => o.CreatedAt).ToListAsync();
-                if (list != null && list.Count > 0) return list;
-            }
-            catch
-            {
-                // Fall back to in-memory store
-            }
-        }
-
-        lock (_dbContext.TestOrders)
-        {
-            var query = _dbContext.TestOrders.AsQueryable();
-
-            if (!string.IsNullOrEmpty(patientId))
-            {
-                query = query.Where(o => o.PatientId == patientId);
-            }
-
-            if (!string.IsNullOrEmpty(doctorId))
-            {
-                query = query.Where(o => o.DoctorId == doctorId);
-            }
-
-            if (status.HasValue)
-            {
-                query = query.Where(o => o.Status == status.Value);
-            }
-
-            return query.OrderByDescending(o => o.CreatedAt).ToList();
-        }
-    }
-
-    public async Task<TestOrder> CreateAsync(TestOrder order)
-    {
-        if (string.IsNullOrEmpty(order.OrderNumber))
-        {
-            order.OrderNumber = await GenerateNextOrderNumberAsync();
-        }
-
-        order.CreatedAt = DateTime.UtcNow;
-
-        if (_collection != null)
-        {
-            try
-            {
-                await _collection.InsertOneAsync(order);
-            }
-            catch
-            {
-                // Fall back to in-memory store
-            }
-        }
-
-        lock (_dbContext.TestOrders)
-        {
-            _dbContext.TestOrders.Add(order);
-        }
-
-        return order;
-    }
-
-    public async Task<bool> UpdateAsync(TestOrder order)
-    {
-        order.UpdatedAt = DateTime.UtcNow;
-
-        if (_collection != null)
-        {
-            try
-            {
-                var result = await _collection.ReplaceOneAsync(o => o.Id == order.Id, order);
-                if (result.IsAcknowledged && result.ModifiedCount > 0)
-                {
-                    // Update in-memory copy
-                    lock (_dbContext.TestOrders)
-                    {
-                        var idx = _dbContext.TestOrders.FindIndex(o => o.Id == order.Id);
-                        if (idx >= 0) _dbContext.TestOrders[idx] = order;
-                    }
-                    return true;
-                }
-            }
-            catch
-            {
-                // Fall back to in-memory store
-            }
-        }
-
-        lock (_dbContext.TestOrders)
-        {
-            var idx = _dbContext.TestOrders.FindIndex(o => o.Id == order.Id);
-            if (idx >= 0)
-            {
-                _dbContext.TestOrders[idx] = order;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public async Task<bool> DeleteAsync(string id)
-    {
-        if (_collection != null)
-        {
-            try
-            {
-                var result = await _collection.DeleteOneAsync(o => o.Id == id);
-                if (result.IsAcknowledged && result.DeletedCount > 0)
-                {
-                    lock (_dbContext.TestOrders)
-                    {
-                        _dbContext.TestOrders.RemoveAll(o => o.Id == id);
-                    }
-                    return true;
-                }
-            }
-            catch
-            {
-                // Fall back to in-memory store
-            }
-        }
-
-        lock (_dbContext.TestOrders)
-        {
-            return _dbContext.TestOrders.RemoveAll(o => o.Id == id) > 0;
-        }
-    }
-
-    public Task<string> GenerateNextOrderNumberAsync()
-    {
-        var datePrefix = DateTime.UtcNow.ToString("yyyyMMdd");
-        int count;
-        lock (_dbContext.TestOrders)
-        {
-            count = _dbContext.TestOrders.Count(o => o.OrderNumber.StartsWith($"ORD-{datePrefix}")) + 1;
-        }
-
-        return Task.FromResult($"ORD-{datePrefix}-{count:D4}");
+        var update = Builders<TestOrder>.Update
+            .Set(o => o.Status, to)
+            .Set(o => o.UpdatedAt, nowUtc)
+            .Set(o => o.StatusChangedBy, actorUserId);
+        if (!string.IsNullOrWhiteSpace(note)) update = update.Set(o => o.StatusNote, note);
+        if (to == TestOrderStatus.PaidPendingSample) update = update.Set(o => o.PaidAt, nowUtc);
+        return await _orders.FindOneAndUpdateAsync(F.Eq(o => o.Id, id) & F.In(o => o.Status, from), update,
+            new FindOneAndUpdateOptions<TestOrder> { ReturnDocument = ReturnDocument.After }, ct);
     }
 }

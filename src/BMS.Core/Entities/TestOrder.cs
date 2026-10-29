@@ -8,14 +8,45 @@ namespace BMS.Core.Entities;
 /// <summary>
 /// Status of a clinical test order in the laboratory information system.
 /// </summary>
+/// <remarks>
+/// Main flow (BA:L38): AwaitingPayment → PaidPendingSample → SampleCollected → InAnalysis → Completed.
+/// WHY new values are appended (7, 8) instead of renumbered: existing documents store the numeric value.
+/// Never compare statuses with &lt; / &gt;; use <see cref="TestOrderStatusRules"/>.
+/// </remarks>
 public enum TestOrderStatus
 {
     Draft = 1,
+    /// <summary>Legacy "ordered" state (before Đợt 3); treated like AwaitingPayment.</summary>
     Ordered = 2,
     SampleCollected = 3,
     InAnalysis = 4,
     Completed = 5,
-    Cancelled = 6
+    Cancelled = 6,
+    /// <summary>Created by the doctor, fee not yet paid; sampling is blocked unless STAT (payment deferred).</summary>
+    AwaitingPayment = 7,
+    /// <summary>Paid at the counter or by a verified VNPay callback; ready for sampling.</summary>
+    PaidPendingSample = 8
+}
+
+/// <summary>Status predicates shared by ordering, payment and sampling.</summary>
+public static class TestOrderStatusRules
+{
+    /// <summary>True once a specimen has been collected (cancel by the doctor is no longer possible).</summary>
+    public static bool IsSampleCollectedOrLater(TestOrderStatus s) =>
+        s is TestOrderStatus.SampleCollected or TestOrderStatus.InAnalysis or TestOrderStatus.Completed;
+
+    /// <summary>Statuses before sample collection, from which a cancel is allowed.</summary>
+    public static readonly TestOrderStatus[] BeforeCollection =
+        [TestOrderStatus.Draft, TestOrderStatus.Ordered, TestOrderStatus.AwaitingPayment, TestOrderStatus.PaidPendingSample];
+
+    /// <summary>Statuses from which the Manager may cancel as an exception (anything not finished).</summary>
+    public static readonly TestOrderStatus[] ManagerCancellable =
+        [.. BeforeCollection, TestOrderStatus.SampleCollected, TestOrderStatus.InAnalysis];
+
+    /// <summary>Sampling gate (BA:L38): paid, or STAT with payment deferred (post-check).</summary>
+    public static bool CanCollectSample(TestOrder o) =>
+        o.Status == TestOrderStatus.PaidPendingSample
+        || (o.PaymentDeferred && o.Status is TestOrderStatus.AwaitingPayment or TestOrderStatus.Ordered);
 }
 
 /// <summary>
@@ -35,6 +66,11 @@ public class TestOrderItem
 
     [BsonElement("tube_type")]
     public string TubeType { get; set; } = "SST 4mL";
+
+    /// <summary>Tube cap color key from <c>TubeRules</c> (e.g. Gray for glucose, Purple for CBC).</summary>
+    [BsonElement("tube_color")]
+    [BsonIgnoreIfNull]
+    public string? TubeColor { get; set; }
 
     [BsonElement("volume_ml")]
     public double VolumeMl { get; set; } = 4.0;
@@ -86,6 +122,26 @@ public class TestOrder
 
     [BsonElement("status")]
     public TestOrderStatus Status { get; set; } = TestOrderStatus.Ordered;
+
+    /// <summary>ICD-10 codes (≥1, format ^[A-Z][0-9]{2}(\.[0-9]{1,2})?$) — BA:L37, L81.</summary>
+    [BsonElement("icd10_codes")]
+    public List<string> Icd10Codes { get; set; } = new();
+
+    /// <summary>True for STAT orders: sampling may start before payment, the fee is collected afterwards.</summary>
+    [BsonElement("payment_deferred")]
+    public bool PaymentDeferred { get; set; }
+
+    [BsonElement("paid_at")]
+    [BsonIgnoreIfNull]
+    public DateTime? PaidAt { get; set; }
+
+    [BsonElement("status_changed_by")]
+    [BsonIgnoreIfNull]
+    public string? StatusChangedBy { get; set; }
+
+    [BsonElement("status_note")]
+    [BsonIgnoreIfNull]
+    public string? StatusNote { get; set; }
 
     [BsonElement("clinical_indication")]
     public string ClinicalIndication { get; set; } = string.Empty;
