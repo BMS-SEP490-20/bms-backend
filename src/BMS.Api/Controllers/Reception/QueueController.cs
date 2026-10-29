@@ -16,19 +16,37 @@ namespace BMS.Api.Controllers.Reception;
 public class QueueController : ControllerBase
 {
     private readonly IQueueService _queueService;
+    private readonly IPatientReceptionService _receptionService;
 
-    public QueueController(IQueueService queueService)
+    public QueueController(IQueueService queueService, IPatientReceptionService receptionService)
     {
         _queueService = queueService;
+        _receptionService = receptionService;
     }
 
     /// <summary>
     /// UC27 – Retrieves the live queue board, current waiting tickets, and queue statistics.
+    /// When <paramref name="roomId"/> or <paramref name="doctorId"/> is given, returns the clinic queue status
+    /// (waiting list + currently serving, I2-025) instead.
     /// </summary>
+    /// <remarks>
+    /// GET api/reception/queue used to be declared by both this controller and PatientReceptionController
+    /// (ambiguous route at runtime). Both behaviours are kept here; the clinic status is also available
+    /// unambiguously at GET api/reception/queue-status.
+    /// </remarks>
     [HttpGet]
     [ProducesResponseType(typeof(QueueBoardDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetLiveQueue(CancellationToken ct)
+    [ProducesResponseType(typeof(QueueStatusResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetLiveQueue(
+        [FromQuery] string? roomId,
+        [FromQuery] string? doctorId,
+        CancellationToken ct)
     {
+        if (!string.IsNullOrWhiteSpace(roomId) || !string.IsNullOrWhiteSpace(doctorId))
+        {
+            return Ok(await _receptionService.GetQueueStatusAsync(roomId, doctorId, ct));
+        }
+
         var result = await _queueService.GetLiveQueueBoardAsync(ct);
         return Ok(new
         {
