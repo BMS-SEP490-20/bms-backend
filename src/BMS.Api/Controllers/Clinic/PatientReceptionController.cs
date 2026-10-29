@@ -189,7 +189,11 @@ public class PatientReceptionController : ControllerBase
     /// <summary>
     /// Gets current queue waiting list and currently serving patient for clinic or kiosk boards.
     /// </summary>
-    [HttpGet("queue")]
+    /// <remarks>
+    /// Moved from GET api/reception/queue, which clashed with QueueController (UC27). That route still
+    /// returns this payload when roomId/doctorId are supplied.
+    /// </remarks>
+    [HttpGet("queue-status")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(QueueStatusResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetQueue(
