@@ -29,4 +29,10 @@ public interface ITestOrderRepository
     /// <returns>The updated order, or null if it is missing or no longer in an allowed state.</returns>
     Task<TestOrder?> TryTransitionAsync(string id, IReadOnlyCollection<TestOrderStatus> from, TestOrderStatus to,
         string actorUserId, DateTime nowUtc, string? note, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records payment exactly once: AwaitingPayment/Ordered → PaidPendingSample with paid_at; for a STAT order
+    /// already sampled (payment deferred) only paid_at is set. Returns null when already paid or not payable.
+    /// </summary>
+    Task<TestOrder?> TryMarkPaidAsync(string id, string actorUserId, DateTime nowUtc, CancellationToken ct = default);
 }

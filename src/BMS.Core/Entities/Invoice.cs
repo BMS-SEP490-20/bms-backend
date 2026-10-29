@@ -67,6 +67,15 @@ public class Invoice
     [BsonElement("appointmentId")]
     public string? AppointmentId { get; set; }
 
+    /// <summary>Test order this invoice settles (Đợt 3 order payment), or null for legacy invoices.</summary>
+    [BsonElement("orderId")]
+    [BsonIgnoreIfNull]
+    public string? OrderId { get; set; }
+
+    /// <summary>BHYT deduction applied (server-computed, decimal).</summary>
+    [BsonElement("insuranceDeduction")]
+    public decimal InsuranceDeduction { get; set; }
+
     [BsonElement("items")]
     public List<InvoiceItem> Items { get; set; } = [];
 
