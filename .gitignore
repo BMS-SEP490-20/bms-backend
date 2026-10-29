@@ -49,6 +49,8 @@ CodeCoverage/
 
 # MSTest test Results
 [Tt]est[Rr]esult*/
+# Source folders named TestResults are code, not MSTest output (the DTOs of I3-004 were silently ignored).
+!src/**/TestResults/
 [Bb]uild[Ll]og.*
 
 # NUnit
