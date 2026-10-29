@@ -25,6 +25,19 @@ public sealed class PatientRepository : IPatientRepository
         _medicalRecords = db.GetCollection<BsonDocument>("medical_records");
     }
 
+    /// <summary>Indexes for reception lookups (INV-5): unique CCCD among string values, phone for duplicate checks.</summary>
+    public static IEnumerable<CreateIndexModel<Patient>> Indexes() =>
+    [
+        new(Builders<Patient>.IndexKeys.Ascending(p => p.IdentityCardNumber),
+            new CreateIndexOptions<Patient>
+            {
+                Name = "ux_patients_cccd",
+                Unique = true,
+                PartialFilterExpression = Builders<Patient>.Filter.Type(p => p.IdentityCardNumber, MongoDB.Bson.BsonType.String)
+            }),
+        new(Builders<Patient>.IndexKeys.Ascending(p => p.PhoneNumber), new CreateIndexOptions { Name = "ix_patients_phone" }),
+    ];
+
     public async Task<Patient?> GetByIdOrCodeAsync(string idOrCode, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(idOrCode))
@@ -173,9 +186,11 @@ public sealed class PatientRepository : IPatientRepository
         }
         catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
+            // WHY masked + MSG-ERR-REC-01: a parallel registration with the same CCCD loses on the unique index
+            // (ux_patients_cccd) and must see the same business error as the sequential pre-check (INV-4).
             throw new PatientDuplicateException(
-                "PATIENT_ALREADY_EXISTS",
-                $"Hồ sơ bệnh nhân với mã '{patient.Id}' hoặc CCCD '{patient.IdentityCardNumber}' đã tồn tại trong hệ thống.");
+                "MSG-ERR-REC-01",
+                $"Số CCCD {BMS.Core.Utilities.PiiMasker.Mask(patient.IdentityCardNumber)} đã có hồ sơ.");
         }
     }
 

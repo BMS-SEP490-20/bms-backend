@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
             PasswordResetTokens: config["MongoDB:PasswordResetTokensCollectionName"] ?? "password_reset_tokens"));
 
         services.AddSingleton<IUserRoleMigration, BMS.Infrastructure.Migrations.UserRoleMigration>();
+        services.AddSingleton<IFlowIndexInitializer, BMS.Infrastructure.Repositories.FlowIndexInitializer>();
         services.AddHostedService<MongoInitializer>();
         return services;
     }

@@ -65,6 +65,7 @@ public class QueueController : ControllerBase
     [HttpPost("issue")]
     [ProducesResponseType(typeof(QueueTicketDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> IssueTicket([FromBody] IssueTicketRequestDto request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.PatientName) && string.IsNullOrWhiteSpace(request.PatientId))
@@ -83,6 +84,19 @@ public class QueueController : ControllerBase
             message = $"Đã cấp số thứ tự {result.TicketNumber} thành công.",
             data = result
         });
+    }
+
+    /// <summary>
+    /// UC27/UC28 – Calls the next waiting patient to the counter: STAT first, then policy priority and routine
+    /// alternate 1:1, first come first served within each group (BA:L33).
+    /// </summary>
+    [HttpPost("call-next")]
+    [ProducesResponseType(typeof(QueueTicketDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> CallNext([FromBody] CallTicketRequestDto request, CancellationToken ct)
+    {
+        var called = await _queueService.CallNextAsync(request.CounterName, ct);
+        return called == null ? NoContent() : Ok(new { success = true, data = called });
     }
 
     /// <summary>
