@@ -57,3 +57,15 @@ public sealed class InvalidSampleStatusTransitionException(string currentStatus,
         string.IsNullOrWhiteSpace(detail)
             ? $"Không thể chuyển trạng thái mẫu từ '{currentStatus}' sang '{targetStatus}'."
             : $"Không thể chuyển trạng thái mẫu từ '{currentStatus}' sang '{targetStatus}': {detail}");
+
+// =========================================================
+// GENERIC RESOURCE EXCEPTIONS
+// =========================================================
+
+/// <summary>
+/// Generic 404 for resources that do not have a dedicated exception type yet
+/// (lab rooms, audit logs, QC flags, feedback, notifications, payments, test results).
+/// The <paramref name="code"/> is a stable machine-readable error code such as <c>LAB_ROOM_NOT_FOUND</c>.
+/// </summary>
+public sealed class ResourceNotFoundException(string code, string message)
+    : AppException(404, code, message);
