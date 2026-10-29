@@ -52,31 +52,26 @@ public sealed class WalkInService(
                 }
         };
 
-        try
-        {
-            var dto = await patientService.CreateGuestProfileAsync(
-                createRequest,
-                receptionistUserId,
-                ct);
+        // WHY no try/catch: PatientDuplicateException (409, MSG-ERR-REC-01) and validation errors reach the
+        // global handler with their stable codes instead of being re-wrapped by message prefix.
+        var dto = await patientService.CreateGuestProfileAsync(
+            createRequest,
+            receptionistUserId,
+            ct);
 
-            return new RegisterWalkInResponse
-            {
-                PatientId = dto.Id,
-                PatientCode = dto.PatientCode ?? dto.Id,
-                FullName = dto.FullName,
-                IdentityNumber = dto.IdentityNumber ?? request.IdentityNumber,
-                Phone = dto.PhoneNumber ?? request.Phone,
-                Gender = dto.Gender,
-                DateOfBirth = dto.DateOfBirth,
-                IsGuest = dto.IsGuest,
-                Priority = priority,
-                Message = "Walk-in guest profile created successfully."
-            };
-        }
-        catch (PatientDuplicateException ex)
+        return new RegisterWalkInResponse
         {
-            throw new InvalidOperationException($"MSG-ERR-WALKIN-01: {ex.Message}", ex);
-        }
+            PatientId = dto.Id,
+            PatientCode = dto.PatientCode ?? dto.Id,
+            FullName = dto.FullName,
+            IdentityNumber = dto.IdentityNumber ?? request.IdentityNumber,
+            Phone = dto.PhoneNumber ?? request.Phone,
+            Gender = dto.Gender,
+            DateOfBirth = dto.DateOfBirth,
+            IsGuest = dto.IsGuest,
+            Priority = priority,
+            Message = "Walk-in guest profile created successfully."
+        };
     }
 
     public async Task<PatientLookupResponse> LookupByIdentityAsync(

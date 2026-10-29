@@ -56,7 +56,7 @@ public sealed class CreateGuestProfileRequest : IValidatableObject
     public string Gender { get; set; } = "Unspecified";
 
     [Required(ErrorMessage = "Số điện thoại liên hệ là bắt buộc.")]
-    [RegularExpression(@"^(\+84|0)[0-9]{8,10}$", ErrorMessage = "Số điện thoại không đúng định dạng Việt Nam.")]
+    [RegularExpression(@"^0[35789][0-9]{8}$", ErrorMessage = "Số điện thoại phải gồm 10 chữ số, bắt đầu bằng 03, 05, 07, 08 hoặc 09.")]
     public string PhoneNumber { get; set; } = string.Empty;
 
     [EmailAddress(ErrorMessage = "Địa chỉ email không hợp lệ.")]
@@ -64,7 +64,7 @@ public sealed class CreateGuestProfileRequest : IValidatableObject
     public string? Email { get; set; }
 
     /// <summary>Số CCCD (12 chữ số) hoặc CMND (9 chữ số). Tuỳ chọn với trẻ em/khách vãng lai chưa có CCCD.</summary>
-    [RegularExpression(@"^[0-9]{9,12}$", ErrorMessage = "Số CCCD/CMND phải gồm từ 9 đến 12 chữ số.")]
+    [RegularExpression(@"^[0-9]{12}$", ErrorMessage = "Số CCCD phải gồm đúng 12 chữ số.")]
     public string? IdentityNumber { get; set; }
 
     [StringLength(500, ErrorMessage = "Địa chỉ tối đa 500 ký tự.")]
