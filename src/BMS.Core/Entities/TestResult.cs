@@ -132,13 +132,12 @@ public class TestResult
     [BsonElement("updatedAt")]
     public DateTime? UpdatedAt { get; set; }
 
-    // Navigation properties for EF / In-Memory relational mapping (Ignored in MongoDB BSON serialization)
-    [BsonIgnore]
-    public virtual Appointment Appointment { get; set; } = null!;
-
-    [BsonIgnore]
-    public virtual BloodSample Sample { get; set; } = null!;
-
-    [BsonIgnore]
-    public virtual ICollection<TestParameter> TestParameters { get; set; } = new List<TestParameter>();
+    /// <summary>
+    /// Soft-delete flag (<c>isDeleted</c>); UC71 Sample Timeline and UC76 Test History already exclude
+    /// documents where it is true. Replaces the former EF navigation properties (Appointment, BloodSample,
+    /// TestParameters), which MongoDB cannot populate; parameters are stored in <see cref="Items"/>.
+    /// </summary>
+    [BsonElement("isDeleted")]
+    [BsonIgnoreIfDefault]
+    public bool IsDeleted { get; set; }
 }
