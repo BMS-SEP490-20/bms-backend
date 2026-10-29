@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Text.RegularExpressions;
 using BMS.Application.DTOs.Common;
 using BMS.Application.DTOs.Shifts;
@@ -309,15 +310,8 @@ public sealed class ShiftRepository : IShiftRepository
 
             foreach (var a in accounts)
             {
-                var roleLabel = a.RoleId switch
-                {
-                    1 => "Admin",
-                    2 => "LabHead",
-                    3 => "LabTech",
-                    4 => "Doctor",
-                    5 => "Receptionist",
-                    _ => "Staff"
-                };
+                // 6-role seed (decision 30/10 point 1): 2 = Manager (ex-LabHead), 3 = Lab (ex-LabTech).
+                var roleLabel = a.RoleId is >= 1 and <= 5 ? RoleNames.FromRoleId(a.RoleId)! : "Staff";
 
                 if (map.TryGetValue(a.Id, out var existing))
                 {
@@ -329,7 +323,7 @@ public sealed class ShiftRepository : IShiftRepository
                 }
                 else
                 {
-                    map[a.Id] = (a.FullName, roleLabel, roleLabel == "LabTech" || roleLabel == "LabHead" ? "Laboratory" : "Clinical", null);
+                    map[a.Id] = (a.FullName, roleLabel, roleLabel is RoleNames.Lab or RoleNames.Manager ? "Laboratory" : "Clinical", null);
                 }
             }
         }

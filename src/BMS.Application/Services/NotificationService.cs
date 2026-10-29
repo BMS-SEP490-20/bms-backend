@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -90,19 +91,20 @@ namespace BMS.Application.Services
         /// <summary>
         /// Normalizes role aliases into system standard role identifiers.
         /// </summary>
-        // TODO(senior-dev, Đợt 2): numeric aliases here (4=LabUser, 5=Patient, 6=Receptionist) disagree with the
-        // agreed role IDs (4 Lab, 5 Receptionist, 6 Patient); switch to the shared role constants.
+        // Đợt 2: numeric IDs and legacy names map through the shared 6-role constants (1 Admin, 2 Manager,
+        // 3 Lab, 4 Doctor, 5 Receptionist, 6 Patient). Unknown audiences are kept as-is (e.g. a custom group).
         private static string NormalizeRoleName(string? role)
         {
-            if (string.IsNullOrWhiteSpace(role)) return "Patient";
-            var r = role.Trim().ToLowerInvariant();
-            if (r == "1" || r == "admin" || r == "administrator") return "Admin";
-            if (r == "2" || r == "manager" || r == "labmanager" || r == "lab_manager") return "Manager";
-            if (r == "3" || r == "doctor") return "Doctor";
-            if (r == "4" || r == "labuser" || r == "laboratory user" || r == "lab_user" || r == "technician") return "LabUser";
-            if (r == "5" || r == "patient") return "Patient";
-            if (r == "6" || r == "receptionist" || r == "staff") return "Receptionist";
-            return role;
+            if (string.IsNullOrWhiteSpace(role)) return RoleNames.Patient;
+            var r = role.Trim();
+            if (int.TryParse(r, out var id)) return RoleNames.FromRoleId(id) ?? role;
+            return r.ToLowerInvariant() switch
+            {
+                "labmanager" or "lab_manager" => RoleNames.Manager,
+                "laboratory user" or "technician" => RoleNames.Lab,
+                "staff" => RoleNames.Receptionist,
+                _ => RoleNames.Normalize(r) ?? role
+            };
         }
 
         /// <summary>

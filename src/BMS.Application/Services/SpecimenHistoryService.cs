@@ -80,7 +80,7 @@ public class SpecimenHistoryService : ISpecimenHistoryService
             Timestamp = DateTime.UtcNow,
             OperatorId = operatorId,
             OperatorName = !string.IsNullOrWhiteSpace(eventDto.OperatorName) ? eventDto.OperatorName.Trim() : operatorName,
-            OperatorRole = eventDto.OperatorRole?.Trim() ?? "LabTech",
+            OperatorRole = eventDto.OperatorRole?.Trim() ?? BMS.Core.Constants.RoleNames.Lab,
             Location = eventDto.Location?.Trim() ?? "Khu Vực Xét Nghiệm",
             Status = !string.IsNullOrWhiteSpace(eventDto.Status) ? eventDto.Status.Trim() : existing.Status,
             TemperatureC = eventDto.TemperatureC,
