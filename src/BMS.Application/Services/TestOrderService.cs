@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using BMS.Application.DTOs.AuditLogs;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
 using BMS.Core.Constants;
@@ -22,6 +23,9 @@ public sealed partial class TestOrderService(
     IUserRepository users,
     IServicePackageRepository packages,
     ISequenceGenerator sequences,
+    ISpecimenRepository specimens,
+    ITestResultRepository results,
+    IAuditLogService audit,
     TimeProvider clock,
     ILogger<TestOrderService> logger) : ITestOrderService
 {
@@ -175,9 +179,14 @@ public sealed partial class TestOrderService(
             throw new ForbiddenAccessException("Chỉ được hủy đơn; các trạng thái khác do hệ thống tự cập nhật.");
 
         var order = await FindAsync(id, ct) ?? throw new ResourceNotFoundException("ORDER_NOT_FOUND", "Không tìm thấy đơn xét nghiệm.");
+        var note = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
         TestOrderStatus[] from;
         if (actorIsManager)
         {
+            // Quy trình Đợt 3A Q5: the Manager's exception cancel needs a written reason (audited).
+            if (note == null || note.Length < MinCancelReasonLength)
+                throw new DomainValidationException("CANCEL_REASON_REQUIRED",
+                    $"Quản lý hủy đơn phải ghi lý do (tối thiểu {MinCancelReasonLength} ký tự).");
             from = TestOrderStatusRules.ManagerCancellable;
         }
         else
@@ -187,9 +196,10 @@ public sealed partial class TestOrderService(
             from = TestOrderStatusRules.BeforeCollection;
         }
         ThrowIfNotCancellable(order.Status, actorIsManager);
+        if (actorIsManager && TestOrderStatusRules.IsSampleCollectedOrLater(order.Status))
+            await ThrowIfAnyResultSignedAsync(order, ct);
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var note = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
         var updated = await orders.TryTransitionAsync(order.Id, from, TestOrderStatus.Cancelled, actorUserId, now, note, ct);
         if (updated == null)
         {
@@ -198,9 +208,36 @@ public sealed partial class TestOrderService(
             ThrowIfNotCancellable(current?.Status ?? order.Status, actorIsManager);
             throw new ConflictStateException("ORDER_STATE_CHANGED", "Đơn vừa được cập nhật, vui lòng tải lại.");
         }
-        logger.LogInformation("Test order {OrderNumber} cancelled by {ActorId} ({Role})", updated.OrderNumber, actorUserId,
-            actorIsManager ? RoleNames.Manager : RoleNames.Doctor);
+        var role = actorIsManager ? RoleNames.Manager : RoleNames.Doctor;
+        var actorName = (await users.GetByIdAsync(actorUserId, ct))?.FullName;
+        await audit.LogAsync(new CreateAuditLogDto
+        {
+            UserId = actorUserId, UserName = actorName, UserRole = role,
+            Action = "ORDER_CANCELLED", Category = "DATA_CHANGE",
+            Severity = TestOrderStatusRules.IsSampleCollectedOrLater(order.Status) ? "WARNING" : "INFO",
+            TargetEntity = "TestOrder", EntityId = updated.OrderNumber,
+            Details = $"{order.Status} -> Cancelled; paid={(order.PaidAt != null ? "yes" : "no")}; reason: {note ?? "-"}"
+        }, ct);
+        logger.LogInformation("Test order {OrderNumber} cancelled by {ActorId} ({Role}) from {From}", updated.OrderNumber, actorUserId,
+            role, order.Status);
         return Map(updated);
+    }
+
+    /// <summary>Minimum length of the Manager's cancel reason.</summary>
+    public const int MinCancelReasonLength = 5;
+
+    /// <summary>Quy trình Đợt 3A Q5: once any result of the order is signed the order is read-only (409 ORDER_RESULT_SIGNED).</summary>
+    /// <remarks>
+    /// Limitation: results live in another collection, so a signature landing between this check and the conditional
+    /// cancel is not excluded atomically. The window is milliseconds and the cancel is audited; step 5 (result
+    /// entry/signing) will close it by refusing to sign a cancelled order.
+    /// </remarks>
+    private async Task ThrowIfAnyResultSignedAsync(TestOrder order, CancellationToken ct)
+    {
+        var tubes = await specimens.GetByOrderAsync(order.OrderNumber, ct);
+        var sampleKeys = tubes.SelectMany(t => new[] { t.Id, t.Barcode }).Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList();
+        if (await results.AnySignedForOrderAsync(sampleKeys, [order.Id, order.OrderNumber], ct))
+            throw new ConflictStateException("ORDER_RESULT_SIGNED", "Đơn đã có kết quả được ký duyệt, chỉ được xem, không thể hủy.");
     }
 
     /// <inheritdoc />

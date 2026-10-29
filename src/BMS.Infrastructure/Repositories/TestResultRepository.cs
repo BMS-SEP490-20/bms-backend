@@ -21,6 +21,11 @@ namespace BMS.Infrastructure.Repositories
 
         private static FilterDefinitionBuilder<TestResult> F => Builders<TestResult>.Filter;
         private static FilterDefinition<TestResult> Active => F.Ne(x => x.IsDeleted, true);
+        // WHY in the filter: makes "signed = read-only" atomic; an edit racing an approval cannot land after the signature.
+        private static FilterDefinition<TestResult> NotSigned =>
+            F.Ne(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved) & F.Eq(x => x.ApprovedAt, null);
+        private static FilterDefinition<TestResult> Signed =>
+            F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null));
         private static FilterDefinition<TestResult> ById(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.TestResultId, id)) & Active;
 
         /// <inheritdoc />
@@ -56,16 +61,24 @@ namespace BMS.Infrastructure.Repositories
             if (c.ApprovedByDoctorId is not null) updates.Add(u.Set(x => x.ApprovedByDoctorId, c.ApprovedByDoctorId));
             if (c.ApprovedAt is not null) updates.Add(u.Set(x => x.ApprovedAt, c.ApprovedAt));
 
-            var result = await _results.UpdateOneAsync(ById(id), u.Combine(updates), cancellationToken: ct);
+            var result = await _results.UpdateOneAsync(ById(id) & NotSigned, u.Combine(updates), cancellationToken: ct);
             return result.MatchedCount > 0;
         }
 
         /// <inheritdoc />
         public async Task<bool> SoftDeleteAsync(string id, CancellationToken ct = default)
         {
-            var result = await _results.UpdateOneAsync(ById(id), Builders<TestResult>.Update
+            var result = await _results.UpdateOneAsync(ById(id) & NotSigned, Builders<TestResult>.Update
                 .Set(x => x.IsDeleted, true).Set(x => x.UpdatedAt, DateTime.UtcNow), cancellationToken: ct);
             return result.MatchedCount > 0;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> AnySignedForOrderAsync(IReadOnlyCollection<string> sampleKeys, IReadOnlyCollection<string> orderKeys,
+            CancellationToken ct = default)
+        {
+            var link = F.Or(F.In(x => x.SampleId, sampleKeys), F.In(x => x.AppointmentId, orderKeys));
+            return await _results.Find(link & Active & Signed).Limit(1).AnyAsync(ct);
         }
 
         /// <inheritdoc />

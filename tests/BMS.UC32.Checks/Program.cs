@@ -12,6 +12,7 @@ using BMS.Api.Controllers.Laboratory;
 using BMS.Api.Middleware;
 using BMS.Application.DTOs.Billing;
 using BMS.Application.DTOs.Laboratory;
+using BMS.Application.DTOs.TestResults;
 using BMS.Application.Interfaces;
 using BMS.Application.Services;
 using BMS.Core.Constants;
@@ -56,7 +57,10 @@ try
     var orderCol = db.GetCollection<TestOrder>(TestOrderRepository.CollectionName);
     var seq = new MongoSequenceGenerator(db);
     TestOrderService NewSvc() => new(new TestOrderRepository(db), new PatientRepository(db), FakeUsers.Create(),
-        new ServicePackageRepository(db, names), seq, clock, NullLogger<TestOrderService>.Instance);
+        new ServicePackageRepository(db, names), seq, new SpecimenRepository(db), new TestResultRepository(db),
+        new AuditLogService(new AuditLogRepository(db)), clock, NullLogger<TestOrderService>.Instance);
+    var auditCol = db.GetCollection<AuditLog>(AuditLogRepository.CollectionName);
+    var resultCol = db.GetCollection<TestResult>("test_results");
     var svc = NewSvc();
     CreateTestOrderRequestDto Req(string? icd, params string[] codes) => new()
     {
@@ -242,6 +246,76 @@ try
         Assert((await Throws<ConflictStateException>(() => svc.UpdateOrderStatusAsync(completed.Id, cancel, "mgr-1", true))).Code == "ORDER_COMPLETED");
     });
 
+    await Check("Manager cancel (Q5): reason required; collected/InAnalysis ok until a result is signed; signed -> 409 ORDER_RESULT_SIGNED; audited", async () =>
+    {
+        async Task<TestOrderResponseDto> At(TestOrderStatus st)
+        {
+            var o = await svc.CreateTestOrderAsync(Req("E11.9", "CBC"), "doc-1");
+            await orderCol.UpdateOneAsync(x => x.Id == o.Id, Builders<TestOrder>.Update.Set(x => x.Status, st));
+            return o;
+        }
+        var reason = new UpdateTestOrderStatusRequestDto { Status = "Cancelled", Notes = "Mẫu vỡ, BN không quay lại" };
+        var a = await At(TestOrderStatus.SampleCollected);
+        foreach (var bad in new string?[] { null, "", "   ", "abc" })
+            Assert((await Throws<DomainValidationException>(() => svc.UpdateOrderStatusAsync(a.Id, new() { Status = "Cancelled", Notes = bad }, "mgr-1", true))).Code == "CANCEL_REASON_REQUIRED", bad);
+        Assert((await orderCol.Find(x => x.Id == a.Id).SingleAsync()).Status == TestOrderStatus.SampleCollected);
+        Assert((await svc.UpdateOrderStatusAsync(a.Id, reason, "mgr-1", true)).Status == "Cancelled");
+        var stored = await orderCol.Find(x => x.Id == a.Id).SingleAsync();
+        Assert(stored.StatusChangedBy == "mgr-1" && stored.StatusNote == "Mẫu vỡ, BN không quay lại");
+        var log = await auditCol.Find(l => l.EntityId == a.OrderNumber && l.Action == "ORDER_CANCELLED").SingleAsync();
+        Assert(log.UserId == "mgr-1" && log.UserRole == "Manager" && log.Severity == "WARNING" && log.Details.Contains("SampleCollected") && log.Details.Contains("Mẫu vỡ"), log.Details);
+
+        // InAnalysis with an unsigned (entered) result -> still cancellable.
+        var b = await At(TestOrderStatus.InAnalysis);
+        await db.GetCollection<Sample>(SpecimenRepository.CollectionName).InsertOneAsync(new Sample { Id = "smp-b", Barcode = "SMP-20261030-9001", SmpDay = "2026-10-30", TestOrderId = b.OrderNumber });
+        await resultCol.InsertOneAsync(new TestResult { Id = "res-b", SampleId = "SMP-20261030-9001", ValidationStatus = ResultValidationStatus.Entered });
+        Assert((await svc.UpdateOrderStatusAsync(b.Id, reason, "mgr-1", true)).Status == "Cancelled");
+
+        // Signed via sample id, via barcode, via appointmentId = order number, or ApprovedAt only -> 409 and nothing changes.
+        var signedCases = new (string Sample, string? SampleId, string? Appointment, ResultValidationStatus Vs, DateTime? ApprovedAt)[]
+        {
+            ("smp-c1", "smp-c1", null, ResultValidationStatus.DoctorApproved, null),
+            ("smp-c2", "BARCODE", null, ResultValidationStatus.DoctorApproved, DateTime.UtcNow),
+            ("smp-c3", null, "ORDER", ResultValidationStatus.TechnicianVerified, DateTime.UtcNow),
+        };
+        var n = 0;
+        foreach (var sc in signedCases)
+        {
+            var o = await At(TestOrderStatus.InAnalysis);
+            n++;
+            var barcode = $"SMP-20261030-910{n}";
+            await db.GetCollection<Sample>(SpecimenRepository.CollectionName).InsertOneAsync(new Sample { Id = sc.Sample, Barcode = barcode, SmpDay = "2026-10-30", TestOrderId = o.OrderNumber });
+            await resultCol.InsertOneAsync(new TestResult { Id = "res-c" + n, SampleId = sc.SampleId == "BARCODE" ? barcode : sc.SampleId ?? "", AppointmentId = sc.Appointment == "ORDER" ? o.OrderNumber : "", ValidationStatus = sc.Vs, ApprovedAt = sc.ApprovedAt });
+            var ex = await Throws<ConflictStateException>(() => svc.UpdateOrderStatusAsync(o.Id, reason, "mgr-1", true));
+            Assert(ex.Code == "ORDER_RESULT_SIGNED" && ex.StatusCode == 409, $"case {n}: {ex.Code}");
+            Assert((await orderCol.Find(x => x.Id == o.Id).SingleAsync()).Status == TestOrderStatus.InAnalysis);
+        }
+        // A soft-deleted signed result does not block.
+        var d = await At(TestOrderStatus.SampleCollected);
+        await resultCol.InsertOneAsync(new TestResult { Id = "res-del", AppointmentId = d.OrderNumber, ValidationStatus = ResultValidationStatus.DoctorApproved, IsDeleted = true });
+        Assert((await svc.UpdateOrderStatusAsync(d.Id, reason, "mgr-1", true)).Status == "Cancelled");
+        // Doctor cancels are audited too (reason optional for the doctor).
+        var e = await svc.CreateTestOrderAsync(Req("E11.9", "CBC"), "doc-1");
+        await svc.UpdateOrderStatusAsync(e.Id, new() { Status = "Cancelled" }, "doc-1", false);
+        Assert((await auditCol.Find(l => l.EntityId == e.OrderNumber).SingleAsync()).UserRole == "Doctor");
+    });
+
+    await Check("signed results are read-only: update/delete/re-approve -> 409 RESULT_SIGNED_READ_ONLY; unsigned update ok", async () =>
+    {
+        var rs = new TestResultService(new TestResultRepository(db), NotCalled<IAppointmentRepository>(), NotCalled<INotificationRepository>(), NullLogger<TestResultService>.Instance);
+        await resultCol.InsertOneAsync(new TestResult { Id = "res-ro", TestResultId = "TRE-RO", ValidationStatus = ResultValidationStatus.DoctorApproved, ApprovedAt = DateTime.UtcNow, ReagentCode = "R1" });
+        Assert((await Throws<ConflictStateException>(() => rs.UpdateAsync("res-ro", new() { ReagentCode = "R2" }))).Code == "RESULT_SIGNED_READ_ONLY");
+        Assert((await Throws<ConflictStateException>(() => rs.DeleteAsync("TRE-RO"))).Code == "RESULT_SIGNED_READ_ONLY");
+        Assert((await Throws<ConflictStateException>(() => rs.ApproveAsync("res-ro", new() { ApproverId = "mgr-2" }))).Code == "RESULT_SIGNED_READ_ONLY");
+        var after = await resultCol.Find(x => x.Id == "res-ro").SingleAsync();
+        Assert(after.ReagentCode == "R1" && !after.IsDeleted && after.ApprovedByDoctorId == null);
+        // Repository refuses atomically even if the service check is bypassed.
+        Assert(!await new TestResultRepository(db).UpdateFieldsAsync("res-ro", new TestResultFieldChanges(ReagentCode: "R3")));
+        await resultCol.InsertOneAsync(new TestResult { Id = "res-rw", ValidationStatus = ResultValidationStatus.Entered, ReagentCode = "R1" });
+        await rs.UpdateAsync("res-rw", new() { ReagentCode = "R2" });
+        Assert((await resultCol.Find(x => x.Id == "res-rw").SingleAsync()).ReagentCode == "R2");
+    });
+
     await Check("race: 20 parallel cancels by the owner -> exactly 1 success, 19 x 409", async () =>
     {
         var o = await svc.CreateTestOrderAsync(Req("E11.9", "CBC"), "doc-1");
@@ -333,7 +407,9 @@ try
         Assert((await As(http, "Doctor").PutAsJsonAsync($"/api/TestOrders/{mine.Id}/status", c)).StatusCode == HttpStatusCode.OK);
         var conflict = await As(http, "Doctor").PutAsJsonAsync($"/api/TestOrders/{collected.Id}/status", c);
         Assert(conflict.StatusCode == HttpStatusCode.Conflict && (await conflict.Content.ReadAsStringAsync()).Contains("ORDER_SAMPLE_COLLECTED"));
-        Assert((await As(http, "Manager").PutAsJsonAsync($"/api/TestOrders/{others.Id}/status", c)).StatusCode == HttpStatusCode.OK);
+        var noReason = await As(http, "Manager").PutAsJsonAsync($"/api/TestOrders/{others.Id}/status", c);
+        Assert(noReason.StatusCode == HttpStatusCode.BadRequest && (await noReason.Content.ReadAsStringAsync()).Contains("CANCEL_REASON_REQUIRED"));
+        Assert((await As(http, "Manager").PutAsJsonAsync($"/api/TestOrders/{others.Id}/status", new { status = "Cancelled", notes = "Sai bệnh nhân, hủy theo yêu cầu QL" })).StatusCode == HttpStatusCode.OK);
         await app.StopAsync();
     });
 }
@@ -365,6 +441,7 @@ static async Task<T> Throws<T>(Func<Task> f) where T : Exception
 }
 static void Assert(bool condition, string? detail = null, [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
 { if (!condition) throw new Exception($"Assertion failed at line {line}. {detail}"); }
+static T NotCalled<T>() where T : class => DispatchProxy.Create<T, NotCalledProxy>();
 static async Task<WebApplication> StartAsync(Action<IServiceCollection> register)
 {
     var builder = WebApplication.CreateBuilder();
