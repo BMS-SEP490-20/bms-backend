@@ -85,13 +85,26 @@ try
         Assert((await Throws<ConflictStateException>(() => svc.CollectAsync(Req(cancelled.Id), "lab-1"))).Code == "ORDER_CANCELLED");
     });
 
-    await Check("2 factors: wrong name / wrong DOB / wrong CCCD / no 2nd factor -> 400; diacritics+case-insensitive name; CCCD factor ok", async () =>
+    await Check("2 factors: wrong name / wrong DOB / wrong CCCD / no 2nd factor / name without diacritics -> 400; case+spaces ignored; CCCD factor ok", async () =>
     {
         var o = await NewOrder();
-        foreach (var bad in new[] { Req(o.Id, "Trần Thị Bính"), Req(o.Id, dob: new DateOnly(1990, 5, 2)), Req(o.Id, cccd: "079090009999"), new CollectSpecimenRequestDto { OrderId = o.Id, FullName = "Trần Thị Bích" } })
-            Assert((await Throws<DomainValidationException>(() => svc.CollectAsync(bad, "lab-1"))).Code == "SAMPLE_PATIENT_MISMATCH");
+        var bads = new[]
+        {
+            Req(o.Id, "Trần Thị Bính"), Req(o.Id, dob: new DateOnly(1990, 5, 2)), Req(o.Id, cccd: "079090009999"),
+            new CollectSpecimenRequestDto { OrderId = o.Id, FullName = "Trần Thị Bích" },
+            // Quy trình Đợt 3A Q6: diacritics are KEPT, so an unaccented or differently accented name is a mismatch.
+            Req(o.Id, "Tran Thi Bich"), Req(o.Id, "  tran thi  bich ", cccd: "079090001234"), Req(o.Id, "Trần Thi Bích"), Req(o.Id, "Trân Thị Bích"),
+            // CCCD is exact: a different 12-digit number or extra characters do not match.
+            Req(o.Id, cccd: "79090001234"), Req(o.Id, cccd: "0790-9000-1234")
+        };
+        foreach (var bad in bads)
+            Assert((await Throws<DomainValidationException>(() => svc.CollectAsync(bad, "lab-1"))).Code == "SAMPLE_PATIENT_MISMATCH", bad.FullName + "/" + bad.IdentityNumber);
         Assert((await orderCol.Find(x => x.Id == o.Id).SingleAsync()).Status == TestOrderStatus.PaidPendingSample);
-        Assert((await svc.CollectAsync(Req(o.Id, "  tran thi  bich ", cccd: "079090001234"), "lab-1")).OrderStatus == "SampleCollected");
+        Assert(await sampleCol.CountDocumentsAsync(s => s.TestOrderId == o.OrderNumber) == 0);
+        // Same name in NFD (decomposed) form still matches: normalization is canonical, not mark-stripping.
+        Assert(SpecimenCollectionService.NamesMatch("Trần Thị Bích".Normalize(System.Text.NormalizationForm.FormD), "Trần Thị Bích"));
+        Assert(!SpecimenCollectionService.NamesMatch("Nguyễn Văn Đức", "Nguyen Van Duc") && !SpecimenCollectionService.NamesMatch("Lê Thị Thu", "Lê Thi Thu"));
+        Assert((await svc.CollectAsync(Req(o.Id, "  trần THỊ   bích ", cccd: " 079090001234 "), "lab-1")).OrderStatus == "SampleCollected");
     });
 
     await Check("60 orders collected in parallel -> all SMP- barcodes distinct (unique index ux_blood_samples_smp_barcode)", async () =>

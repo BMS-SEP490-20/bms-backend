@@ -129,10 +129,19 @@ public sealed class SpecimenCollectionService(
         };
     }
 
-    /// <summary>BA:L41: name + (date of birth or CCCD) must both match; one wrong factor blocks collection.</summary>
+    /// <summary>
+    /// BA:L41 + Quy trình ruling (Đợt 3A Q6): full name AND (date of birth or CCCD) must match; one wrong factor blocks
+    /// collection so Lab checks the patient by hand.
+    /// </summary>
+    /// <remarks>
+    /// DOB and CCCD: exact (CCCD only trimmed). Name: case-insensitive, surrounding/inner whitespace collapsed,
+    /// Unicode NFC so composed and decomposed input compare equal, but diacritics are KEPT: "Bích" ≠ "Bich",
+    /// "Đức" ≠ "Duc". WHY: dropping marks merges different people (Thị/Thi, Đức/Dục), and a wrong-patient
+    /// specimen is the most serious lab error.
+    /// </remarks>
     private static void VerifyTwoFactors(Patient patient, CollectSpecimenRequestDto r)
     {
-        var nameOk = !string.IsNullOrWhiteSpace(r.FullName) && NormalizeName(r.FullName) == NormalizeName(patient.FullName);
+        var nameOk = !string.IsNullOrWhiteSpace(r.FullName) && NamesMatch(r.FullName, patient.FullName);
         bool secondOk;
         if (r.DateOfBirth.HasValue)
             secondOk = patient.DateOfBirth.HasValue && DateOnly.FromDateTime(patient.DateOfBirth.Value) == r.DateOfBirth.Value;
@@ -145,17 +154,13 @@ public sealed class SpecimenCollectionService(
                 "Thông tin xác thực bệnh nhân không khớp (họ tên và ngày sinh/CCCD). Không được ghi nhận lấy mẫu.");
     }
 
-    private static string NormalizeName(string s) =>
-        string.Join(' ', RemoveMarks(s).ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    /// <summary>Name comparison for the 2-factor check: case-insensitive, whitespace collapsed, diacritics kept.</summary>
+    public static bool NamesMatch(string? entered, string? stored) =>
+        entered != null && stored != null && NormalizeName(entered) == NormalizeName(stored);
 
-    private static string RemoveMarks(string s)
-    {
-        var d = s.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(d.Length);
-        foreach (var c in d)
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) sb.Append(c == 'đ' ? 'd' : c == 'Đ' ? 'D' : c);
-        return sb.ToString().Normalize(NormalizationForm.FormC);
-    }
+    private static string NormalizeName(string s) =>
+        string.Join(' ', s.Normalize(NormalizationForm.FormC).ToUpperInvariant()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     private static string SampleTypeFor(TubeSpec t) => t.Color switch
     {
