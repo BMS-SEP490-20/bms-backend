@@ -70,6 +70,17 @@ public class Sample : ISupportInitialize
     [BsonElement("barcode")]
     public string Barcode { get; set; } = string.Empty;
 
+    /// <summary>Clinic day (yyyy-MM-dd) of an SMP- barcode; set only for barcodes from the atomic counter.</summary>
+    /// <remarks>WHY: the unique barcode index is partial on this field so legacy BC-/SPC- rows cannot block startup.</remarks>
+    [BsonElement("smp_day")]
+    [BsonIgnoreIfNull]
+    public string? SmpDay { get; set; }
+
+    /// <summary>CLSI H3-A6 order-of-draw position of the tube (1 = first).</summary>
+    [BsonElement("draw_order")]
+    [BsonIgnoreIfNull]
+    public int? DrawOrder { get; set; }
+
     [BsonElement("rfid_tag")]
     [BsonIgnoreIfNull]
     public string? RfidTag { get; set; }
