@@ -28,6 +28,20 @@ public class InvoiceRepository : IInvoiceRepository
         return await _collection.Find(x => x.Id == id || x.InvoiceCode == id).FirstOrDefaultAsync(ct);
     }
 
+    /// <inheritdoc />
+    public async Task<Invoice?> GetPaidByOrderIdAsync(string orderId, CancellationToken ct = default) =>
+        await _collection.Find(x => x.OrderId == orderId && x.Status == InvoiceStatus.Paid).SortByDescending(x => x.PaidAt).FirstOrDefaultAsync(ct);
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkRefundedAsync(string invoiceId, InvoiceStatus to, CancellationToken ct = default) =>
+        (await _collection.UpdateOneAsync(x => x.Id == invoiceId && x.Status == InvoiceStatus.Paid,
+            Builders<Invoice>.Update.Set(x => x.Status, to), cancellationToken: ct)).ModifiedCount == 1;
+
+    /// <inheritdoc />
+    public async Task<long> VoidUnpaidByOrderIdAsync(string orderId, CancellationToken ct = default) =>
+        (await _collection.UpdateManyAsync(x => x.OrderId == orderId && x.Status == InvoiceStatus.Unpaid,
+            Builders<Invoice>.Update.Set(x => x.Status, InvoiceStatus.Voided), cancellationToken: ct)).ModifiedCount;
+
     public async Task<Invoice?> GetByInvoiceCodeAsync(string invoiceCode, CancellationToken ct = default)
     {
         return await _collection.Find(x => x.InvoiceCode == invoiceCode).FirstOrDefaultAsync(ct);
