@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Globalization;
 using BMS.Application.DTOs.Common;
 using BMS.Application.DTOs.Shifts;
@@ -311,15 +312,9 @@ public sealed class ShiftService(
         };
     }
 
-    private static string ResolveAccountRoleName(User? account) => (account?.RoleId) switch
-    {
-        1 => "Admin",
-        2 => "LabHead",
-        3 => "LabTech",
-        4 => "Doctor",
-        5 => "Receptionist",
-        _ => "Staff"
-    };
+    // 6-role seed: staff roles 1–5 use canonical names; anything else is shown as generic staff.
+    private static string ResolveAccountRoleName(User? account)
+        => account?.RoleId is >= 1 and <= 5 ? RoleNames.FromRoleId(account.RoleId)! : "Staff";
 
     private static ShiftDto MapToDto(
         DoctorShift s,
