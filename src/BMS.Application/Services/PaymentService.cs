@@ -215,6 +215,10 @@ public class PaymentService : IPaymentService
         return list.Select(MapToCheckoutDto).ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<string?> GetInvoicePatientIdAsync(string invoiceIdOrCode, CancellationToken ct = default)
+        => string.IsNullOrWhiteSpace(invoiceIdOrCode) ? null : (await FindInvoiceAsync(invoiceIdOrCode, ct))?.PatientId;
+
     private async Task<Invoice?> FindInvoiceAsync(string invoiceIdOrCode, CancellationToken ct)
     {
         var key = invoiceIdOrCode.Trim();
