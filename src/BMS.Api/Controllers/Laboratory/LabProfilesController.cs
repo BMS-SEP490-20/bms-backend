@@ -1,5 +1,6 @@
 using BMS.Application.DTOs.LabProfiles;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
@@ -7,10 +8,10 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Laboratory;
 
-/// <summary>UC61 Lab professional profiles for authorized administration and Lab management staff.</summary>
+/// <summary>UC61 Lab professional profiles. Matrix row UC61: Manager, Admin only.</summary>
 [ApiController]
 [Route("api/lab-profiles")]
-[Authorize(Roles = "Admin,Administrator,LabTechnician")]
+[Authorize(Roles = RoleSets.AdminOrManager)]
 public sealed class LabProfilesController(ILabProfileService service) : ControllerBase
 {
     /// <summary>Returns the filtered profile directory with bounded pagination.</summary>
