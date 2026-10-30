@@ -66,12 +66,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -81,9 +82,10 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
-                title = "Không thể tải danh sách hàng đợi mẫu xét nghiệm.",
-                message = "Không thể tải danh sách hàng đợi mẫu xét nghiệm."
+                code = "INTERNAL_SERVER_ERROR",
+                title = "Không thể tải danh sách hàng đợi mẫu xét nghiệm lúc này.",
+                detail = "Không thể tải danh sách hàng đợi mẫu xét nghiệm lúc này.",
+                message = "Không thể tải danh sách hàng đợi mẫu xét nghiệm lúc này."
             });
         }
     }
@@ -108,6 +110,7 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
                     status = StatusCodes.Status404NotFound,
                     code = "SAMPLE_NOT_FOUND",
                     title = $"Không tìm thấy mẫu xét nghiệm '{id}'.",
+                    detail = $"Không tìm thấy mẫu xét nghiệm '{id}'.",
                     message = $"Không tìm thấy mẫu xét nghiệm '{id}'."
                 });
             }
@@ -116,12 +119,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -131,8 +135,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
                 title = "Không thể tải thông tin chi tiết mẫu xét nghiệm.",
+                detail = "Không thể tải thông tin chi tiết mẫu xét nghiệm.",
                 message = "Không thể tải thông tin chi tiết mẫu xét nghiệm."
             });
         }
@@ -166,12 +171,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -181,9 +187,10 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
-                title = "Không thể ghi nhận thời gian lấy mẫu xét nghiệm.",
-                message = "Không thể ghi nhận thời gian lấy mẫu xét nghiệm."
+                code = "INTERNAL_SERVER_ERROR",
+                title = "Không thể ghi nhận thời gian lấy mẫu lúc này. Vui lòng thử lại sau.",
+                detail = "Không thể ghi nhận thời gian lấy mẫu lúc này. Vui lòng thử lại sau.",
+                message = "Không thể ghi nhận thời gian lấy mẫu lúc này. Vui lòng thử lại sau."
             });
         }
     }
@@ -214,12 +221,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -229,9 +237,10 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
-                title = "Không thể ghi nhận mẫu xét nghiệm mới.",
-                message = "Không thể ghi nhận mẫu xét nghiệm mới."
+                code = "INTERNAL_SERVER_ERROR",
+                title = "Không thể tạo mới và ghi nhận thời gian lấy mẫu lúc này.",
+                detail = "Không thể tạo mới và ghi nhận thời gian lấy mẫu lúc này.",
+                message = "Không thể tạo mới và ghi nhận thời gian lấy mẫu lúc này."
             });
         }
     }
@@ -263,12 +272,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -278,8 +288,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
                 title = "Không thể cập nhật trạng thái mẫu xét nghiệm.",
+                detail = "Không thể cập nhật trạng thái mẫu xét nghiệm.",
                 message = "Không thể cập nhật trạng thái mẫu xét nghiệm."
             });
         }
@@ -309,12 +320,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -324,8 +336,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
                 title = "Không thể gửi yêu cầu chạy lại mẫu xét nghiệm.",
+                detail = "Không thể gửi yêu cầu chạy lại mẫu xét nghiệm.",
                 message = "Không thể gửi yêu cầu chạy lại mẫu xét nghiệm."
             });
         }
@@ -345,12 +358,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -360,8 +374,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
                 title = "Không thể tải danh sách yêu cầu chạy lại mẫu.",
+                detail = "Không thể tải danh sách yêu cầu chạy lại mẫu.",
                 message = "Không thể tải danh sách yêu cầu chạy lại mẫu."
             });
         }
@@ -386,12 +401,13 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
                 title = ex.Message,
+                detail = ex.Message,
                 message = ex.Message
             });
         }
@@ -401,8 +417,9 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                code = "INTERNAL_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
                 title = "Không thể tải chi tiết yêu cầu chạy lại mẫu.",
+                detail = "Không thể tải chi tiết yêu cầu chạy lại mẫu.",
                 message = "Không thể tải chi tiết yêu cầu chạy lại mẫu."
             });
         }

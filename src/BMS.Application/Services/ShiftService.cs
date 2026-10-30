@@ -222,6 +222,11 @@ public sealed class ShiftService(
         return await shiftRepository.GetAllRoomsAsync(ct);
     }
 
+    public async Task<IReadOnlyList<ShiftStaffDto>> GetStaffAsync(CancellationToken ct = default)
+    {
+        return await shiftRepository.GetAllStaffAsync(ct);
+    }
+
     private async Task ValidateNoShiftConflictAsync(
         DateTime shiftDate,
         TimeSpan newStart,

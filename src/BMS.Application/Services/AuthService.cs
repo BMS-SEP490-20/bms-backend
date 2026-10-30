@@ -69,7 +69,7 @@ public class AuthService : IAuthService
     {
         if (request == null || string.IsNullOrWhiteSpace(request.UsernameOrEmail) || string.IsNullOrEmpty(request.Password))
         {
-            return AuthLoginResult.Fail(400, "Vui lòng nhập đầy đủ tên đăng nhập/email/SĐT/CCCD và mật khẩu.", "VALIDATION_ERROR");
+            return AuthLoginResult.Fail(400, "Vui lòng nhập đầy đủ tên đăng nhập hoặc email và mật khẩu.", "VALIDATION_ERROR");
         }
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -91,10 +91,7 @@ public class AuthService : IAuthService
         {
             user = _context.Users.FirstOrDefault(u =>
                 u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrEmpty(u.PhoneNumber) && u.PhoneNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrEmpty(u.IdentityCardNumber) && u.IdentityCardNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrEmpty(u.PatientCode) && u.PatientCode.Equals(login, StringComparison.OrdinalIgnoreCase)));
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
         }
 
         // 1. User not found -> constant-time dummy BCrypt verify to prevent timing-based account enumeration
@@ -129,10 +126,7 @@ public class AuthService : IAuthService
         {
             var memUser = _context.Users.FirstOrDefault(u =>
                 u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrEmpty(u.PhoneNumber) && u.PhoneNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrEmpty(u.IdentityCardNumber) && u.IdentityCardNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrEmpty(u.PatientCode) && u.PatientCode.Equals(login, StringComparison.OrdinalIgnoreCase)));
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
             if (memUser != null && VerifyUserPassword(request.Password, memUser.PasswordHash))
             {
                 passwordValid = true;
