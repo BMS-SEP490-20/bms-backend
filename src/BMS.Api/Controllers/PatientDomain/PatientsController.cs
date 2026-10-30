@@ -41,12 +41,12 @@ public class PatientsController(
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
-                title = ex.Code,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
+                title = ex.Message,
                 detail = ex.Message,
                 message = ex.Message
             });
@@ -57,8 +57,8 @@ public class PatientsController(
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                title = "SEARCH_PATIENTS_ERROR",
                 code = "SEARCH_PATIENTS_ERROR",
+                title = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau.",
                 detail = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau.",
                 message = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau."
             });
@@ -84,8 +84,8 @@ public class PatientsController(
                 {
                     success = false,
                     status = StatusCodes.Status401Unauthorized,
-                    title = "UNAUTHORIZED",
                     code = "UNAUTHORIZED",
+                    title = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân.",
                     detail = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân.",
                     message = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân."
                 });
@@ -96,12 +96,12 @@ public class PatientsController(
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
-                title = ex.Code,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
+                title = ex.Message,
                 detail = ex.Message,
                 message = ex.Message
             });
@@ -112,8 +112,8 @@ public class PatientsController(
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                title = "GET_MY_PATIENT_ERROR",
                 code = "GET_MY_PATIENT_ERROR",
+                title = "Không thể tải thông tin hồ sơ bệnh nhân lúc này.",
                 detail = "Không thể tải thông tin hồ sơ bệnh nhân lúc này.",
                 message = "Không thể tải thông tin hồ sơ bệnh nhân lúc này."
             });
@@ -142,12 +142,12 @@ public class PatientsController(
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
-                title = ex.Code,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
+                title = ex.Message,
                 detail = ex.Message,
                 message = ex.Message
             });
@@ -158,8 +158,8 @@ public class PatientsController(
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                title = "GET_PATIENT_ERROR",
                 code = "GET_PATIENT_ERROR",
+                title = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này.",
                 detail = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này.",
                 message = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này."
             });
@@ -192,8 +192,8 @@ public class PatientsController(
                 {
                     success = false,
                     status = StatusCodes.Status403Forbidden,
-                    title = "Forbidden",
                     code = "FORBIDDEN",
+                    title = "Forbidden",
                     detail = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile).",
                     message = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile)."
                 });
@@ -204,12 +204,12 @@ public class PatientsController(
         }
         catch (AppException ex)
         {
-            return StatusCode(ex.StatusCode, new
+            return StatusCode((int)ex.StatusCode, new
             {
                 success = false,
-                status = ex.StatusCode,
-                title = ex.Code,
+                status = (int)ex.StatusCode,
                 code = ex.Code,
+                title = ex.Message,
                 detail = ex.Message,
                 message = ex.Message
             });
@@ -220,8 +220,8 @@ public class PatientsController(
             {
                 success = false,
                 status = StatusCodes.Status500InternalServerError,
-                title = "CREATE_GUEST_PROFILE_ERROR",
                 code = "CREATE_GUEST_PROFILE_ERROR",
+                title = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau.",
                 detail = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau.",
                 message = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau."
             });
