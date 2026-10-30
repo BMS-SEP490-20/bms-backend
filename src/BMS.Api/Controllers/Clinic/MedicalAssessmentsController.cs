@@ -1,5 +1,6 @@
 using BMS.Api.Authorization;
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -74,12 +75,28 @@ public class MedicalAssessmentsController : ControllerBase
                 data = created
             });
         }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse
+            {
+                Code = ex.Code,
+                Message = ex.Message
+            });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new ApiErrorResponse
             {
                 Code = ExtractCode(ex.Message),
                 Message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể lưu hồ sơ đánh giá y khoa."
             });
         }
     }
@@ -92,19 +109,34 @@ public class MedicalAssessmentsController : ControllerBase
     [ProducesResponseType(typeof(List<MedicalAssessmentDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> Query([FromQuery] MedicalAssessmentFilterDto filter, CancellationToken ct)
     {
-        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-
-        var (items, total) = await _service.QueryAsync(filter, currentUserId, role, ct);
-        return Ok(new
+        try
         {
-            success = true,
-            message = "Tra cứu danh sách đánh giá y khoa thành công.",
-            total,
-            page = filter.PageNumber,
-            pageSize = filter.PageSize,
-            data = items
-        });
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+            var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+
+            var (items, total) = await _service.QueryAsync(filter, currentUserId, role, ct);
+            return Ok(new
+            {
+                success = true,
+                message = "Tra cứu danh sách đánh giá y khoa thành công.",
+                total,
+                page = filter.PageNumber,
+                pageSize = filter.PageSize,
+                data = items
+            });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể tải danh sách đánh giá y khoa."
+            });
+        }
     }
 
     /// <summary>
@@ -116,24 +148,39 @@ public class MedicalAssessmentsController : ControllerBase
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(string id, CancellationToken ct)
     {
-        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-
-        var item = await _service.GetByIdAsync(id, currentUserId, role, ct);
-        if (item == null)
+        try
         {
-            return NotFound(new ApiErrorResponse
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+            var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+
+            var item = await _service.GetByIdAsync(id, currentUserId, role, ct);
+            if (item == null)
             {
-                Code = "MSG-ERR-EMR-01",
-                Message = $"Không tìm thấy hồ sơ đánh giá y khoa với mã '{id}'."
+                return NotFound(new ApiErrorResponse
+                {
+                    Code = "MSG-ERR-EMR-01",
+                    Message = $"Không tìm thấy hồ sơ đánh giá y khoa với mã '{id}'."
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                data = item
             });
         }
-
-        return Ok(new
+        catch (AppException ex)
         {
-            success = true,
-            data = item
-        });
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể tải thông tin chi tiết đánh giá y khoa."
+            });
+        }
     }
 
     /// <summary>
@@ -144,17 +191,32 @@ public class MedicalAssessmentsController : ControllerBase
     [ProducesResponseType(typeof(List<MedicalAssessmentDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByPatient(string patientId, CancellationToken ct)
     {
-        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-        var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-
-        var list = await _service.GetByPatientIdAsync(patientId, currentUserId, role, ct);
-        return Ok(new
+        try
         {
-            success = true,
-            patientId,
-            total = list.Count,
-            data = list
-        });
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+            var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+
+            var list = await _service.GetByPatientIdAsync(patientId, currentUserId, role, ct);
+            return Ok(new
+            {
+                success = true,
+                patientId,
+                total = list.Count,
+                data = list
+            });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể tải danh sách đánh giá y khoa của bệnh nhân."
+            });
+        }
     }
 
     /// <summary>
@@ -165,15 +227,30 @@ public class MedicalAssessmentsController : ControllerBase
     [ProducesResponseType(typeof(List<PatientEncounterDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetEncounters(string patientId, CancellationToken ct)
     {
-        // Unlike the other reads, this service call has no viewer argument, so the Patient "own" rule is applied here.
-        if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
-        var encounters = await _service.GetPatientEncountersAsync(patientId, ct);
-        return Ok(new
+        try
         {
-            success = true,
-            patientId,
-            data = encounters
-        });
+            // Unlike the other reads, this service call has no viewer argument, so the Patient "own" rule is applied here.
+            if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
+            var encounters = await _service.GetPatientEncountersAsync(patientId, ct);
+            return Ok(new
+            {
+                success = true,
+                patientId,
+                data = encounters
+            });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể tải danh sách lượt khám của bệnh nhân."
+            });
+        }
     }
 
     /// <summary>
@@ -212,12 +289,24 @@ public class MedicalAssessmentsController : ControllerBase
                 data = updated
             });
         }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new ApiErrorResponse
             {
                 Code = ExtractCode(ex.Message),
                 Message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể cập nhật đánh giá y khoa."
             });
         }
     }
@@ -244,12 +333,24 @@ public class MedicalAssessmentsController : ControllerBase
                 data = finalized
             });
         }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new ApiErrorResponse
             {
                 Code = ExtractCode(ex.Message),
                 Message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể khóa hồ sơ đánh giá y khoa."
             });
         }
     }
@@ -288,12 +389,24 @@ public class MedicalAssessmentsController : ControllerBase
                 message = "Đã xóa mềm hồ sơ đánh giá y khoa thành công."
             });
         }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new ApiErrorResponse
             {
                 Code = ExtractCode(ex.Message),
                 Message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Không thể xóa mềm hồ sơ đánh giá y khoa."
             });
         }
     }
