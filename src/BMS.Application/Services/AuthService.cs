@@ -426,11 +426,12 @@ public class AuthService : IAuthService
         // only Manager approves results; Receptionist no longer collects samples.
         var permissions = roleId switch
         {
-            1 => new List<string> { "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES" },
-            2 => new List<string> { "APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS", "VIEW_ALL_LAB" },
+            1 => new List<string> { "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "MANAGE_SCHEDULE" },
+            2 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
             3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "VIEW_ALL_LAB" },
-            4 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
-            5 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
+            4 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
+            5 => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" },
+            6 => new List<string> { "APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS", "VIEW_ALL_LAB" },
             _ => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" }
         };
 
