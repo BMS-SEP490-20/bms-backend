@@ -100,13 +100,7 @@ public sealed class UserRepository : IUserRepository
                         Builders<User>.Filter.Eq("Email", keyword),
                         Builders<User>.Filter.Eq("email", keyword),
                         Builders<User>.Filter.Eq("Username", keyword),
-                        Builders<User>.Filter.Eq("username", keyword),
-                        Builders<User>.Filter.Eq("PhoneNumber", keyword),
-                        Builders<User>.Filter.Eq("phoneNumber", keyword),
-                        Builders<User>.Filter.Eq("IdentityCardNumber", keyword),
-                        Builders<User>.Filter.Eq("identityCardNumber", keyword),
-                        Builders<User>.Filter.Eq("patientCode", keyword),
-                        Builders<User>.Filter.Eq("PatientCode", keyword)),
+                        Builders<User>.Filter.Eq("username", keyword)),
                     Builders<User>.Filter.Ne("isDeleted", true));
 
                 var found = await _context.Users
@@ -125,10 +119,7 @@ public sealed class UserRepository : IUserRepository
         return _memoryUsers.Values.FirstOrDefault(u =>
             !u.IsDeleted &&
             (string.Equals(u.Email, keyword, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(u.Username, keyword, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(u.PhoneNumber, keyword, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(u.IdentityCardNumber, keyword, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(u.PatientCode, keyword, StringComparison.OrdinalIgnoreCase)));
+             string.Equals(u.Username, keyword, StringComparison.OrdinalIgnoreCase)));
     }
 
     public async Task<User?> FindByLoginAsync(

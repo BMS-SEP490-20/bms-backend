@@ -12,6 +12,7 @@ namespace BMS.Infrastructure.Repositories;
 public class TestPackageRepository : ITestPackageRepository
 {
     private readonly IMongoCollection<TestPackage> _collection;
+    private readonly IMongoCollection<ServicePackage> _servicePackagesCollection;
     private readonly IMongoCollection<BsonDocument> _mapCollection;
     private readonly IMongoCollection<BsonDocument> _criteriaCollection;
 
@@ -20,6 +21,7 @@ public class TestPackageRepository : ITestPackageRepository
     public TestPackageRepository(IMongoDatabase database)
     {
         _collection = database.GetCollection<TestPackage>("test_packages");
+        _servicePackagesCollection = database.GetCollection<ServicePackage>("service_packages");
         _mapCollection = database.GetCollection<BsonDocument>("test_package_criteria");
         _criteriaCollection = database.GetCollection<BsonDocument>("test_criteria");
     }
@@ -89,7 +91,46 @@ public class TestPackageRepository : ITestPackageRepository
             filter = fb.And(filter, fb.Eq(p => p.IsActive, true));
         }
 
-        return await _collection.Find(filter).FirstOrDefaultAsync(cancellationToken);
+        var found = await _collection.Find(filter).FirstOrDefaultAsync(cancellationToken);
+        if (found is not null)
+            return found;
+
+        try
+        {
+            var sfb = Builders<ServicePackage>.Filter;
+            var sFilter = sfb.And(
+                sfb.Eq(p => p.IsDeleted, false),
+                sfb.Or(
+                    sfb.Eq(p => p.Id, trimmed),
+                    sfb.Eq(p => p.Code, trimmed.ToUpperInvariant())));
+            if (!includeInactive)
+            {
+                sFilter = sfb.And(sFilter, sfb.Eq(p => p.IsActive, true));
+            }
+
+            var sp = await _servicePackagesCollection.Find(sFilter).FirstOrDefaultAsync(cancellationToken);
+            if (sp is not null)
+            {
+                return new TestPackage
+                {
+                    Id = sp.Id,
+                    PackageCode = sp.Code,
+                    PackageName = sp.Name,
+                    Category = sp.Category ?? "Biochemistry",
+                    Price = sp.DiscountPrice ?? sp.Price,
+                    Description = sp.Description ?? string.Empty,
+                    SampleTube = "Serum / EDTA",
+                    SampleVolumeMl = 2.0,
+                    IsActive = sp.IsActive
+                };
+            }
+        }
+        catch
+        {
+            // Non-fatal fallback
+        }
+
+        return null;
     }
 
     /// <inheritdoc />
