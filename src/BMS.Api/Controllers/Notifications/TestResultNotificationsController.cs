@@ -1,5 +1,6 @@
 using BMS.Api.Authorization;
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using BMS.Infrastructure.Data;
@@ -53,23 +54,35 @@ public class TestResultNotificationsController : ControllerBase
         [FromBody] DispatchTestResultNotificationDto dto,
         CancellationToken ct = default)
     {
-        if (!ModelState.IsValid)
+        try
         {
-            return BadRequest(ApiResponse<object>.Fail("Dữ liệu thông báo không hợp lệ.", "MSG-ERR-VALIDATION"));
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ApiResponse<object>.Fail("Dữ liệu thông báo không hợp lệ.", "MSG-ERR-VALIDATION"));
+            }
+
+            var operatorId = CurrentUserId ?? "SYSTEM";
+            var operatorName = CurrentUserName ?? "Hệ thống xét nghiệm BMS";
+
+            var (success, message, data) = await _notificationService.DispatchNotificationAsync(
+                dto, operatorId, operatorName, ct);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-DISPATCH-FAILED"));
+            }
+
+            return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(data!, message));
         }
-
-        var operatorId = CurrentUserId ?? "SYSTEM";
-        var operatorName = CurrentUserName ?? "Hệ thống xét nghiệm BMS";
-
-        var (success, message, data) = await _notificationService.DispatchNotificationAsync(
-            dto, operatorId, operatorName, ct);
-
-        if (!success)
+        catch (AppException ex)
         {
-            return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-DISPATCH-FAILED"));
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
         }
-
-        return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(data!, message));
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi phát hành thông báo kết quả xét nghiệm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -82,10 +95,22 @@ public class TestResultNotificationsController : ControllerBase
         [FromQuery] NotificationQueryParameters query,
         CancellationToken ct = default)
     {
-        var result = await _notificationService.GetNotificationsPagedAsync(query, ct);
-        return Ok(ApiResponse<PagedResult<TestResultNotificationListItemDto>>.Ok(
-            result,
-            "Tải danh sách thông báo kết quả xét nghiệm thành công."));
+        try
+        {
+            var result = await _notificationService.GetNotificationsPagedAsync(query, ct);
+            return Ok(ApiResponse<PagedResult<TestResultNotificationListItemDto>>.Ok(
+                result,
+                "Tải danh sách thông báo kết quả xét nghiệm thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải danh sách thông báo kết quả xét nghiệm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -99,17 +124,29 @@ public class TestResultNotificationsController : ControllerBase
         string id,
         CancellationToken ct = default)
     {
-        var result = await _notificationService.GetNotificationByIdAsync(id, ct);
-        // A patient asking for someone else's notification gets the same 404 as a missing one (anti-BOLA, R14).
-        if (result != null && !await this.MayAccessPatientAsync(result.PatientId, ct)) result = null;
-        if (result == null)
+        try
         {
-            return NotFound(ApiResponse<object>.Fail(
-                $"Không tìm thấy thông báo kết quả xét nghiệm với mã '{id}'.",
-                "MSG-ERR-NOTIF-NOT-FOUND"));
-        }
+            var result = await _notificationService.GetNotificationByIdAsync(id, ct);
+            // A patient asking for someone else's notification gets the same 404 as a missing one (anti-BOLA, R14).
+            if (result != null && !await this.MayAccessPatientAsync(result.PatientId, ct)) result = null;
+            if (result == null)
+            {
+                return NotFound(ApiResponse<object>.Fail(
+                    $"Không tìm thấy thông báo kết quả xét nghiệm với mã '{id}'.",
+                    "MSG-ERR-NOTIF-NOT-FOUND"));
+            }
 
-        return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(result, "Tải chi tiết thông báo thành công."));
+            return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(result, "Tải chi tiết thông báo thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải chi tiết thông báo kết quả xét nghiệm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -122,12 +159,28 @@ public class TestResultNotificationsController : ControllerBase
         string patientId,
         CancellationToken ct = default)
     {
-        // WHY (R14, smoke SMK-BN-08): patientId is in the URL, so ownership is checked against the token account.
-        if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
-        var list = await _notificationService.GetPatientNotificationsAsync(patientId, ct);
-        return Ok(ApiResponse<List<TestResultNotificationDetailDto>>.Ok(
-            list,
-            $"Tải danh sách thông báo của bệnh nhân {patientId} thành công."));
+        try
+        {
+            // WHY (R14, smoke SMK-BN-08): patientId is in the URL, so ownership is checked against the token account.
+            if (!await this.MayAccessPatientAsync(patientId, ct))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    ApiResponse<object>.Fail("Bạn không có quyền xem thông báo kết quả xét nghiệm của bệnh nhân khác.", "MSG-ERR-FORBIDDEN"));
+            }
+            var list = await _notificationService.GetPatientNotificationsAsync(patientId, ct);
+            return Ok(ApiResponse<List<TestResultNotificationDetailDto>>.Ok(
+                list,
+                $"Tải danh sách thông báo của bệnh nhân {patientId} thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải thông báo kết quả của bệnh nhân.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -140,9 +193,25 @@ public class TestResultNotificationsController : ControllerBase
         string patientId,
         CancellationToken ct = default)
     {
-        if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
-        var count = await _notificationService.GetUnreadCountAsync(patientId, ct);
-        return Ok(ApiResponse<int>.Ok(count, "Số lượng thông báo chưa đọc."));
+        try
+        {
+            if (!await this.MayAccessPatientAsync(patientId, ct))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    ApiResponse<object>.Fail("Bạn không có quyền truy cập số lượng thông báo của bệnh nhân khác.", "MSG-ERR-FORBIDDEN"));
+            }
+            var count = await _notificationService.GetUnreadCountAsync(patientId, ct);
+            return Ok(ApiResponse<int>.Ok(count, "Số lượng thông báo chưa đọc."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi kiểm tra thông báo chưa đọc.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -155,16 +224,28 @@ public class TestResultNotificationsController : ControllerBase
         string id,
         CancellationToken ct = default)
     {
-        var owned = await _notificationService.GetNotificationByIdAsync(id, ct);
-        if (owned == null || !await this.MayAccessPatientAsync(owned.PatientId, ct))
-            return NotFound(ApiResponse<bool>.Fail("Không tìm thấy thông báo cần đánh dấu đã đọc.", "MSG-ERR-NOTIF-NOT-FOUND"));
-        var success = await _notificationService.MarkAsReadAsync(id, ct);
-        if (!success)
+        try
         {
-            return NotFound(ApiResponse<bool>.Fail("Không tìm thấy thông báo cần đánh dấu đã đọc.", "MSG-ERR-NOTIF-NOT-FOUND"));
-        }
+            var owned = await _notificationService.GetNotificationByIdAsync(id, ct);
+            if (owned == null || !await this.MayAccessPatientAsync(owned.PatientId, ct))
+                return NotFound(ApiResponse<bool>.Fail("Không tìm thấy thông báo cần đánh dấu đã đọc.", "MSG-ERR-NOTIF-NOT-FOUND"));
+            var success = await _notificationService.MarkAsReadAsync(id, ct);
+            if (!success)
+            {
+                return NotFound(ApiResponse<bool>.Fail("Không tìm thấy thông báo cần đánh dấu đã đọc.", "MSG-ERR-NOTIF-NOT-FOUND"));
+            }
 
-        return Ok(ApiResponse<bool>.Ok(true, "Đã đánh dấu thông báo là đã đọc."));
+            return Ok(ApiResponse<bool>.Ok(true, "Đã đánh dấu thông báo là đã đọc."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi cập nhật trạng thái đã đọc của thông báo.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -179,16 +260,28 @@ public class TestResultNotificationsController : ControllerBase
         [FromBody] ResendNotificationDto dto,
         CancellationToken ct = default)
     {
-        var operatorName = CurrentUserName ?? "Nhân viên y tế BMS";
-        var (success, message, data) = await _notificationService.ResendNotificationAsync(
-            id, dto, operatorName, ct);
-
-        if (!success)
+        try
         {
-            return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-RESEND-FAILED"));
-        }
+            var operatorName = CurrentUserName ?? "Nhân viên y tế BMS";
+            var (success, message, data) = await _notificationService.ResendNotificationAsync(
+                id, dto, operatorName, ct);
 
-        return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(data!, message));
+            if (!success)
+            {
+                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-RESEND-FAILED"));
+            }
+
+            return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(data!, message));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi gửi lại thông báo kết quả xét nghiệm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -199,8 +292,20 @@ public class TestResultNotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<NotificationStatsDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetNotificationStats(CancellationToken ct = default)
     {
-        var stats = await _notificationService.GetStatsAsync(ct);
-        return Ok(ApiResponse<NotificationStatsDto>.Ok(stats, "Thống kê thông báo kết quả xét nghiệm."));
+        try
+        {
+            var stats = await _notificationService.GetStatsAsync(ct);
+            return Ok(ApiResponse<NotificationStatsDto>.Ok(stats, "Thống kê thông báo kết quả xét nghiệm."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải thống kê thông báo kết quả xét nghiệm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     private string? CurrentUserId =>
