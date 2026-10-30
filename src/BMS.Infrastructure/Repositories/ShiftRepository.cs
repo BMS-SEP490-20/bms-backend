@@ -477,7 +477,7 @@ public sealed class ShiftRepository : IShiftRepository
                     Username = d.Id,
                     FullName = !string.IsNullOrWhiteSpace(d.FullName) ? d.FullName : d.Id,
                     Role = RoleNames.Doctor,
-                    RoleId = 4,
+                    RoleId = 2,
                     Department = !string.IsNullOrWhiteSpace(d.Specialty) ? d.Specialty : "Khoa Khám Bệnh",
                     LicenseNumber = d.LicenseNumber
                 };
@@ -487,8 +487,8 @@ public sealed class ShiftRepository : IShiftRepository
             var staffAccounts = await _accounts
                 .Find(uf.And(
                     uf.Or(
-                        uf.In("RoleId", new[] { 1, 2, 3, 4, 5 }),
-                        uf.In("roleId", new[] { 1, 2, 3, 4, 5 })
+                        uf.In("RoleId", new[] { 1, 2, 3, 4, 6 }),
+                        uf.In("RoleId", new[] { 1, 2, 3, 4, 6 })
                     ),
                     uf.Ne(u => u.IsDeleted, true)))
                 .ToListAsync(ct);
@@ -496,14 +496,14 @@ public sealed class ShiftRepository : IShiftRepository
             foreach (var a in staffAccounts)
             {
                 if (string.IsNullOrWhiteSpace(a.Id)) continue;
-                var rId = a.RoleId ?? 4;
-                if (rId is < 1 or > 5) continue;
+                var rId = a.RoleId ?? 2;
+                if (rId == 5 || rId < 1 || rId > 6) continue;
                 var roleName = RoleNames.FromRoleId(rId) ?? "Doctor";
                 var defaultDept = rId switch
                 {
-                    2 or 3 => "Khoa Xét Nghiệm",
-                    4 => "Khoa Khám Bệnh",
-                    5 => "Bộ Phận Tiếp Đón",
+                    2 => "Khoa Khám Bệnh",
+                    3 or 6 => "Khoa Xét Nghiệm",
+                    4 => "Bộ Phận Tiếp Đón",
                     _ => "Quản Trị Vận Hành"
                 };
 

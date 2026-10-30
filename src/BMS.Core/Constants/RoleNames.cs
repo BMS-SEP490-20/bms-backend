@@ -25,7 +25,7 @@ public static class RoleNames
     public const string Patient = "Patient";
 
     /// <summary>All six canonical names, indexed by role ID (index 0 unused).</summary>
-    private static readonly string[] ById = ["", Admin, Manager, Lab, Doctor, Receptionist, Patient];
+    private static readonly string[] ById = ["", Admin, Doctor, Lab, Receptionist, Patient, Manager];
 
     /// <summary>Maps a seeded role ID (1–6) to its canonical claim name; any other ID returns <c>null</c>.</summary>
     public static string? FromRoleId(int? roleId)

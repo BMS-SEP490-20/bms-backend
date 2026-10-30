@@ -262,17 +262,17 @@ public class RoleRepository : IRoleRepository
     private static Role? BuildDefaultNumericRole(int roleId) => roleId switch
     {
         1 => new Role { Id = 1, RoleName = RoleNames.Admin, Description = "System Administrator",
-            Permissions = ["MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES"] },
-        2 => new Role { Id = 2, RoleName = RoleNames.Manager, Description = "Quản lý (gồm Trưởng phòng Lab)",
-            Permissions = ["APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS"] },
+            Permissions = ["MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "MANAGE_SCHEDULE"] },
+        2 => new Role { Id = 2, RoleName = RoleNames.Doctor, Description = "Bác sĩ",
+            Permissions = ["EXAMINE_PATIENT", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY"] },
         3 => new Role { Id = 3, RoleName = RoleNames.Lab, Description = "Lab (gồm KTV, lấy mẫu, kho)",
             Permissions = ["RECEIVE_SAMPLE", "COLLECT_SAMPLE", "RUN_ANALYZER", "ENTER_RESULT", "MANAGE_REAGENTS"] },
-        4 => new Role { Id = 4, RoleName = RoleNames.Doctor, Description = "Bác sĩ",
-            Permissions = ["EXAMINE_PATIENT", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY"] },
-        5 => new Role { Id = 5, RoleName = RoleNames.Receptionist, Description = "Lễ tân (gồm Thu ngân)",
+        4 => new Role { Id = 4, RoleName = RoleNames.Receptionist, Description = "Lễ tân (gồm Thu ngân)",
             Permissions = ["CHECK_IN", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT"] },
-        6 => new Role { Id = 6, RoleName = RoleNames.Patient, Description = "Bệnh nhân",
+        5 => new Role { Id = 5, RoleName = RoleNames.Patient, Description = "Bệnh nhân",
             Permissions = ["BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE"] },
+        6 => new Role { Id = 6, RoleName = RoleNames.Manager, Description = "Quản lý (gồm Trưởng phòng Lab)",
+            Permissions = ["APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS"] },
         _ => null
     };
 

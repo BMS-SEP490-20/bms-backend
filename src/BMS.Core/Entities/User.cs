@@ -23,11 +23,11 @@ public enum UserStatus
 public enum UserRole
 {
     Admin = 1,
-    Manager = 2,
+    Doctor = 2,
     Lab = 3,
-    Doctor = 4,
-    Receptionist = 5,
-    Patient = 6
+    Receptionist = 4,
+    Patient = 5,
+    Manager = 6
 }
 
 /// <summary>
