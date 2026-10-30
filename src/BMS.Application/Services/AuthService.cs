@@ -26,6 +26,7 @@ public class AuthService : IAuthService
     private readonly IPasswordHasher? _passwordHasher;
     private readonly IEmailService? _emailService;
     private readonly IOtpRepository? _otpRepository;
+    private readonly IAuditLogRepository? _auditLogRepository;
     private readonly AuthOptions _authOpt;
     private readonly TimeProvider _clock;
     private readonly ILogger<AuthService>? _logger;
@@ -39,6 +40,7 @@ public class AuthService : IAuthService
         IPasswordHasher? passwordHasher = null,
         IEmailService? emailService = null,
         IOtpRepository? otpRepository = null,
+        IAuditLogRepository? auditLogRepository = null,
         IOptions<AuthOptions>? authOptions = null,
         TimeProvider? clock = null,
         ILogger<AuthService>? logger = null)
@@ -51,6 +53,7 @@ public class AuthService : IAuthService
         _passwordHasher = passwordHasher;
         _emailService = emailService;
         _otpRepository = otpRepository;
+        _auditLogRepository = auditLogRepository;
         _authOpt = authOptions?.Value ?? new AuthOptions();
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
@@ -64,6 +67,11 @@ public class AuthService : IAuthService
     /// </summary>
     public async Task<AuthLoginResult> AuthenticateAsync(LoginRequest request, ClientContext client, CancellationToken ct = default)
     {
+        if (request == null || string.IsNullOrWhiteSpace(request.UsernameOrEmail) || string.IsNullOrEmpty(request.Password))
+        {
+            return AuthLoginResult.Fail(400, "Vui lòng nhập đầy đủ tên đăng nhập/email/SĐT/CCCD và mật khẩu.", "VALIDATION_ERROR");
+        }
+
         var now = _clock.GetUtcNow().UtcDateTime;
         var login = request.UsernameOrEmail.Trim();
 
@@ -83,7 +91,10 @@ public class AuthService : IAuthService
         {
             user = _context.Users.FirstOrDefault(u =>
                 u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(u.PhoneNumber) && u.PhoneNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(u.IdentityCardNumber) && u.IdentityCardNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(u.PatientCode) && u.PatientCode.Equals(login, StringComparison.OrdinalIgnoreCase)));
         }
 
         // 1. User not found -> constant-time dummy BCrypt verify to prevent timing-based account enumeration
@@ -94,13 +105,22 @@ public class AuthService : IAuthService
             return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
-        // 2. Check temporary brute-force lockout
-        if (user.LockoutEnd is { } until && until > now)
+        // 2. Check temporary brute-force lockout (BR-IAM-03: 15 minutes after 5 consecutive failures)
+        if (user.LockoutEnd is { } until)
         {
-            var remaining = until - now;
-            var minutes = (int)Math.Ceiling(remaining.TotalMinutes);
-            _logger?.LogWarning("Login blocked: locked user {UserId} until {Until} from {Ip}", user.Id, until, client.IpAddress);
-            return AuthLoginResult.Fail(423, $"Tài khoản tạm thời bị khóa trong {minutes} phút do đăng nhập sai quá 5 lần liên tiếp.", "ACCOUNT_LOCKED", minutes);
+            if (until > now)
+            {
+                var remaining = until - now;
+                var minutes = (int)Math.Ceiling(remaining.TotalMinutes);
+                _logger?.LogWarning("Login blocked: locked user {UserId} until {Until} from {Ip}", user.Id, until, client.IpAddress);
+                return AuthLoginResult.Fail(423, $"Tài khoản tạm thời bị khóa trong {minutes} phút do đăng nhập sai quá 5 lần liên tiếp.", "ACCOUNT_LOCKED", minutes);
+            }
+            else
+            {
+                // Lockout period expired: cleanly reset lockout counter
+                user.LockoutEnd = null;
+                user.FailedLoginCount = 0;
+            }
         }
 
         // 3. Verify password against BCrypt hash (with fallback to BmsDbContext SHA256 for dev memory accounts)
@@ -109,7 +129,10 @@ public class AuthService : IAuthService
         {
             var memUser = _context.Users.FirstOrDefault(u =>
                 u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(u.PhoneNumber) && u.PhoneNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(u.IdentityCardNumber) && u.IdentityCardNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(u.PatientCode) && u.PatientCode.Equals(login, StringComparison.OrdinalIgnoreCase)));
             if (memUser != null && VerifyUserPassword(request.Password, memUser.PasswordHash))
             {
                 passwordValid = true;
@@ -118,6 +141,29 @@ public class AuthService : IAuthService
 
         if (!passwordValid)
         {
+            if (_auditLogRepository != null)
+            {
+                try
+                {
+                    await _auditLogRepository.AddAsync(new AuditLog
+                    {
+                        AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                        Timestamp = now,
+                        UserId = user.Id,
+                        UserName = user.FullName ?? user.Username,
+                        UserRole = "Unknown",
+                        Action = "LOGIN_FAILED",
+                        Category = "SECURITY",
+                        Severity = "WARNING",
+                        IpAddress = client.IpAddress ?? "127.0.0.1",
+                        TargetEntity = "User",
+                        EntityId = user.Id,
+                        Details = $"Failed password attempt for login: {login}"
+                    }, ct);
+                }
+                catch { /* Audit logging failure should not abort response */ }
+            }
+
             if (fromMongo && _userRepository != null)
             {
                 var fails = await _userRepository.IncrementFailedLoginAsync(user.Id, ct);
@@ -168,6 +214,30 @@ public class AuthService : IAuthService
 
         _logger?.LogInformation("Login succeeded: user {UserId} ({Username}) from {Ip}", user.Id, user.Username, client.IpAddress);
         var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
+
+        if (_auditLogRepository != null)
+        {
+            try
+            {
+                await _auditLogRepository.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = user.Id,
+                    UserName = user.FullName ?? user.Username,
+                    UserRole = tokens.User.Role,
+                    Action = "LOGIN_SUCCESS",
+                    Category = "SECURITY",
+                    Severity = "INFO",
+                    IpAddress = client.IpAddress ?? "127.0.0.1",
+                    TargetEntity = "User",
+                    EntityId = user.Id,
+                    Details = $"User {user.Username} successfully logged in."
+                }, ct);
+            }
+            catch { /* Audit logging failure should not abort response */ }
+        }
+
         return AuthLoginResult.Ok(tokens);
     }
 
