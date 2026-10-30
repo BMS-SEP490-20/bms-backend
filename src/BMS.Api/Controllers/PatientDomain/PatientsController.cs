@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.Api.Authorization;
 using BMS.Application.DTOs.Common;
@@ -24,7 +25,7 @@ public class PatientsController(
     IAuthorizationService authorization) : ControllerBase
 {
     /// <summary>
-    /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Staff / Admin / Doctor / Receptionist).
+    /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Staff / Manager / Doctor / Lab / Receptionist).
     /// </summary>
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet]
@@ -33,8 +34,35 @@ public class PatientsController(
         [FromQuery] PatientSearchRequest request,
         CancellationToken ct)
     {
-        var result = await patients.SearchPatientsAsync(request, ct);
-        return Ok(result);
+        try
+        {
+            var result = await patients.SearchPatientsAsync(request, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau.",
+                message = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau."
+            });
+        }
     }
 
     /// <summary>
@@ -46,14 +74,49 @@ public class PatientsController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PatientInformationDto>> GetMyProfile(CancellationToken ct)
     {
-        var demoHeader = Request.Headers["X-Demo-User"].FirstOrDefault();
-        var userId = CurrentUserId ?? (!string.IsNullOrWhiteSpace(demoHeader) ? demoHeader.Trim() : null);
-        if (string.IsNullOrWhiteSpace(userId))
+        try
         {
-            throw new UnauthorizedAccessException();
+            var demoHeader = Request.Headers["X-Demo-User"].FirstOrDefault();
+            var userId = CurrentUserId ?? (!string.IsNullOrWhiteSpace(demoHeader) ? demoHeader.Trim() : null);
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return StatusCode(StatusCodes.Status401Unauthorized, new
+                {
+                    success = false,
+                    status = 401,
+                    title = "UNAUTHORIZED",
+                    code = "UNAUTHORIZED",
+                    detail = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân.",
+                    message = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân."
+                });
+            }
+            var result = await patients.GetMyPatientInformationAsync(userId, ct);
+            return Ok(result);
         }
-        var result = await patients.GetMyPatientInformationAsync(userId, ct);
-        return Ok(result);
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải thông tin hồ sơ bệnh nhân lúc này.",
+                message = "Không thể tải thông tin hồ sơ bệnh nhân lúc này."
+            });
+        }
     }
 
     /// <summary>
@@ -70,9 +133,36 @@ public class PatientsController(
         string id,
         CancellationToken ct)
     {
-        var isStaffOrAdmin = await CanViewAllPatientsAsync();
-        var result = await patients.GetPatientInformationAsync(id, CurrentUserId, isStaffOrAdmin, ct);
-        return Ok(result);
+        try
+        {
+            var isStaffOrAdmin = await CanViewAllPatientsAsync();
+            var result = await patients.GetPatientInformationAsync(id, CurrentUserId, isStaffOrAdmin, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này.",
+                message = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này."
+            });
+        }
     }
 
     /// <summary>
@@ -97,15 +187,44 @@ public class PatientsController(
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
+                success = false,
                 status = 403,
                 title = "Forbidden",
+                code = "FORBIDDEN",
                 detail = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile).",
                 message = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile)."
             });
         }
 
-        var created = await patients.CreateGuestProfileAsync(request, CurrentUserId, ct);
-        return CreatedAtAction(nameof(GetPatientById), new { id = created.Id }, created);
+        try
+        {
+            var created = await patients.CreateGuestProfileAsync(request, CurrentUserId, ct);
+            return CreatedAtAction(nameof(GetPatientById), new { id = created.Id }, created);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau.",
+                message = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau."
+            });
+        }
     }
 
     private bool IsReceptionist()
