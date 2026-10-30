@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using BMS.Application.DTOs.Common;
 using BMS.Application.DTOs.Shifts;
 using BMS.Application.Interfaces;
@@ -35,23 +36,50 @@ public class ViewShiftsController(IShiftService shifts) : ControllerBase
         [FromQuery] int pageSize = 100,
         CancellationToken ct = default)
     {
-        var fromDate = (from ?? DateTime.UtcNow.Date).Date;
-        var toDate = (to ?? fromDate.AddDays(7)).Date;
-
-        var filter = new ShiftFilterRequest
+        try
         {
-            FromDate = fromDate,
-            ToDate = toDate,
-            DoctorId = doctorId,
-            EmployeeId = doctorId,
-            Department = department ?? specialty,
-            Status = status,
-            Page = page,
-            PageSize = pageSize
-        };
+            var fromDate = (from ?? DateTime.UtcNow.Date).Date;
+            var toDate = (to ?? fromDate.AddDays(7)).Date;
 
-        var result = await shifts.ListShiftsAsync(filter, ct);
-        return Ok(result);
+            var filter = new ShiftFilterRequest
+            {
+                FromDate = fromDate,
+                ToDate = toDate,
+                DoctorId = doctorId,
+                EmployeeId = doctorId,
+                Department = department ?? specialty,
+                Status = status,
+                Page = page,
+                PageSize = pageSize
+            };
+
+            var result = await shifts.ListShiftsAsync(filter, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách lịch trực lúc này.",
+                message = "Không thể tải danh sách lịch trực lúc này."
+            });
+        }
     }
 
     /// <summary>Shifts for a single calendar day.</summary>
@@ -63,16 +91,43 @@ public class ViewShiftsController(IShiftService shifts) : ControllerBase
         [FromQuery] int pageSize = 100,
         CancellationToken ct = default)
     {
-        var day = (date ?? DateTime.UtcNow.Date).Date;
-        var filter = new ShiftFilterRequest
+        try
         {
-            FromDate = day,
-            ToDate = day,
-            Page = page,
-            PageSize = pageSize
-        };
-        var result = await shifts.ListShiftsAsync(filter, ct);
-        return Ok(result);
+            var day = (date ?? DateTime.UtcNow.Date).Date;
+            var filter = new ShiftFilterRequest
+            {
+                FromDate = day,
+                ToDate = day,
+                Page = page,
+                PageSize = pageSize
+            };
+            var result = await shifts.ListShiftsAsync(filter, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách lịch trực theo ngày.",
+                message = "Không thể tải danh sách lịch trực theo ngày."
+            });
+        }
     }
 
     /// <summary>Shift detail (same as GET /api/shifts/{id}).</summary>
@@ -80,7 +135,34 @@ public class ViewShiftsController(IShiftService shifts) : ControllerBase
     [ProducesResponseType(typeof(ShiftDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<ShiftDto>> GetById(string id, CancellationToken ct)
     {
-        var result = await shifts.GetShiftByIdAsync(id, ct);
-        return Ok(result);
+        try
+        {
+            var result = await shifts.GetShiftByIdAsync(id, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải thông tin chi tiết ca trực.",
+                message = "Không thể tải thông tin chi tiết ca trực."
+            });
+        }
     }
 }
