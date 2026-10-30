@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Roles;
@@ -43,10 +44,22 @@ public class SpecimenHistoryController : ControllerBase
         [FromQuery] SpecimenHistoryQueryParameters query,
         CancellationToken ct = default)
     {
-        var result = await _historyService.GetSpecimenHistoryPagedAsync(query, ct);
-        return Ok(ApiResponse<PagedResult<SpecimenHistoryListItemDto>>.Ok(
-            result,
-            "Danh sách lịch sử bệnh phẩm đã tải thành công."));
+        try
+        {
+            var result = await _historyService.GetSpecimenHistoryPagedAsync(query, ct);
+            return Ok(ApiResponse<PagedResult<SpecimenHistoryListItemDto>>.Ok(
+                result,
+                "Danh sách lịch sử bệnh phẩm đã tải thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải danh sách lịch sử bệnh phẩm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -60,17 +73,29 @@ public class SpecimenHistoryController : ControllerBase
         string barcode,
         CancellationToken ct = default)
     {
-        var result = await _historyService.GetSpecimenHistoryByBarcodeAsync(barcode, ct);
-        if (result == null)
+        try
         {
-            return NotFound(ApiResponse<object>.Fail(
-                $"Không tìm thấy dữ liệu lịch sử của mẫu bệnh phẩm '{barcode}'.",
-                "MSG-ERR-SPECIMEN-NOT-FOUND"));
-        }
+            var result = await _historyService.GetSpecimenHistoryByBarcodeAsync(barcode, ct);
+            if (result == null)
+            {
+                return NotFound(ApiResponse<object>.Fail(
+                    $"Không tìm thấy dữ liệu lịch sử của mẫu bệnh phẩm '{barcode}'.",
+                    "MSG-ERR-SPECIMEN-NOT-FOUND"));
+            }
 
-        return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(
-            result,
-            $"Tải lịch sử mẫu bệnh phẩm {result.Barcode} thành công."));
+            return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(
+                result,
+                $"Tải lịch sử mẫu bệnh phẩm {result.Barcode} thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải chi tiết lịch sử mẫu bệnh phẩm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -83,10 +108,22 @@ public class SpecimenHistoryController : ControllerBase
         string patientId,
         CancellationToken ct = default)
     {
-        var result = await _historyService.GetSpecimensByPatientIdAsync(patientId, ct);
-        return Ok(ApiResponse<List<SpecimenHistoryListItemDto>>.Ok(
-            result,
-            $"Tải danh sách mẫu bệnh phẩm của bệnh nhân {patientId} thành công."));
+        try
+        {
+            var result = await _historyService.GetSpecimensByPatientIdAsync(patientId, ct);
+            return Ok(ApiResponse<List<SpecimenHistoryListItemDto>>.Ok(
+                result,
+                $"Tải danh sách mẫu bệnh phẩm của bệnh nhân {patientId} thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi tải lịch sử mẫu bệnh phẩm của bệnh nhân.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -102,30 +139,42 @@ public class SpecimenHistoryController : ControllerBase
         [FromBody] AddSpecimenTrackingEventDto eventDto,
         CancellationToken ct = default)
     {
-        if (!ModelState.IsValid)
+        try
         {
-            return BadRequest(ApiResponse<object>.Fail("Dữ liệu sự kiện không hợp lệ.", "MSG-ERR-VALIDATION"));
-        }
-
-        var operatorId = CurrentUserId ?? "STAFF";
-        var operatorName = CurrentUserName ?? eventDto.OperatorName ?? "Nhân viên y tế";
-
-        _logger.LogInformation("[SpecimenHistory API] Adding tracking event {Event} to specimen {Barcode} by {User}",
-            eventDto.EventType, barcode, operatorName);
-
-        var (success, message, data) = await _historyService.AddTrackingEventAsync(
-            barcode, eventDto, operatorId, operatorName, ct);
-
-        if (!success)
-        {
-            if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
+            if (!ModelState.IsValid)
             {
-                return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-SPECIMEN-NOT-FOUND"));
+                return BadRequest(ApiResponse<object>.Fail("Dữ liệu sự kiện không hợp lệ.", "MSG-ERR-VALIDATION"));
             }
-            return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-EVENT-FAILED"));
-        }
 
-        return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(data!, message));
+            var operatorId = CurrentUserId ?? "STAFF";
+            var operatorName = CurrentUserName ?? eventDto.OperatorName ?? "Nhân viên y tế";
+
+            _logger.LogInformation("[SpecimenHistory API] Adding tracking event {Event} to specimen {Barcode} by {User}",
+                eventDto.EventType, barcode, operatorName);
+
+            var (success, message, data) = await _historyService.AddTrackingEventAsync(
+                barcode, eventDto, operatorId, operatorName, ct);
+
+            if (!success)
+            {
+                if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
+                {
+                    return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-SPECIMEN-NOT-FOUND"));
+                }
+                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-EVENT-FAILED"));
+            }
+
+            return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(data!, message));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi ghi nhận sự kiện theo dõi mẫu bệnh phẩm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     /// <summary>
@@ -141,29 +190,41 @@ public class SpecimenHistoryController : ControllerBase
         [FromBody] UpdateSpecimenStorageDto storageDto,
         CancellationToken ct = default)
     {
-        if (!ModelState.IsValid)
+        try
         {
-            return BadRequest(ApiResponse<object>.Fail("Dữ liệu lưu trữ không hợp lệ.", "MSG-ERR-VALIDATION"));
-        }
-
-        var operatorName = CurrentUserName ?? "KTV Xét Nghiệm";
-
-        _logger.LogInformation("[SpecimenHistory API] Updating storage location for specimen {Barcode} to {Unit} ({Rack})",
-            barcode, storageDto.StorageUnit, storageDto.RackId);
-
-        var (success, message, data) = await _historyService.UpdateStorageAsync(
-            barcode, storageDto, operatorName, ct);
-
-        if (!success)
-        {
-            if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
+            if (!ModelState.IsValid)
             {
-                return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-SPECIMEN-NOT-FOUND"));
+                return BadRequest(ApiResponse<object>.Fail("Dữ liệu lưu trữ không hợp lệ.", "MSG-ERR-VALIDATION"));
             }
-            return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-STORAGE-UPDATE-FAILED"));
-        }
 
-        return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(data!, message));
+            var operatorName = CurrentUserName ?? "KTV Xét Nghiệm";
+
+            _logger.LogInformation("[SpecimenHistory API] Updating storage location for specimen {Barcode} to {Unit} ({Rack})",
+                barcode, storageDto.StorageUnit, storageDto.RackId);
+
+            var (success, message, data) = await _historyService.UpdateStorageAsync(
+                barcode, storageDto, operatorName, ct);
+
+            if (!success)
+            {
+                if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
+                {
+                    return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-SPECIMEN-NOT-FOUND"));
+                }
+                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-STORAGE-UPDATE-FAILED"));
+            }
+
+            return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(data!, message));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<object>.Fail("Lỗi hệ thống khi cập nhật vị trí lưu trữ mẫu bệnh phẩm.", "MSG-ERR-INTERNAL"));
+        }
     }
 
     private string? CurrentUserId =>
