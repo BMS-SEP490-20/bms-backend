@@ -203,8 +203,8 @@ public class User : ISupportInitialize
                 _passwordHash = pw.AsString;
         }
 
-        if ((!RoleId.HasValue || RoleId.Value == 0) && ExtraElements.TryGetValue("roleId", out var r) && r.IsInt32)
-            RoleId = r.AsInt32;
+        if (ExtraElements.TryGetValue("roleId", out var r) && r.IsNumeric && r.ToInt32() > 0) RoleId = r.ToInt32();
+
 
         if (ExtraElements.TryGetValue("status", out var s) && s.IsInt32)
             Status = s.AsInt32;
