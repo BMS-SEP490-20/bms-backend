@@ -311,7 +311,7 @@ public sealed class ShiftRepository : IShiftRepository
             foreach (var a in accounts)
             {
                 // 6-role seed (decision 30/10 point 1): 2 = Manager (ex-LabHead), 3 = Lab (ex-LabTech).
-                var roleLabel = a.RoleId is >= 1 and <= 5 ? RoleNames.FromRoleId(a.RoleId)! : "Staff";
+                var roleLabel = a.RoleId is >= 1 and <= 6 && a.RoleId != 5 ? RoleNames.FromRoleId(a.RoleId)! : "Staff";
 
                 if (map.TryGetValue(a.Id, out var existing))
                 {
@@ -487,8 +487,8 @@ public sealed class ShiftRepository : IShiftRepository
             var staffAccounts = await _accounts
                 .Find(uf.And(
                     uf.Or(
-                        uf.In("RoleId", new[] { 1, 2, 3, 4, 6 }),
-                        uf.In("RoleId", new[] { 1, 2, 3, 4, 6 })
+                        uf.In("RoleId", new[] { 1, 2, 3, 4, 6 }), uf.In("roleId", new[] { 1, 2, 3, 4, 6 })
+
                     ),
                     uf.Ne(u => u.IsDeleted, true)))
                 .ToListAsync(ct);

@@ -398,7 +398,7 @@ public class UsersController : ControllerBase
 
         // 6-role seed (decision 30/10 point 1). Lower-case canonical names keep the existing web contract shape.
         // Legacy RoleId 9 (old self-registration) is a patient.
-        string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? (int)BMS.Core.Entities.UserRole.Patient : roleId) ?? "unknown").ToLowerInvariant();
+        string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? 6 : roleId) ?? "unknown").ToLowerInvariant();
 
         var created = doc.Contains("CreatedAt") ? doc["CreatedAt"].ToUniversalTime().ToString("o")
             : (doc.Contains("createdAt") ? doc["createdAt"].ToUniversalTime().ToString("o") : DateTime.UtcNow.ToString("o"));

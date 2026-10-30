@@ -2,7 +2,7 @@ namespace BMS.Core.Constants;
 
 /// <summary>
 /// Single source of truth for the six BMS role names carried in the JWT <c>role</c> claim
-/// (decision 30/10/2026 point 1: 1 Admin, 2 Manager, 3 Lab, 4 Doctor, 5 Receptionist, 6 Patient).
+/// (1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager).
 /// </summary>
 /// <remarks>
 /// WHY constants: <c>[Authorize(Roles = ...)]</c> compares role strings ordinally (case-sensitive),
