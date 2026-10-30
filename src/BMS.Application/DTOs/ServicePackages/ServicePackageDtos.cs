@@ -42,10 +42,13 @@ public abstract class ServicePackageWriteRequest : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        if (Tests == null || Tests.Count == 0)
+            yield return new ValidationResult("Gói dịch vụ phải chứa ít nhất 1 xét nghiệm thành phần.", [nameof(Tests)]);
+
         if (DiscountPrice is { } d && d > Price)
             yield return new ValidationResult("Giá khuyến mãi không được lớn hơn giá gốc.", [nameof(DiscountPrice)]);
 
-        if (Tests.Select(t => t.Code?.Trim().ToUpperInvariant()).Distinct().Count() != Tests.Count)
+        if (Tests != null && Tests.Select(t => t.Code?.Trim().ToUpperInvariant()).Distinct().Count() != Tests.Count)
             yield return new ValidationResult("Danh sách xét nghiệm có mã bị trùng.", [nameof(Tests)]);
     }
 }

@@ -462,4 +462,79 @@ public sealed class ShiftRepository : IShiftRepository
         return result;
     }
 
+    public async Task<IReadOnlyList<ShiftStaffDto>> GetAllStaffAsync(CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, ShiftStaffDto>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var doctors = await _doctors.Find(_ => true).ToListAsync(ct);
+            foreach (var d in doctors)
+            {
+                if (string.IsNullOrWhiteSpace(d.Id)) continue;
+                result[d.Id] = new ShiftStaffDto
+                {
+                    Id = d.Id,
+                    Username = d.Id,
+                    FullName = !string.IsNullOrWhiteSpace(d.FullName) ? d.FullName : d.Id,
+                    Role = RoleNames.Doctor,
+                    RoleId = 4,
+                    Department = !string.IsNullOrWhiteSpace(d.Specialty) ? d.Specialty : "Khoa Khám Bệnh",
+                    LicenseNumber = d.LicenseNumber
+                };
+            }
+
+            var uf = Builders<User>.Filter;
+            var staffAccounts = await _accounts
+                .Find(uf.And(
+                    uf.Or(
+                        uf.In("RoleId", new[] { 1, 2, 3, 4, 5 }),
+                        uf.In("roleId", new[] { 1, 2, 3, 4, 5 })
+                    ),
+                    uf.Ne(u => u.IsDeleted, true)))
+                .ToListAsync(ct);
+
+            foreach (var a in staffAccounts)
+            {
+                if (string.IsNullOrWhiteSpace(a.Id)) continue;
+                var rId = a.RoleId ?? 4;
+                if (rId is < 1 or > 5) continue;
+                var roleName = RoleNames.FromRoleId(rId) ?? "Doctor";
+                var defaultDept = rId switch
+                {
+                    2 or 3 => "Khoa Xét Nghiệm",
+                    4 => "Khoa Khám Bệnh",
+                    5 => "Bộ Phận Tiếp Đón",
+                    _ => "Quản Trị Vận Hành"
+                };
+
+                if (result.TryGetValue(a.Id, out var existing))
+                {
+                    existing.Username = !string.IsNullOrWhiteSpace(a.Username) ? a.Username : existing.Username;
+                    if (string.IsNullOrWhiteSpace(existing.FullName)) existing.FullName = a.FullName;
+                }
+                else
+                {
+                    result[a.Id] = new ShiftStaffDto
+                    {
+                        Id = a.Id,
+                        Username = !string.IsNullOrWhiteSpace(a.Username) ? a.Username : a.Id,
+                        FullName = !string.IsNullOrWhiteSpace(a.FullName) ? a.FullName : a.Username,
+                        Role = roleName,
+                        RoleId = rId,
+                        Department = defaultDept
+                    };
+                }
+            }
+        }
+        catch
+        {
+            // Ignore
+        }
+
+        return result.Values
+            .OrderBy(s => s.RoleId)
+            .ThenBy(s => s.FullName)
+            .ToList();
+    }
+
 }
