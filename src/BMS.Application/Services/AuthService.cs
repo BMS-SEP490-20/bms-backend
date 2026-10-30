@@ -2,6 +2,7 @@ using BMS.Application.DTOs;
 using BMS.Application.DTOs.Auth;
 using BMS.Application.Interfaces;
 using BMS.Application.Options;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
@@ -351,42 +352,21 @@ public class AuthService : IAuthService
             }
         }
 
-        var roleId = user.RoleId ?? user.Role switch
-        {
-            UserRole.Administrator => 1,
-            UserRole.Doctor => 2,
-            UserRole.LaboratoryUser => 3,
-            UserRole.Receptionist => 4,
-            _ => 5
-        };
+        // WHY: the fallback must follow the 6-role seed (1 Admin, 2 Manager, 3 Lab, 4 Doctor,
+        // 5 Receptionist, 6 Patient). The token service derives the role claim from this ID.
+        // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
+        var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? (int)user.Role;
+        var roleName = RoleNames.FromRoleId(roleId) ?? throw new RoleNotAssignedException();
 
-        var roleName = user.RoleId.HasValue
-            ? user.RoleId.Value switch
-            {
-                1 => "Admin",
-                2 => "Doctor",
-                3 => "LabTechnician",
-                4 => "Receptionist",
-                5 => "Patient",
-                6 => "Receptionist",
-                9 => "Patient",
-                _ => user.Role.ToString()
-            }
-            : user.Role switch
-            {
-                UserRole.Administrator => "Admin",
-                UserRole.Doctor => "Doctor",
-                UserRole.LaboratoryUser => "LabTechnician",
-                UserRole.Receptionist => "Receptionist",
-                _ => "Patient"
-            };
-
+        // Permissions per ROLE-PERMISSION-MATRIX §3.2: Admin has no clinical permission (decision 10);
+        // only Manager approves results; Receptionist no longer collects samples.
         var permissions = roleId switch
         {
-            1 => new List<string> { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_SCHEDULE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_PATIENT_RECORDS", "REGISTER_PATIENTS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES", "VIEW_ALL_LAB" },
-            2 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
-            3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "APPROVE_RESULT", "MANAGE_REAGENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "VIEW_ALL_LAB" },
-            4 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
+            1 => new List<string> { "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES" },
+            2 => new List<string> { "APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS", "VIEW_ALL_LAB" },
+            3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "VIEW_ALL_LAB" },
+            4 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
+            5 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
             _ => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" }
         };
 
@@ -514,8 +494,9 @@ public class AuthService : IAuthService
             Address = dto.Address,
             DateOfBirth = dto.DateOfBirth,
             Gender = dto.Gender,
+            // WHY (R7): self-registered accounts are patients, seeded RoleId 6. 9 was a legacy value.
             Role = UserRole.Patient,
-            RoleId = 9,
+            RoleId = (int)UserRole.Patient,
             PasswordHash = hashedPassword,
             EmailConfirmed = false,
             VerificationOtp = otp,
@@ -647,12 +628,9 @@ public class AuthService : IAuthService
             };
         }
 
-        var roleEntity = new Role
-        {
-            Id = (int)user.Role,
-            RoleName = user.Role.ToString(),
-            Permissions = new List<string> { "ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "VIEW_REPORTS" }
-        };
+        // WHY: this legacy in-memory login used to grant every user the "ALL" permission.
+        // Reuse the canonical 6-role resolution instead so its tokens carry the same claims as the main login.
+        var roleEntity = await ResolveRoleAsync(user, CancellationToken.None);
         var token = _tokenService != null
             ? _tokenService.CreateAccessToken(user, roleEntity).Token
             : $"BMS_TOKEN_{user.Id}_{user.Role}_{Guid.NewGuid():N}";

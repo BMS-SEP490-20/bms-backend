@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -13,6 +14,8 @@ namespace BMS.Api.Controllers.Clinic;
 [Route("api/v1/schedules")]
 [Route("api/schedules")]
 [Produces("application/json")]
+// WHY: UC16: Admin, Manager, Doctor, Receptionist. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.DoctorScheduleViewers)]
 public class DoctorScheduleController : ControllerBase
 {
     private readonly IDoctorScheduleService _service;
@@ -39,7 +42,6 @@ public class DoctorScheduleController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <response code="200">Schedule grid returned.</response>
     [HttpGet("doctors")]
-    [AllowAnonymous] // Replace with [Authorize(Roles = "Doctor,Admin,Receptionist,Manager")] when auth is ready
     [ProducesResponseType(typeof(DoctorScheduleResponseDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<DoctorScheduleResponseDto>> GetDoctorSchedule(
         [FromQuery] string? date = null,

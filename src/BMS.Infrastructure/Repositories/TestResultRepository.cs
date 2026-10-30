@@ -1,52 +1,88 @@
-﻿using Microsoft.EntityFrameworkCore;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using MongoDB.Driver;
 
-using TestOrder.Repositories.Interface;
-using Testorder_service.Data;
-using Testorder_service.Models.Entities;
-
-namespace TestOrder.Repositories.Implement
+namespace BMS.Infrastructure.Repositories
 {
-    public class TestResultRepository : ITestResultRepository
+    /// <summary>
+    /// MongoDB implementation of <see cref="ITestResultRepository"/> on <c>test_results</c>.
+    /// Replaces the legacy EF Core repository; shares the collection and mapping used by
+    /// ResultRepository (enter results) and TestReportService.
+    /// </summary>
+    public sealed class TestResultRepository : ITestResultRepository
     {
-        private readonly TestOrderManagementDbContext _context;
+        private readonly IMongoCollection<TestResult> _results;
 
-        public TestResultRepository(TestOrderManagementDbContext context)
+        /// <summary>Creates the repository bound to <c>test_results</c>.</summary>
+        public TestResultRepository(IMongoDatabase database)
         {
-            _context = context;
+            _results = database.GetCollection<TestResult>("test_results");
         }
 
-        public async Task<IEnumerable<TestResult>> GetAllAsync()
-            => await _context.TestResults.ToListAsync();
+        private static FilterDefinitionBuilder<TestResult> F => Builders<TestResult>.Filter;
+        private static FilterDefinition<TestResult> Active => F.Ne(x => x.IsDeleted, true);
+        // WHY in the filter: makes "signed = read-only" atomic; an edit racing an approval cannot land after the signature.
+        private static FilterDefinition<TestResult> NotSigned =>
+            F.Ne(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved) & F.Eq(x => x.ApprovedAt, null);
+        private static FilterDefinition<TestResult> Signed =>
+            F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null));
+        private static FilterDefinition<TestResult> ById(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.TestResultId, id)) & Active;
 
-        public async Task<TestResult?> GetByIdAsync(string id)
-            => await _context.TestResults.FindAsync(id);
-
-        public async Task AddAsync(TestResult entity)
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<TestResult> Items, long Total)> GetPagedAsync(int page, int pageSize, CancellationToken ct = default)
         {
-            await _context.TestResults.AddAsync(entity);
+            var total = await _results.CountDocumentsAsync(Active, cancellationToken: ct);
+            var items = await _results.Find(Active).SortByDescending(x => x.CreatedAt)
+                .Skip((page - 1) * pageSize).Limit(pageSize).ToListAsync(ct);
+            return (items, total);
         }
 
-        public async Task UpdateAsync(TestResult entity)
+        /// <inheritdoc />
+        public async Task<TestResult?> GetByIdAsync(string id, CancellationToken ct = default) =>
+            await _results.Find(ById(id)).FirstOrDefaultAsync(ct);
+
+        /// <inheritdoc />
+        public Task AddAsync(TestResult entity, CancellationToken ct = default) =>
+            _results.InsertOneAsync(entity, cancellationToken: ct);
+
+        /// <inheritdoc />
+        public async Task<bool> UpdateFieldsAsync(string id, TestResultFieldChanges c, CancellationToken ct = default)
         {
-            _context.TestResults.Update(entity);
-            await Task.CompletedTask;
+            var u = Builders<TestResult>.Update;
+            var updates = new List<UpdateDefinition<TestResult>> { u.Set(x => x.UpdatedAt, DateTime.UtcNow) };
+            if (c.ReagentCode is not null) updates.Add(u.Set(x => x.ReagentCode, c.ReagentCode));
+            if (c.Quantity is not null) updates.Add(u.Set(x => x.Quantity, c.Quantity));
+            if (c.DeviceId is not null) updates.Add(u.Set(x => x.DeviceId, c.DeviceId));
+            if (c.ReviewedBy is not null) updates.Add(u.Set(x => x.ReviewedBy, c.ReviewedBy));
+            if (c.ReviewedAt is not null) updates.Add(u.Set(x => x.ReviewedAt, c.ReviewedAt));
+            if (c.Status is not null) updates.Add(u.Set(x => x.Status, c.Status));
+            if (c.Items is not null) updates.Add(u.Set(x => x.Items, c.Items));
+            if (c.ValidationStatus is not null) updates.Add(u.Set(x => x.ValidationStatus, c.ValidationStatus.Value));
+            if (c.ApprovedByDoctorId is not null) updates.Add(u.Set(x => x.ApprovedByDoctorId, c.ApprovedByDoctorId));
+            if (c.ApprovedAt is not null) updates.Add(u.Set(x => x.ApprovedAt, c.ApprovedAt));
+
+            var result = await _results.UpdateOneAsync(ById(id) & NotSigned, u.Combine(updates), cancellationToken: ct);
+            return result.MatchedCount > 0;
         }
 
-        public async Task DeleteAsync(string id)
+        /// <inheritdoc />
+        public async Task<bool> SoftDeleteAsync(string id, CancellationToken ct = default)
         {
-            var existing = await GetByIdAsync(id);
-            if (existing != null)
-                _context.TestResults.Remove(existing);
+            var result = await _results.UpdateOneAsync(ById(id) & NotSigned, Builders<TestResult>.Update
+                .Set(x => x.IsDeleted, true).Set(x => x.UpdatedAt, DateTime.UtcNow), cancellationToken: ct);
+            return result.MatchedCount > 0;
         }
 
-        public async Task SaveChangesAsync()
-            => await _context.SaveChangesAsync();
-        public async Task<IEnumerable<TestResult>> GetByAppointmentIdAsync(string appointmentId)
+        /// <inheritdoc />
+        public async Task<bool> AnySignedForOrderAsync(IReadOnlyCollection<string> sampleKeys, IReadOnlyCollection<string> orderKeys,
+            CancellationToken ct = default)
         {
-            return await _context.TestResults
-                .Where(x => x.AppointmentId == appointmentId)
-                .ToListAsync();
+            var link = F.Or(F.In(x => x.SampleId, sampleKeys), F.In(x => x.AppointmentId, orderKeys));
+            return await _results.Find(link & Active & Signed).Limit(1).AnyAsync(ct);
         }
 
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TestResult>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default) =>
+            await _results.Find(F.Eq(x => x.AppointmentId, appointmentId) & Active).SortBy(x => x.CreatedAt).Limit(200).ToListAsync(ct);
     }
 }

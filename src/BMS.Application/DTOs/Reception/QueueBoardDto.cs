@@ -20,11 +20,11 @@ public class QueueTicketDto
 
 public class QueueStatsDto
 {
-    public int InQueueNow { get; set; } = 7;
-    public int AvgWaitMinutes { get; set; } = 12;
-    public int LongestWaitMinutes { get; set; } = 16;
-    public int ServedToday { get; set; } = 18;
-    public string CountersActive { get; set; } = "2 / 3";
+    public int InQueueNow { get; set; }
+    public int AvgWaitMinutes { get; set; }
+    public int LongestWaitMinutes { get; set; }
+    public int ServedToday { get; set; }
+    public string CountersActive { get; set; } = "0";
 }
 
 public class CounterStatusDto

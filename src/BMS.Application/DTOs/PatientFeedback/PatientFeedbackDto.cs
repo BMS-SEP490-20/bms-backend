@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace Testorder_service.Models.DTO
+namespace BMS.Application.DTOs.PatientFeedback
 {
     /// <summary>
     /// Data transfer object for patient feedback submission.

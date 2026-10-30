@@ -36,7 +36,7 @@ public class BmsDbContext
                 Username = "admin",
                 Email = "admin@bms.com",
                 FullName = "Hệ thống Quản Trị Viên",
-                Role = UserRole.Administrator,
+                Role = UserRole.Admin,
                 PasswordHash = HashPassword("Admin@123"),
                 EmailConfirmed = true,
                 IsActive = true
@@ -47,7 +47,7 @@ public class BmsDbContext
                 Username = "manager",
                 Email = "manager@bms.com",
                 FullName = "Trần Quản Lý Lab",
-                Role = UserRole.Administrator,
+                Role = UserRole.Admin,
                 PasswordHash = HashPassword("Manager@123"),
                 EmailConfirmed = true,
                 IsActive = true
@@ -69,7 +69,7 @@ public class BmsDbContext
                 Username = "labuser",
                 Email = "labuser@bms.com",
                 FullName = "KTV. Lê Thị Bình",
-                Role = UserRole.LaboratoryUser,
+                Role = UserRole.Lab,
                 PasswordHash = HashPassword("LabUser@123"),
                 EmailConfirmed = true,
                 IsActive = true
@@ -103,7 +103,7 @@ public class BmsDbContext
                 Username = "admin_bms",
                 Email = "admin@bms.health.vn",
                 FullName = "Nguyễn Quản Trị",
-                Role = UserRole.Administrator,
+                Role = UserRole.Admin,
                 PasswordHash = HashPassword("Admin@123"),
                 EmailConfirmed = true,
                 IsActive = true
@@ -125,7 +125,7 @@ public class BmsDbContext
                 Username = "tech_quochung",
                 Email = "hung.pham@bms.health.vn",
                 FullName = "KTV. Phạm Quốc Hưng",
-                Role = UserRole.LaboratoryUser,
+                Role = UserRole.Lab,
                 PasswordHash = HashPassword("Admin@123"),
                 EmailConfirmed = true,
                 IsActive = true

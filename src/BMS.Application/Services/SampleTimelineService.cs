@@ -1,5 +1,6 @@
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
@@ -9,8 +10,10 @@ namespace BMS.Application.Services;
 /// <summary>Builds UC71 from recorded evidence; never treats RFID scans or analysis completion as result approval.</summary>
 public sealed class SampleTimelineService(ISampleTimelineRepository repository) : ISampleTimelineService
 {
-    private static readonly HashSet<string> StaffRoles = new(StringComparer.OrdinalIgnoreCase)
-        { "Admin", "Administrator", "Manager", "Doctor", "LabHead", "LabTech", "LabTechnician", "Nurse", "Phlebotomist", "Receptionist" };
+    // WHY: matrix row UC71 — Lab, Manager, Doctor see the full chain; Admin is excluded (decision 10).
+    // Ordinal comparison matches [Authorize(Roles)], so the service and the attribute agree on every role name.
+    private static readonly HashSet<string> StaffRoles = new(StringComparer.Ordinal)
+        { RoleNames.Manager, RoleNames.Lab, RoleNames.Doctor };
     private static readonly Dictionary<string, string> Titles = new(StringComparer.OrdinalIgnoreCase)
     {
         ["SampleCreated"] = "Đã tạo mẫu",
@@ -37,7 +40,9 @@ public sealed class SampleTimelineService(ISampleTimelineRepository repository) 
     {
         if (string.IsNullOrWhiteSpace(viewer.AccountId)) throw new ForbiddenAccessException();
         if (StaffRoles.Contains(viewer.Role)) return null;
-        if (!viewer.Role.Equals("Patient", StringComparison.OrdinalIgnoreCase)) throw new ForbiddenAccessException();
+        // Defense in depth: the controller no longer admits Patient (matrix UC71), but if a caller does,
+        // scope stays limited to the account's own patient records.
+        if (!viewer.Role.Equals(RoleNames.Patient, StringComparison.Ordinal)) throw new ForbiddenAccessException();
         return await repository.OwnPatientIdsAsync(viewer.AccountId, ct);
     }
     private static void Page(int page, int pageSize)

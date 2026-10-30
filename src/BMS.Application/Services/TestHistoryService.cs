@@ -1,5 +1,6 @@
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
@@ -11,8 +12,10 @@ public sealed class TestHistoryService(ITestHistoryRepository repository, TimePr
     private async Task<List<string>?> Scope(TestHistoryViewer viewer, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(viewer.AccountId)) throw new ForbiddenAccessException();
-        if (new[] { "Admin", "Administrator", "Manager", "Doctor", "LabHead", "LabTech", "LabTechnician" }.Contains(viewer.Role, StringComparer.OrdinalIgnoreCase)) return null;
-        if (!viewer.Role.Equals("Patient", StringComparison.OrdinalIgnoreCase)) throw new ForbiddenAccessException();
+        // WHY: matrix row UC76 — Manager, Doctor, Lab see all; Admin and Receptionist are denied (decision 10).
+        if (viewer.Role is RoleNames.Manager or RoleNames.Doctor or RoleNames.Lab) return null;
+        // Patient: own records only, resolved from the account ID in the token, never from the request.
+        if (viewer.Role != RoleNames.Patient) throw new ForbiddenAccessException();
         return await repository.OwnPatientsAsync(viewer.AccountId, ct);
     }
     public async Task<TestHistoryPage> ListAsync(TestHistoryFilterDto filter, TestHistoryViewer viewer, CancellationToken ct = default)

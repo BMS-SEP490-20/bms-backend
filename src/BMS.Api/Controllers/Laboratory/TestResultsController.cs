@@ -1,3 +1,6 @@
+using BMS.Api.Authorization;
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,6 +20,8 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/[controller]")]
 [Route("api/test-results")]
 [Route("api/v1/test-results")]
+// WHY: UC75/UC62: lookup Doctor, Lab, Manager (Patient uses test-history until scoped here); export Doctor, Patient (own). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class TestResultsController : ControllerBase
 {
     private readonly IPatientResultExportService _patientResultExportService;
@@ -50,6 +55,9 @@ public class TestResultsController : ControllerBase
     /// <summary>
     /// Tra cứu kết quả xét nghiệm sinh hóa / huyết học theo Barcode, Sample ID, Patient ID hoặc từ khóa tìm kiếm (UC75 - Look Up Biochemical Results).
     /// </summary>
+    // WHY: this lookup has no per-patient scoping yet, so a Patient token would see every result (BOLA).
+    // Patients read their own signed results through api/test-history (UC76, scoped by token) until Đợt 3.
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet]
     public async Task<IActionResult> GetResults(
         [FromQuery] string? barcode,
@@ -168,6 +176,9 @@ public class TestResultsController : ControllerBase
     /// <summary>
     /// Xem chi tiết một kết quả xét nghiệm sinh hóa theo Result ID (UC75).
     /// </summary>
+    // WHY: this lookup has no per-patient scoping yet, so a Patient token would see every result (BOLA).
+    // Patients read their own signed results through api/test-history (UC76, scoped by token) until Đợt 3.
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetResultById(string id)
     {
@@ -382,10 +393,13 @@ public class TestResultsController : ControllerBase
     /// <summary>
     /// Retrieves formatted patient diagnostic test result details, reference intervals, historical deltas, and doctor assessment.
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorOrPatient)]
     [HttpGet("patient/order/{orderId}")]
     public async Task<IActionResult> GetPatientResultDetail(string orderId)
     {
         var result = await _patientResultExportService.GetPatientResultDetailAsync(orderId);
+        // Patient: own order only; same 404 for "not yours" and "missing" (R14).
+        if (result != null && !await this.MayAccessPatientAsync(result.PatientId, HttpContext.RequestAborted)) result = null;
         if (result == null)
         {
             return NotFound(new { message = $"No test results found for order ID '{orderId}'." });

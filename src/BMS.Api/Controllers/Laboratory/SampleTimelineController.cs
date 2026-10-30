@@ -1,17 +1,18 @@
 using System.Security.Claims;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Laboratory;
 
-/// <summary>UC71 read-only sample timeline; patient access is scoped by the authenticated account.</summary>
+/// <summary>UC71 read-only sample timeline. Matrix row UC71: Lab, Manager, Doctor; Admin, Receptionist, Patient denied.</summary>
 [ApiController]
 [Route("api/sample-timelines")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-[Authorize(Roles = "Admin,Doctor,LabTechnician,Receptionist,Patient")]
+[Authorize(Roles = RoleSets.ClinicalStaff)]
 public sealed class SampleTimelineController(ISampleTimelineService service) : ControllerBase
 {
     /// <summary>Lists accessible samples, without accepting an account identity from the client.</summary>

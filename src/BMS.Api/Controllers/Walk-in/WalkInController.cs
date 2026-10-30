@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.WalkIn.DTOs;
 using BMS.Application.Interfaces;
@@ -12,7 +13,8 @@ namespace BMS.WalkIn.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/walk-in")]
-[Authorize(Roles = "Receptionist,Admin")]
+// WHY: UC26: Receptionist only (Admin removed). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Receptionist)]
 public class WalkInController : ControllerBase
 {
     private readonly IWalkInService _service;
@@ -35,26 +37,10 @@ public class WalkInController : ControllerBase
         if (!ModelState.IsValid)
             return ValidationProblem(ModelState);
 
-        try
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                         ?? User.FindFirstValue("sub");
-            var result = await _service.RegisterAsync(request, userId, ct);
-            return CreatedAtAction(nameof(LookupIdentity), new { identityNumber = result.IdentityNumber }, result);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.StartsWith("MSG-ERR-WALKIN-01"))
-        {
-            return Conflict(new ApiErrorResponse { Code = "PATIENT_DUPLICATE", Message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ApiErrorResponse { Code = "WALKIN_VALIDATION", Message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Walk-in register failed");
-            return StatusCode(500, new ApiErrorResponse { Code = "INTERNAL", Message = "Unexpected error." });
-        }
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue("sub");
+        var result = await _service.RegisterAsync(request, userId, ct);
+        return CreatedAtAction(nameof(LookupIdentity), new { identityNumber = result.IdentityNumber }, result);
     }
 
     [HttpGet("lookup/identity/{identityNumber}")]

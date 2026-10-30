@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -12,6 +14,8 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/labrooms")]
 [Route("api/laboratory/rooms")]
 [Route("api/v1/laboratory/rooms")]
+// WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.AdminOrManager)]
 public class LabRoomsController : ControllerBase
 {
     private readonly IMongoDatabase _database;

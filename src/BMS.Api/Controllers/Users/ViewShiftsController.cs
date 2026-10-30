@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Common;
 using BMS.Application.DTOs.Shifts;
 using BMS.Application.Interfaces;
@@ -14,13 +15,14 @@ namespace BMS.ViewShifts.Controllers;
 [ApiController]
 [Route("api/view-shifts")]
 [Produces("application/json")]
+// WHY: UC36: all staff. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.ShiftViewers)]
 public class ViewShiftsController(IShiftService shifts) : ControllerBase
 {
     /// <summary>
     /// List shifts in a date range (optional specialty / department filter).
     /// </summary>
     [HttpGet]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResult<ShiftDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ShiftDto>>> List(
         [FromQuery] DateTime? from,
@@ -54,7 +56,6 @@ public class ViewShiftsController(IShiftService shifts) : ControllerBase
 
     /// <summary>Shifts for a single calendar day.</summary>
     [HttpGet("day")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResult<ShiftDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ShiftDto>>> ByDay(
         [FromQuery] DateTime? date,
@@ -76,7 +77,6 @@ public class ViewShiftsController(IShiftService shifts) : ControllerBase
 
     /// <summary>Shift detail (same as GET /api/shifts/{id}).</summary>
     [HttpGet("{id}")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(ShiftDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<ShiftDto>> GetById(string id, CancellationToken ct)
     {

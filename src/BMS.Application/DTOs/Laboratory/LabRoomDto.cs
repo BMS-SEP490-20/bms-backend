@@ -1,5 +1,6 @@
-﻿namespace Testorder_service.Models.DTO
+namespace BMS.Application.DTOs.Laboratory
 {
+    /// <summary>Lab room read model returned by the API.</summary>
     public class LabRoomDto
     {
         public string RoomId { get; set; } = null!;

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 
 using System.Text.Json.Serialization;
 using BMS.Application.DTOs.Laboratory;
@@ -12,6 +14,8 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/v1/laboratory/criteria")]
 [Route("api/laboratory/criteria")]
 [Produces("application/json")]
+// WHY: UC18: view Manager, Lab, Doctor; create/edit/deactivate (incl. panic thresholds) Manager only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class TestCriteriaController : ControllerBase
 {
     private readonly ITestCriterionService _criterionService;
@@ -32,6 +36,9 @@ public class TestCriteriaController : ControllerBase
     /// Lấy danh sách xét nghiệm cho chức năng quản lý gói dịch vụ.
     /// Giữ tương thích với frontend đang gọi GET /api/test-criteria.
     /// </summary>
+    // WHY: this list feeds service-package management (UC15, Admin), so Admin may read test names here;
+    // the clinical criteria endpoints below (ranges, panic thresholds) stay Manager/Lab/Doctor.
+    [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet("~/api/test-criteria")]
     [ProducesResponseType(
         typeof(List<TestCriterionDto>),
@@ -55,6 +62,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Lấy danh sách tiêu chí xét nghiệm có phân trang.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet]
     [ProducesResponseType(
         typeof(ApiResponse<PagedResult<TestCriterionResponseDto>>),
@@ -75,6 +83,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Lấy chi tiết tiêu chí xét nghiệm.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -106,6 +115,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Tạo tiêu chí xét nghiệm mới.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPost]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -162,6 +172,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Cập nhật tiêu chí xét nghiệm.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPut("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -218,6 +229,7 @@ public class TestCriteriaController : ControllerBase
     /// Ngừng kích hoạt tiêu chí xét nghiệm,
     /// không xóa dữ liệu lịch sử.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpDelete("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<object>),

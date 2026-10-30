@@ -20,14 +20,14 @@ using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
-var client = new MongoClient("mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
+var client = new MongoClient(Environment.GetEnvironmentVariable("BMS_CHECK_MONGO") ?? "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=3000");
 var name = "BMS_UC76_Checks_" + Guid.NewGuid().ToString("N");
 var db = client.GetDatabase(name); var passed = 0;
 try
 {
     var repository = new TestHistoryRepository(db); var service = new TestHistoryService(repository, TimeProvider.System);
     var account = ObjectId.GenerateNewId(); var mixed = ObjectId.GenerateNewId();
-    var patient = new TestHistoryViewer(account.ToString(), "Patient", "127.0.0.1"); var staff = new TestHistoryViewer("staff", "LabHead");
+    var patient = new TestHistoryViewer(account.ToString(), "Patient", "127.0.0.1"); var staff = new TestHistoryViewer("staff", "Lab");
     var results = db.GetCollection<BsonDocument>("test_results"); var samples = db.GetCollection<BsonDocument>("blood_samples");
     await db.GetCollection<BsonDocument>("patients").InsertManyAsync(new[] {
         new BsonDocument { { "_id", "P1" }, { "AccountId", account } }, new BsonDocument { { "_id", "P2" }, { "AccountId", "other" } }
@@ -90,7 +90,7 @@ try
         await Invalid(() => service.ListAsync(new() { PageSize = 101 }, patient));
         await Invalid(() => service.ListAsync(new() { FromDate = new(2026, 10, 23), ToDate = new(2026, 10, 22) }, patient));
         await Invalid(() => service.GetAsync(" ", patient));
-        foreach (var role in new[] { "Receptionist", "Nurse", "Cashier", "WarehouseStaff" }) await Denied(() => service.ListAsync(new(), new("staff", role)));
+        foreach (var role in new[] { "Receptionist", "Admin", "Nurse", "Cashier" }) await Denied(() => service.ListAsync(new(), new("staff", role)));
     });
     await Check("HTTP roles, no-store, validation, ownership and read-only methods", async () =>
     {
@@ -102,8 +102,8 @@ try
         await using var app = builder.Build(); app.UseExceptionHandler(); app.UseAuthentication(); app.UseAuthorization(); app.MapControllers(); await app.StartAsync();
         using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
         Assert((await http.GetAsync("/api/test-history")).StatusCode == HttpStatusCode.Unauthorized);
-        foreach (var role in new[] { "Nurse", "Receptionist", "Cashier", "WarehouseStaff" }) { Role(role); Assert((await http.GetAsync("/api/test-history")).StatusCode == HttpStatusCode.Forbidden); }
-        foreach (var role in new[] { "Admin", "Administrator", "Manager", "Doctor", "LabHead", "LabTech", "LabTechnician" }) { Role(role); using var response = await http.GetAsync("/api/test-history"); Assert(response.StatusCode == HttpStatusCode.OK && response.Headers.CacheControl?.NoStore == true); }
+        foreach (var role in new[] { "Admin", "Receptionist", "Nurse", "Cashier" }) { Role(role); Assert((await http.GetAsync("/api/test-history")).StatusCode == HttpStatusCode.Forbidden); }
+        foreach (var role in new[] { "Manager", "Doctor", "Lab" }) { Role(role); using var response = await http.GetAsync("/api/test-history"); Assert(response.StatusCode == HttpStatusCode.OK && response.Headers.CacheControl?.NoStore == true); }
         Role("Patient"); http.DefaultRequestHeaders.Add("X-User", account.ToString());
         Assert((await http.GetFromJsonAsync<TestHistoryPage>("/api/test-history?patientId=P2&accountId=other"))?.Total == 0);
         Assert((await http.GetAsync("/api/test-history/FOREIGN")).StatusCode == HttpStatusCode.NotFound);

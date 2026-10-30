@@ -255,100 +255,78 @@ public class RoleRepository : IRoleRepository
         return fallback;
     }
 
+    /// <summary>
+    /// Default role documents for the 6 seeded IDs (decision 30/10/2026 point 1), used when the
+    /// <c>roles</c> collection has no document for the ID. Names come from <see cref="RoleNames"/>.
+    /// </summary>
     private static Role? BuildDefaultNumericRole(int roleId) => roleId switch
     {
-        1 => new Role
-        {
-            Id = 1,
-            RoleName = "Admin",
-            Description = "System Administrator",
-            Permissions = ["ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_SCHEDULE", "MANAGE_USERS", "MANAGE_ROLES"]
-        },
-        2 => new Role
-        {
-            Id = 2,
-            RoleName = "LabHead",
-            Description = "Laboratory Director / Head",
-            Permissions = ["APPROVE_RESULT", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "MANAGE_SERVICE_PACKAGE"]
-        },
-        3 => new Role
-        {
-            Id = 3,
-            RoleName = "LabTech",
-            Description = "Laboratory Technician",
-            Permissions = ["RECEIVE_SAMPLE", "RUN_ANALYZER", "ENTER_RESULT", "MANAGE_REAGENTS", "COLLECT_SAMPLE"]
-        },
-        4 => new Role
-        {
-            Id = 4,
-            RoleName = "Doctor",
-            Description = "Clinical Physician",
-            Permissions = ["EXAMINE_PATIENT", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY"]
-        },
-        5 => new Role
-        {
-            Id = 5,
-            RoleName = "Receptionist",
-            Description = "Front Desk / Phlebotomist",
-            Permissions = ["CHECK_IN", "COLLECT_SAMPLE", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT"]
-        },
-        6 => new Role
-        {
-            Id = 6,
-            RoleName = "Patient",
-            Description = "Registered Patient",
-            Permissions = ["BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE"]
-        },
+        1 => new Role { Id = 1, RoleName = RoleNames.Admin, Description = "System Administrator",
+            Permissions = ["MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES"] },
+        2 => new Role { Id = 2, RoleName = RoleNames.Manager, Description = "Quản lý (gồm Trưởng phòng Lab)",
+            Permissions = ["APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS"] },
+        3 => new Role { Id = 3, RoleName = RoleNames.Lab, Description = "Lab (gồm KTV, lấy mẫu, kho)",
+            Permissions = ["RECEIVE_SAMPLE", "COLLECT_SAMPLE", "RUN_ANALYZER", "ENTER_RESULT", "MANAGE_REAGENTS"] },
+        4 => new Role { Id = 4, RoleName = RoleNames.Doctor, Description = "Bác sĩ",
+            Permissions = ["EXAMINE_PATIENT", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY"] },
+        5 => new Role { Id = 5, RoleName = RoleNames.Receptionist, Description = "Lễ tân (gồm Thu ngân)",
+            Permissions = ["CHECK_IN", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT"] },
+        6 => new Role { Id = 6, RoleName = RoleNames.Patient, Description = "Bệnh nhân",
+            Permissions = ["BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE"] },
         _ => null
     };
 
+    /// <summary>Clinical permissions Admin must never hold (decision 10: Admin does not see clinical data).</summary>
+    private static readonly string[] AdminForbidden =
+        ["ALL", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "REGISTER_PATIENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "VIEW_ALL_LAB", "ENTER_RESULT", "APPROVE_RESULT"];
+
+    /// <summary>
+    /// Normalises a role document to the canonical 6-role model: canonical name from the seeded ID,
+    /// standard permissions added, and permissions the role must not hold removed.
+    /// </summary>
     private static void EnrichStandardPermissions(Role role)
     {
         role.Permissions ??= new List<string>();
+        var canonical = RoleNames.FromRoleId(role.Id) ?? RoleNames.Normalize(role.RoleName);
+        if (canonical is null) return;
+        // WHY: old documents carry LabHead/LabTech/Vietnamese display names; the claim must be canonical.
+        role.RoleName = canonical;
         var existing = new HashSet<string>(role.Permissions, StringComparer.OrdinalIgnoreCase);
 
         void Ensure(params string[] perms)
         {
             foreach (var p in perms)
-            {
-                if (existing.Add(p))
-                {
-                    role.Permissions.Add(p);
-                }
-            }
+                if (existing.Add(p)) role.Permissions.Add(p);
+        }
+        void Remove(params string[] perms)
+        {
+            role.Permissions.RemoveAll(p => perms.Contains(p, StringComparer.OrdinalIgnoreCase));
+            existing.ExceptWith(perms);
         }
 
-        var rn = role.RoleName ?? string.Empty;
-
-        if (rn.Equals("Admin", StringComparison.OrdinalIgnoreCase) ||
-            rn.Equals("Administrator", StringComparison.OrdinalIgnoreCase) ||
-            (string.IsNullOrWhiteSpace(rn) && role.Id == 1))
+        switch (canonical)
         {
-            Ensure("ALL", "MANAGE_SERVICE_PACKAGE", "MANAGE_SCHEDULE", "VIEW_ALL_LAB", "MANAGE_APPOINTMENT", "VIEW_PATIENT_RECORDS", "REGISTER_PATIENTS", "COLLECT_SAMPLES", "RECEIVE_SAMPLES");
-        }
-        else if (rn.Equals("LabHead", StringComparison.OrdinalIgnoreCase) ||
-                 rn.Equals("Manager", StringComparison.OrdinalIgnoreCase))
-        {
-            Ensure("APPROVE_RESULT", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "MANAGE_SERVICE_PACKAGE", "COLLECT_SAMPLES", "RECEIVE_SAMPLES", "VIEW_PATIENT_RECORDS");
-        }
-        else if (rn.Equals("LabTech", StringComparison.OrdinalIgnoreCase) ||
-                 rn.Equals("LabTechnician", StringComparison.OrdinalIgnoreCase) ||
-                 rn.Equals("LaboratoryUser", StringComparison.OrdinalIgnoreCase))
-        {
-            Ensure("RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "VIEW_ALL_LAB");
-        }
-        else if (rn.Equals("Doctor", StringComparison.OrdinalIgnoreCase))
-        {
-            Ensure("EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS");
-        }
-        else if (rn.Equals("Receptionist", StringComparison.OrdinalIgnoreCase) ||
-                 rn.Equals("Nurse", StringComparison.OrdinalIgnoreCase))
-        {
-            Ensure("CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE");
-        }
-        else if (rn.Equals("Patient", StringComparison.OrdinalIgnoreCase))
-        {
-            Ensure("BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE");
+            case RoleNames.Admin:
+                Ensure("MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES");
+                Remove(AdminForbidden);
+                break;
+            case RoleNames.Manager:
+                Ensure("APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "VIEW_ALL_LAB", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS");
+                break;
+            case RoleNames.Lab:
+                Ensure("RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "VIEW_ALL_LAB");
+                Remove("APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD");
+                break;
+            case RoleNames.Doctor:
+                Ensure("EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS");
+                break;
+            case RoleNames.Receptionist:
+                Ensure("CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE");
+                Remove("COLLECT_SAMPLE", "COLLECT_SAMPLES");
+                break;
+            case RoleNames.Patient:
+                Ensure("BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE");
+                break;
         }
     }
 

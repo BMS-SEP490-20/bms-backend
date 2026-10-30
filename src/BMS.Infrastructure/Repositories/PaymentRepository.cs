@@ -1,113 +1,76 @@
-﻿using Microsoft.EntityFrameworkCore;
-using payment_service.Data;
-using payment_service.Models;
+using System.Text.RegularExpressions;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
-namespace payment_service.Repositories
+namespace BMS.Infrastructure.Repositories
 {
-    public class PaymentRepository : IPaymentRepository
+    /// <summary>
+    /// MongoDB implementation of <see cref="IPaymentRepository"/> over <c>payments</c>.
+    /// Replaces the EF Core PaymentDbContext implementation from the old payment microservice.
+    /// </summary>
+    public sealed class PaymentRepository : IPaymentRepository
     {
-        private readonly PaymentDbContext _db;
+        private readonly IMongoCollection<Payment> _payments;
 
-        public PaymentRepository(PaymentDbContext db)
+        /// <summary>Creates the repository bound to <c>payments</c>.</summary>
+        public PaymentRepository(IMongoDatabase database)
         {
-            _db = db;
+            _payments = database.GetCollection<Payment>("payments");
         }
 
-        // =============================
-        // 🟢 CREATE
-        // =============================
-        public async Task<Payment> CreateAsync(Payment payment)
+        private static FilterDefinitionBuilder<Payment> F => Builders<Payment>.Filter;
+
+        /// <inheritdoc />
+        public async Task<Payment> CreateAsync(Payment payment, CancellationToken ct = default)
         {
-            // Always ensure PaymentId is unique and not empty
-            bool isInvalidId = payment.PaymentId == Guid.Empty ||
-                await _db.Payments.AnyAsync(p => p.PaymentId == payment.PaymentId);
-
-            if (isInvalidId)
-            {
-                Guid newId;
-                do
-                {
-                    newId = Guid.NewGuid();
-                }
-                while (await _db.Payments.AnyAsync(p => p.PaymentId == newId));
-                payment.PaymentId = newId;
-            }
-
-            payment.CreatedAt = DateTime.UtcNow;
-            _db.Payments.Add(payment);
-            await _db.SaveChangesAsync();
+            // The unique _id index rejects duplicates; Guid v4 collisions are not a practical concern,
+            // so the old "loop until unused id" scan is unnecessary.
+            if (payment.PaymentId == Guid.Empty) payment.PaymentId = Guid.NewGuid();
+            await _payments.InsertOneAsync(payment, cancellationToken: ct);
             return payment;
         }
 
-        // =============================
-        // 🟢 READ (GET)
-        // =============================
-        public Task<Payment?> GetByIdAsync(Guid paymentId)
+        /// <inheritdoc />
+        public async Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken ct = default) =>
+            await _payments.Find(F.Eq(p => p.PaymentId, paymentId)).FirstOrDefaultAsync(ct);
+
+        /// <inheritdoc />
+        public async Task<Payment?> GetByReferenceAsync(string reference, CancellationToken ct = default)
         {
-            return _db.Payments.FirstOrDefaultAsync(p => p.PaymentId == paymentId);
+            // One indexed-friendly query instead of "load all payments and filter in memory".
+            var exact = new BsonRegularExpression($"^{Regex.Escape(reference)}$", "i");
+            return await _payments.Find(F.Or(F.Regex(p => p.TxnRef, exact), F.Regex(p => p.TransactionCode, exact)))
+                .FirstOrDefaultAsync(ct);
         }
 
-        public Task<Payment?> GetByTxnRefAsync(string txnRef)
+        /// <inheritdoc />
+        public async Task<Payment?> UpdateStatusAsync(Guid paymentId, string status, string? transactionCode, string? txnRef, CancellationToken ct = default)
         {
-            return _db.Payments.FirstOrDefaultAsync(p => p.TxnRef == txnRef);
+            var u = Builders<Payment>.Update;
+            var updates = new List<UpdateDefinition<Payment>> { u.Set(p => p.Status, status) };
+            if (!string.IsNullOrWhiteSpace(transactionCode)) updates.Add(u.Set(p => p.TransactionCode, transactionCode));
+            if (!string.IsNullOrWhiteSpace(txnRef)) updates.Add(u.Set(p => p.TxnRef, txnRef));
+            return await _payments.FindOneAndUpdateAsync(F.Eq(p => p.PaymentId, paymentId), u.Combine(updates),
+                new FindOneAndUpdateOptions<Payment> { ReturnDocument = ReturnDocument.After }, ct);
         }
 
-        public Task<IEnumerable<Payment>> GetByPatientIdAsync(Guid patientId)
-        {
-            return Task.FromResult<IEnumerable<Payment>>(
-                _db.Payments.Where(p => p.PatientId == patientId).AsEnumerable()
-            );
-        }
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<Payment>> GetAllPagedAsync(int page, int pageSize, CancellationToken ct = default) =>
+            await _payments.Find(F.Empty).SortByDescending(p => p.CreatedAt).Skip((page - 1) * pageSize).Limit(pageSize).ToListAsync(ct);
 
-        public Task<IEnumerable<Payment>> GetAllAsync()
-        {
-            return Task.FromResult<IEnumerable<Payment>>(_db.Payments.AsEnumerable());
-        }
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<Payment>> GetByPatientIdPagedAsync(string patientId, int page, int pageSize, CancellationToken ct = default) =>
+            await _payments.Find(F.Eq(p => p.PatientId, patientId)).SortByDescending(p => p.CreatedAt)
+                .Skip((page - 1) * pageSize).Limit(pageSize).ToListAsync(ct);
 
-        // =============================
-        // 🟢 UPDATE
-        // =============================
-        public async Task UpdateAsync(Payment payment)
-        {
-            _db.Payments.Update(payment);
-            await _db.SaveChangesAsync();
-        }
+        /// <inheritdoc />
+        public Task<long> CountAllAsync(CancellationToken ct = default) =>
+            _payments.CountDocumentsAsync(F.Empty, cancellationToken: ct);
 
-        // =============================
-        // 🟡 NEW: Pagination methods
-        // =============================
-
-        // Lấy tất cả Payment có phân trang
-        public async Task<IEnumerable<Payment>> GetAllPagedAsync(int page, int pageSize)
-        {
-            return await _db.Payments
-                .OrderByDescending(p => p.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-        }
-
-        // Lấy Payment theo bệnh nhân có phân trang
-        public async Task<IEnumerable<Payment>> GetByPatientIdPagedAsync(Guid patientId, int page, int pageSize)
-        {
-            return await _db.Payments
-                .Where(p => p.PatientId == patientId)
-                .OrderByDescending(p => p.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-        }
-
-        // Đếm tổng số Payment
-        public async Task<int> CountAllAsync()
-        {
-            return await _db.Payments.CountAsync();
-        }
-
-        // Đếm tổng Payment của 1 bệnh nhân
-        public async Task<int> CountByPatientIdAsync(Guid patientId)
-        {
-            return await _db.Payments.CountAsync(p => p.PatientId == patientId);
-        }
+        /// <inheritdoc />
+        public Task<long> CountByPatientIdAsync(string patientId, CancellationToken ct = default) =>
+            _payments.CountDocumentsAsync(F.Eq(p => p.PatientId, patientId), cancellationToken: ct);
     }
 }

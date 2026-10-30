@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -14,6 +16,8 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: UC52: Lab, Doctor add; Manager view. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class TestNotesController : ControllerBase
 {
     private readonly ITestNoteService _noteService;
@@ -27,6 +31,7 @@ public class TestNotesController : ControllerBase
     /// Retrieves specimen diagnostic context along with existing notes timeline (UC52).
     /// </summary>
     /// <param name="specimenId">The specimen barcode or specimen identifier.</param>
+    [Authorize(Roles = RoleSets.TestNoteReaders)]
     [HttpGet("context/{specimenId}")]
     public async Task<IActionResult> GetSpecimenContext(string specimenId)
     {
@@ -60,6 +65,7 @@ public class TestNotesController : ControllerBase
     /// Retrieves all notes attached to a specific specimen.
     /// </summary>
     /// <param name="specimenId">The specimen barcode or identifier.</param>
+    [Authorize(Roles = RoleSets.TestNoteReaders)]
     [HttpGet("specimen/{specimenId}")]
     public async Task<IActionResult> GetNotesBySpecimen(string specimenId)
     {
@@ -83,6 +89,7 @@ public class TestNotesController : ControllerBase
     /// <summary>
     /// Adds a new test note to a specimen (UC52).
     /// </summary>
+    [Authorize(Roles = RoleSets.DoctorOrLab)]
     [HttpPost]
     public async Task<IActionResult> CreateNote([FromBody] CreateTestNoteRequestDto request)
     {

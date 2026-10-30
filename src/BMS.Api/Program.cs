@@ -53,6 +53,9 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotificationRepository>();
 builder.Services.AddScoped<IAppointmentNotificationService, AppointmentNotificationService>();
 builder.Services.AddScoped<IQueueRepository, QueueRepository>();
+builder.Services.AddSingleton<ISequenceGenerator, MongoSequenceGenerator>();
+builder.Services.AddScoped<BMS.Core.Interfaces.ISpecimenRepository, BMS.Infrastructure.Repositories.SpecimenRepository>();
+builder.Services.AddScoped<ISpecimenCollectionService, SpecimenCollectionService>();
 builder.Services.AddScoped<IQueueService, QueueService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestOrderRepository, BMS.Infrastructure.Repositories.TestOrderRepository>();
 builder.Services.AddScoped<ITestOrderService, TestOrderService>();
@@ -171,12 +174,13 @@ app.MapHub<BMS.Api.Hubs.QueueHub>("/hubs/queue");
 // HEALTH CHECK
 // =========================================================
 
+// Health probe stays public (no data); everything else is behind the fallback policy.
 app.MapGet("/", () => Results.Ok(new
 {
     system = "BMS Blood Laboratory Management System API",
     status = "Online",
     version = "1.0.0",
     docs = "/openapi/v1.json"
-}));
+})).AllowAnonymous();
 
 app.Run();

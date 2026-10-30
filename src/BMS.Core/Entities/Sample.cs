@@ -70,6 +70,17 @@ public class Sample : ISupportInitialize
     [BsonElement("barcode")]
     public string Barcode { get; set; } = string.Empty;
 
+    /// <summary>Clinic day (yyyy-MM-dd) of an SMP- barcode; set only for barcodes from the atomic counter.</summary>
+    /// <remarks>WHY: the unique barcode index is partial on this field so legacy BC-/SPC- rows cannot block startup.</remarks>
+    [BsonElement("smp_day")]
+    [BsonIgnoreIfNull]
+    public string? SmpDay { get; set; }
+
+    /// <summary>CLSI H3-A6 order-of-draw position of the tube (1 = first).</summary>
+    [BsonElement("draw_order")]
+    [BsonIgnoreIfNull]
+    public int? DrawOrder { get; set; }
+
     [BsonElement("rfid_tag")]
     [BsonIgnoreIfNull]
     public string? RfidTag { get; set; }
@@ -198,6 +209,19 @@ public class Sample : ISupportInitialize
     [BsonElement("notes")]
     [BsonIgnoreIfNull]
     public string? Notes { get; set; }
+
+    /// <summary>Physical storage location of the tube (rack / fridge), used by Print Barcodes (#58).</summary>
+    [BsonElement("storage_location")]
+    [BsonIgnoreIfNull]
+    public string? StorageLocation { get; set; }
+
+    /// <summary>
+    /// Soft-delete flag (<c>is_deleted</c>), already honoured by UC71 Sample Timeline and UC76 Test History.
+    /// Declared explicitly so full-document replaces do not drop it (ExtraElements are cleared on load).
+    /// </summary>
+    [BsonElement("is_deleted")]
+    [BsonIgnoreIfDefault]
+    public bool IsDeleted { get; set; }
 
     [BsonElement("status_history")]
     public List<SampleStatusHistoryEntry> StatusHistory { get; set; } = [];

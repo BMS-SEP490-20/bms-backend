@@ -73,29 +73,29 @@ AssertEqual("Gross total is 300,000", res2.GrossTotal, 300000m);
 AssertEqual("Net total payable is 300,000", res2.NetTotalPayable, 300000m);
 AssertTrue("Total in words contains 'Ba trăm nghìn đồng chẵn'", res2.TotalInWords.Contains("Ba trăm nghìn đồng chẵn"));
 
-// Test 3: Standard Health Insurance (BHYT 80% coverage)
-Console.WriteLine("\n--- Check 3: Standard BHYT (80% coverage on tests, patient pays 20% + home surcharge) ---");
+// Test 3: BHYT DN4 (benefit 80%) below the 379,500 threshold -> BHYT pays 100% of the TEST cost (QĐ2).
+// Home-collection surcharge is not a BHYT-covered item, so the patient still pays it (TIEU-CHI Đợt 3, SMK-LT-07).
+Console.WriteLine("\n--- Check 3: BHYT DN4 below threshold -> tests 100% covered, patient pays only the home surcharge ---");
 var req3 = new CalculateFeeRequestDto
 {
-    PackageIds = new List<string> { "PKG-CBC-01" }, // 150,000 VND
-    ServiceType = "HomeCollection",                  // 150,000 VND
-    InsuranceCardNumber = "DN4791234567890"          // 80% coverage on 150,000 = 120,000
+    PackageIds = new List<string> { "PKG-CBC-01" }, // 150,000 VND test cost (< 379,500)
+    ServiceType = "HomeCollection",                  // 150,000 VND surcharge, not covered by BHYT
+    InsuranceCardNumber = "DN4791234567890"
 };
 var res3 = await feeService.CalculateFeeAsync(req3);
 AssertTrue("Insurance verified", res3.HasInsurance);
-AssertEqual("Insurance coverage percent is 80%", res3.InsuranceCoveragePercent, 80);
-AssertEqual("Insurance deduction is 120,000", res3.InsuranceDeduction, 120000m);
-// Patient pays: 150,000 (test) - 120,000 (BHYT) + 150,000 (home surcharge) = 180,000 VND
-AssertEqual("Net total payable is 180,000", res3.NetTotalPayable, 180000m);
-AssertTrue("Total in words contains 'Một trăm tám mươi nghìn đồng chẵn'", res3.TotalInWords.Contains("Một trăm tám mươi nghìn đồng chẵn"));
+AssertEqual("Applied coverage is 100% (below 379,500)", res3.InsuranceCoveragePercent, 100);
+AssertEqual("Insurance deduction is 150,000 (tests only)", res3.InsuranceDeduction, 150000m);
+AssertEqual("Net total payable is 150,000 (home surcharge)", res3.NetTotalPayable, 150000m);
+AssertTrue("Total in words contains 'Một trăm năm mươi nghìn đồng chẵn'", res3.TotalInWords.Contains("Một trăm năm mươi nghìn đồng chẵn"));
 
-// Test 4: Special BHYT Tier (TE - 100% coverage on tests)
-Console.WriteLine("\n--- Check 4: 100% BHYT Coverage for Children < 6 (TE prefix) ---");
+// Test 4: benefit-level 5 card (100%) ABOVE the threshold, so 100% comes from the card, not the threshold. TE is not in the seeded group-code catalog.
+Console.WriteLine("\n--- Check 4: QN5 card, 400,000 above threshold -> 100% by benefit level ---");
 var req4 = new CalculateFeeRequestDto
 {
     PackageIds = new List<string> { "PKG-CBC-01", "PKG-BIO-01" }, // 400,000 VND
     ServiceType = "Clinic",
-    InsuranceCardNumber = "TE1012345678901"
+    InsuranceCardNumber = "QN5012345678901"
 };
 var res4 = await feeService.CalculateFeeAsync(req4);
 AssertEqual("Insurance coverage percent is 100%", res4.InsuranceCoveragePercent, 100);
@@ -134,7 +134,7 @@ Console.WriteLine("\n--- Check 7: Non-negative constraint ---");
 var req7 = new CalculateFeeRequestDto
 {
     PackageIds = new List<string> { "PKG-CBC-01" }, // 150,000 VND
-    InsuranceCardNumber = "TE1012345678901",         // 150,000 deduction
+    InsuranceCardNumber = "QN5012345678901",         // 150,000 deduction
     VoucherCode = "VIP50"                            // 50,000 discount
 };
 var res7 = await feeService.CalculateFeeAsync(req7);

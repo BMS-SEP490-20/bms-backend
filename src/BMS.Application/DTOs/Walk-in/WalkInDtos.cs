@@ -16,10 +16,11 @@ public class RegisterWalkInRequest
     [Required]
     public string Gender { get; set; } = "Unspecified";
 
-    [Required, MaxLength(20)]
+    [Required, RegularExpression(@"^0[35789]\d{8}$")]
     public string Phone { get; set; } = string.Empty;
 
-    [Required, RegularExpression(@"^\d{9}$|^\d{12}$")]
+    // WHY 12 only: BA:L25 — CCCD is exactly 12 digits (old 9-digit CMND no longer accepted).
+    [Required, RegularExpression(@"^\d{12}$")]
     public string IdentityNumber { get; set; } = string.Empty;
 
     [EmailAddress, MaxLength(120)]

@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using BMS.Application.DTOs.Clinic;
@@ -13,7 +14,9 @@ namespace BMS.Api.Controllers.Clinic;
 [ApiController]
 [Route("api/medical-notes")]
 [Route("api/MedicalNotes")]
-[Authorize(Roles = "Doctor")]
+// WHY: UC51: matrix lists Doctor and Lab (SRS), but notes are authored/read per doctor (DoctorId from the
+// token) and the UC51 check pins Roles == "Doctor". Kept Doctor-only until Quy trình decides how Lab notes work.
+[Authorize(Roles = RoleNames.Doctor)]
 public sealed class MedicalNotesController(IMedicalNoteService service) : ControllerBase
 {
     private string? DoctorId => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");

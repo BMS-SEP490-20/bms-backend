@@ -1,11 +1,10 @@
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using TestOrder.Models.DTO;
-using TestOrder.Services.Interface;
-using Testorder_service.Models.DTO;
-using Testorder_service.Services.Interface;
+using BMS.Application.DTOs.Laboratory;
+using BMS.Application.Interfaces;
 
-namespace TestOrder.Controllers
+namespace BMS.Api.Controllers.Laboratory
 {
     /// <summary>
     /// API Controller for managing laboratory rooms within the hospital.
@@ -13,6 +12,8 @@ namespace TestOrder.Controllers
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
+// WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.AdminOrManager)]
     public class LabRoomController : ControllerBase
     {
         private readonly ILabRoomService _service;
@@ -37,20 +38,15 @@ namespace TestOrder.Controllers
         /// <response code="400">If page or pageSize is less than or equal to 0.</response>
         /// <response code="404">If no laboratory rooms match the criteria.</response>
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken ct = default)
         {
             if (page <= 0 || pageSize <= 0)
                 return BadRequest(new { message = "Giá trị phân trang không hợp lệ." });
 
-            var allRooms = await _service.GetAllAsync();
-            var totalCount = allRooms.Count();
+            // Paging is done in MongoDB (Skip/Limit) instead of loading every room into memory.
+            var (pagedRooms, totalCount) = await _service.GetPagedAsync(page, Math.Min(pageSize, 100), ct);
 
-            var pagedRooms = allRooms
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToList();
-
-            if (!pagedRooms.Any())
+            if (pagedRooms.Count == 0)
                 return NotFound(new { message = "Không có phòng nào được tìm thấy." });
 
             return Ok(new
@@ -72,9 +68,9 @@ namespace TestOrder.Controllers
         /// <response code="200">Returns the room details.</response>
         /// <response code="404">If the specified lab room is not found.</response>
         [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(string id)
+        public async Task<IActionResult> GetById(string id, CancellationToken ct)
         {
-            var room = await _service.GetByIdAsync(id);
+            var room = await _service.GetByIdAsync(id, ct);
             if (room == null)
                 return NotFound(new { message = "Không tìm thấy phòng." });
 
@@ -89,22 +85,15 @@ namespace TestOrder.Controllers
         /// <returns>A confirmation response on successful creation.</returns>
         /// <response code="200">If the room was created successfully.</response>
         /// <response code="400">If the provided model state is invalid.</response>
-        /// <response code="500">If an unhandled server error occurs.</response>
+        /// <response code="500">If an unhandled server error occurs (standard error body, no internal details).</response>
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateLabRoomDto dto)
+        public async Task<IActionResult> Create([FromBody] CreateLabRoomDto dto, CancellationToken ct)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            try
-            {
-                await _service.CreateAsync(dto);
-                return Ok(new { message = "Tạo phòng thành công." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Lỗi khi tạo phòng.", error = ex.Message });
-            }
+            var created = await _service.CreateAsync(dto, ct);
+            return Ok(new { message = "Tạo phòng thành công.", data = created });
         }
 
         /// <summary>
@@ -116,23 +105,13 @@ namespace TestOrder.Controllers
         /// <returns>A confirmation response on successful update.</returns>
         /// <response code="200">If the room was updated successfully.</response>
         /// <response code="404">If the target room cannot be found.</response>
-        /// <response code="500">If an unhandled server error occurs.</response>
+        /// <response code="500">If an unhandled server error occurs (standard error body, no internal details).</response>
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(string id, [FromBody] UpdateLabRoomDto dto)
+        public async Task<IActionResult> Update(string id, [FromBody] UpdateLabRoomDto dto, CancellationToken ct)
         {
-            try
-            {
-                await _service.UpdateAsync(id, dto);
-                return Ok(new { message = "Cập nhật phòng thành công." });
-            }
-            catch (KeyNotFoundException)
-            {
-                return NotFound(new { message = "Không tìm thấy phòng để cập nhật." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Lỗi khi cập nhật phòng.", error = ex.Message });
-            }
+            // Not-found is raised as ResourceNotFoundException and mapped to 404 by GlobalExceptionHandler.
+            await _service.UpdateAsync(id, dto, ct);
+            return Ok(new { message = "Cập nhật phòng thành công." });
         }
 
         /// <summary>
@@ -143,23 +122,13 @@ namespace TestOrder.Controllers
         /// <returns>A confirmation response on successful deletion.</returns>
         /// <response code="200">If the room was deleted successfully.</response>
         /// <response code="404">If the room to delete was not found.</response>
-        /// <response code="500">If an unhandled server error occurs.</response>
+        /// <response code="500">If an unhandled server error occurs (standard error body, no internal details).</response>
         [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(string id)
+        public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
-            try
-            {
-                await _service.DeleteAsync(id);
-                return Ok(new { message = "Xóa phòng thành công." });
-            }
-            catch (KeyNotFoundException)
-            {
-                return NotFound(new { message = "Không tìm thấy phòng để xóa." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Lỗi khi xóa phòng.", error = ex.Message });
-            }
+            // Soft delete: the room stays referenced by historical shifts and lab profiles.
+            await _service.DeleteAsync(id, ct);
+            return Ok(new { message = "Xóa phòng thành công." });
         }
     }
 }
