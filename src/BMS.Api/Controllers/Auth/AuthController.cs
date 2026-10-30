@@ -49,7 +49,7 @@ public sealed class AuthController : ControllerBase
                 return BadRequest(new
                 {
                     success = false,
-                    message = "Vui lòng nhập đầy đủ tên đăng nhập/email/SĐT/CCCD và mật khẩu.",
+                    message = "Vui lòng nhập đầy đủ tên đăng nhập hoặc email và mật khẩu.",
                     title = "Thông tin không đầy đủ.",
                     code = "VALIDATION_ERROR"
                 });
