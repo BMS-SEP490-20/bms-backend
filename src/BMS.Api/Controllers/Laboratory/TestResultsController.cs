@@ -1,11 +1,13 @@
 using BMS.Api.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BMS.Application.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -157,9 +159,13 @@ public class TestResultsController : ControllerBase
 
                 return Ok(new { success = true, total = recentList.Count, data = recentList });
             }
+            catch (AppException ex)
+            {
+                return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+            }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = "Lỗi khi truy vấn kết quả xét nghiệm sinh hóa: " + ex.Message });
+                return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi khi truy vấn kết quả xét nghiệm sinh hóa: " + ex.Message });
             }
         }
 
@@ -182,16 +188,30 @@ public class TestResultsController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetResultById(string id)
     {
-        if (_resultsCol == null) return NotFound(new { success = false, message = "Không tìm thấy cơ sở dữ liệu." });
-
-        var doc = await _resultsCol.Find(Builders<BsonDocument>.Filter.Eq("_id", id.Trim())).FirstOrDefaultAsync();
-        if (doc == null)
+        try
         {
-            return NotFound(new { success = false, message = $"Không tìm thấy kết quả xét nghiệm với mã '{id}'." });
-        }
+            if (_resultsCol == null)
+            {
+                return NotFound(new { success = false, code = "MSG-ERR-DB-UNAVAILABLE", message = "Không tìm thấy cơ sở dữ liệu kết quả xét nghiệm." });
+            }
 
-        var detailed = await BuildDetailedResultAsync(doc);
-        return Ok(new { success = true, data = detailed });
+            var doc = await _resultsCol.Find(Builders<BsonDocument>.Filter.Eq("_id", id.Trim())).FirstOrDefaultAsync();
+            if (doc == null)
+            {
+                return NotFound(new { success = false, code = "MSG-ERR-RESULT-NOT-FOUND", message = $"Không tìm thấy kết quả xét nghiệm với mã '{id}'." });
+            }
+
+            var detailed = await BuildDetailedResultAsync(doc);
+            return Ok(new { success = true, data = detailed });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải chi tiết kết quả xét nghiệm sinh hóa." });
+        }
     }
 
     private async Task<object> BuildDetailedResultAsync(BsonDocument doc)
@@ -397,13 +417,24 @@ public class TestResultsController : ControllerBase
     [HttpGet("patient/order/{orderId}")]
     public async Task<IActionResult> GetPatientResultDetail(string orderId)
     {
-        var result = await _patientResultExportService.GetPatientResultDetailAsync(orderId);
-        // Patient: own order only; same 404 for "not yours" and "missing" (R14).
-        if (result != null && !await this.MayAccessPatientAsync(result.PatientId, HttpContext.RequestAborted)) result = null;
-        if (result == null)
+        try
         {
-            return NotFound(new { message = $"No test results found for order ID '{orderId}'." });
+            var result = await _patientResultExportService.GetPatientResultDetailAsync(orderId);
+            // Patient: own order only; same 404 for "not yours" and "missing" (R14).
+            if (result != null && !await this.MayAccessPatientAsync(result.PatientId, HttpContext.RequestAborted)) result = null;
+            if (result == null)
+            {
+                return NotFound(new { success = false, code = "MSG-ERR-RESULT-NOT-FOUND", message = $"Không tìm thấy kết quả xét nghiệm cho mã đơn '{orderId}'." });
+            }
+            return Ok(result);
         }
-        return Ok(result);
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải chi tiết kết quả xét nghiệm bệnh nhân." });
+        }
     }
 }
