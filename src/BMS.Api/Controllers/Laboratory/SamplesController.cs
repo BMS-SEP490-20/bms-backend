@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.Api.Authorization;
 using BMS.Application.DTOs;
@@ -38,28 +39,55 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var filter = new QueueFilterDto
+        try
         {
-            Status = status,
-            Search = search,
-            Priority = priority,
-            LabRoom = labRoom,
-            PatientId = patientId,
-            AppointmentId = appointmentId,
-            Page = page,
-            PageSize = pageSize
-        };
+            var filter = new QueueFilterDto
+            {
+                Status = status,
+                Search = search,
+                Priority = priority,
+                LabRoom = labRoom,
+                PatientId = patientId,
+                AppointmentId = appointmentId,
+                Page = page,
+                PageSize = pageSize
+            };
 
-        var (items, totalCount) = await labQueueService.GetQueueAsync(filter);
+            var (items, totalCount) = await labQueueService.GetQueueAsync(filter);
 
-        return Ok(new
+            return Ok(new
+            {
+                success = true,
+                total = totalCount,
+                page,
+                pageSize,
+                data = items
+            });
+        }
+        catch (AppException ex)
         {
-            success = true,
-            total = totalCount,
-            page,
-            pageSize,
-            data = items
-        });
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách hàng đợi mẫu xét nghiệm lúc này.",
+                message = "Không thể tải danh sách hàng đợi mẫu xét nghiệm lúc này."
+            });
+        }
     }
 
     /// <summary>
@@ -71,18 +99,48 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSampleDetails(string id)
     {
-        var sample = await labQueueService.GetSampleByIdAsync(id);
-        if (sample == null)
+        try
         {
-            return NotFound(new ProblemDetails
+            var sample = await labQueueService.GetSampleByIdAsync(id);
+            if (sample == null)
             {
-                Status = StatusCodes.Status404NotFound,
-                Title = $"Không tìm thấy mẫu xét nghiệm '{id}'.",
-                Extensions = { ["code"] = "SAMPLE_NOT_FOUND", ["traceId"] = HttpContext.TraceIdentifier }
+                return NotFound(new
+                {
+                    success = false,
+                    status = StatusCodes.Status404NotFound,
+                    title = "SAMPLE_NOT_FOUND",
+                    code = "SAMPLE_NOT_FOUND",
+                    detail = $"Không tìm thấy mẫu xét nghiệm '{id}'.",
+                    message = $"Không tìm thấy mẫu xét nghiệm '{id}'."
+                });
+            }
+
+            return Ok(new { success = true, data = sample });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
             });
         }
-
-        return Ok(new { success = true, data = sample });
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải thông tin chi tiết mẫu xét nghiệm.",
+                message = "Không thể tải thông tin chi tiết mẫu xét nghiệm."
+            });
+        }
     }
 
     /// <summary>
@@ -101,13 +159,40 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         [FromBody] RecordSampleCollectionRequest request,
         CancellationToken ct)
     {
-        var updated = await labQueueService.RecordSampleCollectionTimeAsync(id, request, CurrentUserId, ct);
-        return Ok(new
+        try
         {
-            success = true,
-            message = $"Đã ghi nhận thời gian lấy mẫu '{updated.Barcode}' lúc {updated.CollectedAt:yyyy-MM-dd HH:mm:ss} UTC.",
-            data = updated
-        });
+            var updated = await labQueueService.RecordSampleCollectionTimeAsync(id, request, CurrentUserId, ct);
+            return Ok(new
+            {
+                success = true,
+                message = $"Đã ghi nhận thời gian lấy mẫu '{updated.Barcode}' lúc {updated.CollectedAt:yyyy-MM-dd HH:mm:ss} UTC.",
+                data = updated
+            });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể ghi nhận thời gian lấy mẫu lúc này. Vui lòng thử lại sau.",
+                message = "Không thể ghi nhận thời gian lấy mẫu lúc này. Vui lòng thử lại sau."
+            });
+        }
     }
 
     /// <summary>
@@ -124,13 +209,40 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
         [FromBody] RecordSampleCollectionRequest request,
         CancellationToken ct)
     {
-        var recorded = await labQueueService.RecordSampleCollectionTimeAsync(null, request, CurrentUserId, ct);
-        return CreatedAtAction(nameof(GetSampleDetails), new { id = recorded.Id }, new
+        try
         {
-            success = true,
-            message = $"Đã ghi nhận mẫu xét nghiệm '{recorded.Id}' (Barcode: {recorded.Barcode}) lúc {recorded.CollectedAt:yyyy-MM-dd HH:mm:ss} UTC.",
-            data = recorded
-        });
+            var recorded = await labQueueService.RecordSampleCollectionTimeAsync(null, request, CurrentUserId, ct);
+            return CreatedAtAction(nameof(GetSampleDetails), new { id = recorded.Id }, new
+            {
+                success = true,
+                message = $"Đã ghi nhận mẫu xét nghiệm '{recorded.Id}' (Barcode: {recorded.Barcode}) lúc {recorded.CollectedAt:yyyy-MM-dd HH:mm:ss} UTC.",
+                data = recorded
+            });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tạo mới và ghi nhận thời gian lấy mẫu lúc này.",
+                message = "Không thể tạo mới và ghi nhận thời gian lấy mẫu lúc này."
+            });
+        }
     }
 
     /// <summary>

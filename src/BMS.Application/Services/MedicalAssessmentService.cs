@@ -108,7 +108,7 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             EncounterDate = dto.AssessmentDate ?? DateTime.UtcNow,
             DoctorId = doctorId,
             DoctorName = doctorName,
-            Department = string.IsNullOrWhiteSpace(dto.Department) ? "Khoa KhÃ¡m Bá»‡nh" : dto.Department,
+            Department = string.IsNullOrWhiteSpace(dto.Department) ? "Khoa Khám Bệnh" : dto.Department,
             AssessmentDate = dto.AssessmentDate ?? DateTime.UtcNow,
             ChiefComplaint = dto.ChiefComplaint.Trim(),
             ClinicalSymptoms = dto.ClinicalSymptoms?.Trim(),
