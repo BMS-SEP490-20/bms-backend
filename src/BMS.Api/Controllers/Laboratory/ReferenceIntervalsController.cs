@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Roles;
 using BMS.Application.DTOs.Users;
@@ -42,10 +43,23 @@ public class ReferenceIntervalsController : ControllerBase
         [FromQuery] ReferenceIntervalQueryParameters parameters,
         CancellationToken ct = default)
     {
-        var result = await _intervalService.GetIntervalsPagedAsync(parameters, ct);
-        return Ok(ApiResponse<PagedResult<ReferenceIntervalResponseDto>>.Ok(
-            result,
-            "Danh sách khoảng tham chiếu sinh học đã tải thành công."));
+        try
+        {
+            var result = await _intervalService.GetIntervalsPagedAsync(parameters, ct);
+            return Ok(ApiResponse<PagedResult<ReferenceIntervalResponseDto>>.Ok(
+                result,
+                "Danh sách khoảng tham chiếu sinh học đã tải thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                "Không thể tải danh sách khoảng tham chiếu sinh học.",
+                "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -59,10 +73,23 @@ public class ReferenceIntervalsController : ControllerBase
         [FromQuery] bool activeOnly = true,
         CancellationToken ct = default)
     {
-        var result = await _intervalService.GetIntervalsByCriterionCodeAsync(criterionCode, activeOnly, ct);
-        return Ok(ApiResponse<List<ReferenceIntervalResponseDto>>.Ok(
-            result,
-            $"Tải danh sách khoảng tham chiếu cho chỉ số {criterionCode.ToUpperInvariant()} thành công."));
+        try
+        {
+            var result = await _intervalService.GetIntervalsByCriterionCodeAsync(criterionCode, activeOnly, ct);
+            return Ok(ApiResponse<List<ReferenceIntervalResponseDto>>.Ok(
+                result,
+                $"Tải danh sách khoảng tham chiếu cho chỉ số {criterionCode.ToUpperInvariant()} thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                $"Không thể tải khoảng tham chiếu cho chỉ số {criterionCode}.",
+                "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -74,17 +101,30 @@ public class ReferenceIntervalsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(string id, CancellationToken ct = default)
     {
-        var interval = await _intervalService.GetIntervalByIdAsync(id, ct);
-        if (interval == null)
+        try
         {
-            return NotFound(ApiResponse<object>.Fail(
-                "Không tìm thấy khoảng tham chiếu sinh học yêu cầu.",
-                "MSG-ERR-INTERVAL-NOT-FOUND"));
-        }
+            var interval = await _intervalService.GetIntervalByIdAsync(id, ct);
+            if (interval == null)
+            {
+                return NotFound(ApiResponse<object>.Fail(
+                    "Không tìm thấy khoảng tham chiếu sinh học yêu cầu.",
+                    "MSG-ERR-INTERVAL-NOT-FOUND"));
+            }
 
-        return Ok(ApiResponse<ReferenceIntervalResponseDto>.Ok(
-            interval,
-            "Chi tiết khoảng tham chiếu đã tải thành công."));
+            return Ok(ApiResponse<ReferenceIntervalResponseDto>.Ok(
+                interval,
+                "Chi tiết khoảng tham chiếu đã tải thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                "Không thể tải thông tin chi tiết khoảng tham chiếu.",
+                "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -103,19 +143,32 @@ public class ReferenceIntervalsController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("Dữ liệu cấu hình không hợp lệ.", "MSG-ERR-VALIDATION"));
         }
 
-        _logger.LogInformation("[ReferenceIntervals API] Creating reference interval for criterion {Code}, gender {Gender}",
-            dto.CriterionCode, dto.Gender);
-
-        var (success, message, data) = await _intervalService.CreateIntervalAsync(dto, ct);
-        if (!success)
+        try
         {
-            return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-INVALID-RANGE"));
-        }
+            _logger.LogInformation("[ReferenceIntervals API] Creating reference interval for criterion {Code}, gender {Gender}",
+                dto.CriterionCode, dto.Gender);
 
-        return CreatedAtAction(
-            nameof(GetById),
-            new { id = data!.Id },
-            ApiResponse<ReferenceIntervalResponseDto>.Ok(data, message));
+            var (success, message, data) = await _intervalService.CreateIntervalAsync(dto, ct);
+            if (!success)
+            {
+                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-INVALID-RANGE"));
+            }
+
+            return CreatedAtAction(
+                nameof(GetById),
+                new { id = data!.Id },
+                ApiResponse<ReferenceIntervalResponseDto>.Ok(data, message));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                "Không thể tạo mới khoảng tham chiếu sinh học.",
+                "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -136,19 +189,32 @@ public class ReferenceIntervalsController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("Dữ liệu cập nhật không hợp lệ.", "MSG-ERR-VALIDATION"));
         }
 
-        _logger.LogInformation("[ReferenceIntervals API] Updating reference interval {Id}", id);
-
-        var (success, message, data) = await _intervalService.UpdateIntervalAsync(id, dto, ct);
-        if (!success)
+        try
         {
-            if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
-            {
-                return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-NOT-FOUND"));
-            }
-            return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-UPDATE-FAILED"));
-        }
+            _logger.LogInformation("[ReferenceIntervals API] Updating reference interval {Id}", id);
 
-        return Ok(ApiResponse<ReferenceIntervalResponseDto>.Ok(data!, message));
+            var (success, message, data) = await _intervalService.UpdateIntervalAsync(id, dto, ct);
+            if (!success)
+            {
+                if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
+                {
+                    return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-NOT-FOUND"));
+                }
+                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-UPDATE-FAILED"));
+            }
+
+            return Ok(ApiResponse<ReferenceIntervalResponseDto>.Ok(data!, message));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                "Không thể cập nhật khoảng tham chiếu sinh học.",
+                "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -160,15 +226,28 @@ public class ReferenceIntervalsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeactivateInterval(string id, CancellationToken ct = default)
     {
-        _logger.LogInformation("[ReferenceIntervals API] Deactivating reference interval {Id}", id);
-
-        var (success, message) = await _intervalService.DeactivateIntervalAsync(id, ct);
-        if (!success)
+        try
         {
-            return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-NOT-FOUND"));
-        }
+            _logger.LogInformation("[ReferenceIntervals API] Deactivating reference interval {Id}", id);
 
-        return Ok(ApiResponse<object>.Ok(new { Id = id }, message));
+            var (success, message) = await _intervalService.DeactivateIntervalAsync(id, ct);
+            if (!success)
+            {
+                return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-NOT-FOUND"));
+            }
+
+            return Ok(ApiResponse<object>.Ok(new { Id = id }, message));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                "Không thể khóa khoảng tham chiếu sinh học.",
+                "INTERNAL_ERROR"));
+        }
     }
 
     /// <summary>
@@ -188,11 +267,24 @@ public class ReferenceIntervalsController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("Dữ liệu đánh giá không hợp lệ.", "MSG-ERR-VALIDATION"));
         }
 
-        var result = await _intervalService.EvaluateResultAsync(request, ct);
-        return Ok(ApiResponse<EvaluateTestResultResponseDto>.Ok(
-            result,
-            result.IsPanic 
-                ? "Chỉ số rơi vào khoảng PANIC nguy kịch đe dọa sinh mạng!" 
-                : "Đánh giá chỉ số thành công."));
+        try
+        {
+            var result = await _intervalService.EvaluateResultAsync(request, ct);
+            return Ok(ApiResponse<EvaluateTestResultResponseDto>.Ok(
+                result,
+                result.IsPanic 
+                    ? "Chỉ số rơi vào khoảng PANIC nguy kịch đe dọa sinh mạng!" 
+                    : "Đánh giá chỉ số thành công."));
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<object>.Fail(ex.Message, ex.Code));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<object>.Fail(
+                "Không thể đánh giá chỉ số xét nghiệm theo khoảng tham chiếu.",
+                "INTERNAL_ERROR"));
+        }
     }
 }
