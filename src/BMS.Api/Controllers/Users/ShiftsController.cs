@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.Api.Authorization;
 using BMS.Application.DTOs.Common;
@@ -31,11 +32,37 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         [FromQuery] ShiftFilterRequest filter,
         CancellationToken ct)
     {
-        var result = await shifts.ListShiftsAsync(filter, ct);
-        return Ok(result);
+        try
+        {
+            var result = await shifts.ListShiftsAsync(filter, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách ca làm việc lúc này. Vui lòng thử lại sau.",
+                message = "Không thể tải danh sách ca làm việc lúc này. Vui lòng thử lại sau."
+            });
+        }
     }
 
-    
     /// <summary>
     /// Retrieves all active doctor and lab rooms for shift scheduling.
     /// </summary>
@@ -44,11 +71,77 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<ShiftRoomDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ShiftRoomDto>>> GetRooms(CancellationToken ct)
     {
-        var result = await shifts.GetRoomsAsync(ct);
-        return Ok(new { success = true, data = result });
+        try
+        {
+            var result = await shifts.GetRoomsAsync(ct);
+            return Ok(new { success = true, data = result });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách phòng trực từ cơ sở dữ liệu.",
+                message = "Không thể tải danh sách phòng trực từ cơ sở dữ liệu."
+            });
+        }
     }
 
-/// <summary>
+    /// <summary>
+    /// Retrieves all active clinical &amp; laboratory staff accounts for shift scheduling (UC35).
+    /// </summary>
+    [Authorize(Roles = RoleSets.ShiftViewers)]
+    [HttpGet("staff")]
+    [ProducesResponseType(typeof(IReadOnlyList<ShiftStaffDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<ShiftStaffDto>>> GetStaff(CancellationToken ct)
+    {
+        try
+        {
+            var result = await shifts.GetStaffAsync(ct);
+            return Ok(new { success = true, data = result });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải danh sách nhân sự phân ca từ cơ sở dữ liệu.",
+                message = "Không thể tải danh sách nhân sự phân ca từ cơ sở dữ liệu."
+            });
+        }
+    }
+
+    /// <summary>
     /// Retrieves details of a specific work shift by ID (View Shifts).
     /// </summary>
     [Authorize(Roles = RoleSets.ShiftViewers)]
@@ -59,8 +152,35 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         string id,
         CancellationToken ct)
     {
-        var result = await shifts.GetShiftByIdAsync(id, ct);
-        return Ok(result);
+        try
+        {
+            var result = await shifts.GetShiftByIdAsync(id, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tải thông tin chi tiết ca làm việc.",
+                message = "Không thể tải thông tin chi tiết ca làm việc."
+            });
+        }
     }
 
     /// <summary>
@@ -75,8 +195,35 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         [FromBody] CreateShiftRequest request,
         CancellationToken ct)
     {
-        var created = await shifts.CreateShiftAsync(request, CurrentUserId, ct);
-        return CreatedAtAction(nameof(GetShiftById), new { id = created.Id }, created);
+        try
+        {
+            var created = await shifts.CreateShiftAsync(request, CurrentUserId, ct);
+            return CreatedAtAction(nameof(GetShiftById), new { id = created.Id }, created);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể tạo ca làm việc mới lúc này.",
+                message = "Không thể tạo ca làm việc mới lúc này."
+            });
+        }
     }
 
     /// <summary>
@@ -93,8 +240,35 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         [FromBody] UpdateShiftRequest request,
         CancellationToken ct)
     {
-        var updated = await shifts.UpdateShiftAsync(id, request, CurrentUserId, ct);
-        return Ok(updated);
+        try
+        {
+            var updated = await shifts.UpdateShiftAsync(id, request, CurrentUserId, ct);
+            return Ok(updated);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể cập nhật thông tin ca làm việc lúc này.",
+                message = "Không thể cập nhật thông tin ca làm việc lúc này."
+            });
+        }
     }
 
     /// <summary>
@@ -109,8 +283,35 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         string id,
         CancellationToken ct)
     {
-        await shifts.DeleteShiftAsync(id, CurrentUserId, ct);
-        return NoContent();
+        try
+        {
+            await shifts.DeleteShiftAsync(id, CurrentUserId, ct);
+            return NoContent();
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                title = ex.Code,
+                code = ex.Code,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = 500,
+                title = "INTERNAL_SERVER_ERROR",
+                code = "INTERNAL_SERVER_ERROR",
+                detail = "Không thể xoá ca làm việc lúc này.",
+                message = "Không thể xoá ca làm việc lúc này."
+            });
+        }
     }
 
     private string? CurrentUserId =>
