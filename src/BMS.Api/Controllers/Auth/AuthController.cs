@@ -44,6 +44,17 @@ public sealed class AuthController : ControllerBase
     {
         try
         {
+            if (request == null || string.IsNullOrWhiteSpace(request.UsernameOrEmail) || string.IsNullOrEmpty(request.Password))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Vui lòng nhập đầy đủ tên đăng nhập/email/SĐT/CCCD và mật khẩu.",
+                    title = "Thông tin không đầy đủ.",
+                    code = "VALIDATION_ERROR"
+                });
+            }
+
             var result = await _authService.AuthenticateAsync(
                 request,
                 GetClient(),
@@ -65,7 +76,7 @@ public sealed class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error during login for {Username}", request.UsernameOrEmail);
+            _logger.LogError(ex, "Unexpected error during login for {Username}", request?.UsernameOrEmail);
             return StatusCode(StatusCodes.Status500InternalServerError, new
             {
                 success = false,
