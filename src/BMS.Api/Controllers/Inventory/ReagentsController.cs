@@ -1,5 +1,6 @@
 using BMS.Application.DTOs.Inventory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -7,12 +8,13 @@ using System.Security.Claims;
 namespace BMS.Api.Controllers.Inventory;
 
 /// <summary>
-/// UC56 inventory API; stock mutations are restricted to warehouse and management staff.
+/// UC56 inventory API. Read: Admin, Manager, Lab (Doctor denied, decision 10). Write: Manager, Lab
+/// (WarehouseStaff merged into Lab). Matrix rows UC56 xem / nhập-sửa-xóa.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/inventory")]
-[Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
+[Authorize(Roles = RoleSets.InventoryRead)]
 public sealed class ReagentsController(IInventoryService service) : ControllerBase
 {
     private string? ActorId => User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -20,7 +22,7 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
 
     /// <summary>Creates a lot with its opening stock and an immutable audit entry.</summary>
     [HttpPost]
-    [Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
+    [Authorize(Roles = RoleSets.InventoryWrite)]
     [ProducesResponseType(typeof(InventoryItemDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateInventoryDto request, CancellationToken ct)
     {
@@ -31,7 +33,7 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
 
     /// <summary>Updates one lot revision and records both the previous and resulting stock values.</summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
+    [Authorize(Roles = RoleSets.InventoryWrite)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateInventoryDto request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
@@ -40,7 +42,7 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
 
     /// <summary>Soft deletes an empty lot at the viewed revision; historical evidence is retained.</summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin,Administrator,LabTechnician,LabTech")]
+    [Authorize(Roles = RoleSets.InventoryWrite)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteInventoryDto request, CancellationToken ct)
     {

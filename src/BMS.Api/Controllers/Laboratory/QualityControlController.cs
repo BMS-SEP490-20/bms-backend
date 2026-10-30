@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -15,6 +17,8 @@ namespace BMS.Api.Controllers.Laboratory;
 [ApiController]
 [Route("api/v1/qc")]
 [Route("api/qc")]
+// WHY: UC73: lots/runs Lab, Manager; unlock (CAPA sign-off) Manager only (decision 1). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class QualityControlController : ControllerBase
 {
     private readonly IQcService _qcService;
@@ -27,6 +31,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Retrieves list of QC material lots.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("lots")]
     public async Task<IActionResult> GetLots([FromQuery] bool? activeOnly, [FromQuery] string? analyte, CancellationToken ct)
     {
@@ -42,6 +47,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Retrieves a QC lot by ID.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("lots/{id}")]
     public async Task<IActionResult> GetLotById(string id, CancellationToken ct)
     {
@@ -56,6 +62,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Creates a new QC lot with specified target mean and standard deviation.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPost("lots")]
     public async Task<IActionResult> CreateLot([FromBody] CreateQcLotDto dto, CancellationToken ct)
     {
@@ -78,6 +85,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Updates an existing QC lot.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPut("lots/{id}")]
     public async Task<IActionResult> UpdateLot(string id, [FromBody] UpdateQcLotDto dto, CancellationToken ct)
     {
@@ -100,6 +108,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Toggles active status of a QC lot.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPost("lots/{id}/toggle-status")]
     public async Task<IActionResult> ToggleLotStatus(string id, CancellationToken ct)
     {
@@ -122,6 +131,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Records an analytical IQC measurement run and executes Westgard multi-rule evaluation.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPost("runs/record")]
     public async Task<IActionResult> RecordRun([FromBody] RecordQcRunDto dto, CancellationToken ct)
     {
@@ -148,6 +158,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Retrieves Levey-Jennings chart data points and boundary markers (+/-1s, +/-2s, +/-3s) for visual review.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("levey-jennings/{lotId}")]
     public async Task<IActionResult> GetLeveyJenningsData(string lotId, CancellationToken ct)
     {
@@ -169,6 +180,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Signs off on corrective action for an out-of-control QC run, unlocking the analyzer batch.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPost("runs/{runId}/signoff")]
     public async Task<IActionResult> SignoffCorrectiveAction(string runId, [FromBody] QcSignoffRequestDto dto, CancellationToken ct)
     {
@@ -195,6 +207,7 @@ public class QualityControlController : ControllerBase
     /// <summary>
     /// Retrieves executive QC surveillance summary metrics.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("summary")]
     public async Task<IActionResult> GetSummary(CancellationToken ct)
     {

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.Application.DTOs.TestBatches;
 using BMS.Application.Interfaces;
@@ -13,11 +15,14 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/test-batches")]
 [Route("api/v1/test-batches")]
 [Produces("application/json")]
+// WHY: UC38: Lab; Manager view. Web only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class TestBatchesController(ITestBatchService testBatchService) : ControllerBase
 {
     /// <summary>
     /// Retrieves test batches with optional filters (date range, analyzerId, status).
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet]
     public async Task<IActionResult> GetBatches(
         [FromQuery] DateTime? fromDate,
@@ -38,6 +43,7 @@ public class TestBatchesController(ITestBatchService testBatchService) : Control
     /// <summary>
     /// Retrieves samples that have been received but not yet assigned to any active batch.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("pending-samples")]
     public async Task<IActionResult> GetPendingSamples(
         [FromQuery] string? category,
@@ -55,6 +61,7 @@ public class TestBatchesController(ITestBatchService testBatchService) : Control
     /// <summary>
     /// Retrieves single test batch details including plate layout positions.
     /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetBatchById(string id, CancellationToken ct = default)
     {
@@ -78,6 +85,7 @@ public class TestBatchesController(ITestBatchService testBatchService) : Control
     /// <summary>
     /// Creates a new test batch with ISO 15189 plate positions (A1/A2 reserved for IQC).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPost]
     public async Task<IActionResult> CreateBatch(
         [FromBody] CreateTestBatchRequest request,
@@ -118,6 +126,7 @@ public class TestBatchesController(ITestBatchService testBatchService) : Control
     /// <summary>
     /// Updates batch status (e.g., Pending -> Running -> Completed/Cancelled).
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpPut("{id}/status")]
     public async Task<IActionResult> UpdateStatus(
         string id,
@@ -152,6 +161,7 @@ public class TestBatchesController(ITestBatchService testBatchService) : Control
     /// <summary>
     /// Cancels a batch and rolls back assigned samples to Received status.
     /// </summary>
+    [Authorize(Roles = RoleNames.Lab)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> CancelBatch(
         string id,

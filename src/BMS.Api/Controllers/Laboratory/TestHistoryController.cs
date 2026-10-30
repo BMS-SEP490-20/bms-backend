@@ -1,14 +1,15 @@
 using System.Security.Claims;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 namespace BMS.Api.Controllers.Laboratory;
 
-/// <summary>UC76 signed test history; ownership and disclosure rules are enforced by the service/repository.</summary>
+/// <summary>UC76 signed test history. Matrix row UC76: Manager, Doctor, Lab; Patient own only (scoped by token account ID in the service); Admin and Receptionist denied.</summary>
 [ApiController, Route("api/test-history")]
-[Authorize(Roles = "Admin,Doctor,LabTechnician,Patient")]
+[Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class TestHistoryController(ITestHistoryService service) : ControllerBase
 {

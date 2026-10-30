@@ -8,8 +8,11 @@ namespace BMS.Core.Entities;
 /// </summary>
 public enum QueuePriority
 {
+    /// <summary>Normal patient, first come first served.</summary>
     Routine = 1,
+    /// <summary>Policy priority (≥80 years, pregnancy ≥7 months, infant &lt;12 months); alternates 1:1 with Routine (BA:L33).</summary>
     Urgent = 2,
+    /// <summary>Emergency; always called before everyone else.</summary>
     STAT = 3
 }
 
@@ -36,6 +39,14 @@ public class QueueTicket
 
     [BsonElement("ticketNumber")]
     public string TicketNumber { get; set; } = string.Empty;
+
+    /// <summary>Clinic-local business day (yyyy-MM-dd, +07:00) the number belongs to; numbers reset daily.</summary>
+    [BsonElement("queueDate")]
+    public string QueueDate { get; set; } = string.Empty;
+
+    /// <summary>Numeric part of <see cref="TicketNumber"/> (1–999), from the atomic daily counter.</summary>
+    [BsonElement("sequence")]
+    public int Sequence { get; set; }
 
     [BsonElement("patientId")]
     public string PatientId { get; set; } = string.Empty;
@@ -67,6 +78,16 @@ public class QueueTicket
     [BsonElement("calledAt")]
     public DateTime? CalledAt { get; set; }
 
+    /// <summary>Monotonic order of the last call today (from the <c>queue-call:{date}</c> counter).</summary>
+    /// <remarks>WHY: two calls in the same millisecond share <see cref="CalledAt"/>; the 1:1 alternation needs an
+    /// unambiguous "last called".</remarks>
+    [BsonElement("callOrder")]
+    [BsonIgnoreIfNull]
+    public long? CallOrder { get; set; }
+
     [BsonElement("estimatedWaitMinutes")]
-    public int EstimatedWaitMinutes { get; set; } = 10;
+    public int EstimatedWaitMinutes { get; set; }
+
+    [BsonElement("completedAt")]
+    public DateTime? CompletedAt { get; set; }
 }

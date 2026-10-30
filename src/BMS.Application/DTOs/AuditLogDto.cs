@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace Testorder_service.Models.DTO
+namespace BMS.Application.DTOs.AuditLogs
 {
     /// <summary>
     /// Data transfer object for creating a new audit log record.
@@ -42,6 +42,10 @@ namespace Testorder_service.Models.DTO
         public DateTime? ToDate { get; set; }
         public int PageNumber { get; set; } = 1;
         public int PageSize { get; set; } = 50;
+
+        /// <summary>Maps the HTTP filter to the persistence-agnostic Core query.</summary>
+        public BMS.Core.Entities.AuditLogQuery ToQuery() =>
+            new(Category, Severity, Status, Action, SearchTerm, FromDate, ToDate, PageNumber, PageSize);
     }
 }
 

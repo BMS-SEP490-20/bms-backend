@@ -1,245 +1,124 @@
-using TestOrder.Models.DTO;
-using TestOrder.Repositories.Interface;
-using TestOrder.Services.Interface;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
-using Testorder_service.Services.Interface;
-using Testorder_service.GrpcClients;
-using Microsoft.EntityFrameworkCore;
-using Testorder_service.Data;
+using BMS.Application.DTOs.TestResults;
+using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using BMS.Core.Exceptions;
+using BMS.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 
-namespace TestOrder.Services.Implement
+namespace BMS.Application.Services
 {
+    /// <summary>
+    /// Test result CRUD and approval (I3-004) on <c>test_results</c>.
+    /// Ported from the legacy Testorder microservice: EF Core (TestOrderManagementDbContext), the
+    /// separate TestParameter table and the IAM gRPC client do not exist in BMS. Parameters are stored as
+    /// <see cref="TestResultItem"/>s inside the result document, appointment data comes from
+    /// <see cref="IAppointmentRepository"/>, and the "waiting review" email became an in-app notification.
+    /// </summary>
     public class TestResultService : ITestResultService
     {
+        private const string NotFoundCode = "TEST_RESULT_NOT_FOUND";
+        private const string WaitingReviewStatus = "waiting_review";
+        private const string CompletedStatus = "Completed";
         private readonly ITestResultRepository _repo;
-        private readonly ITestParameterRepository _paramRepo;
         private readonly IAppointmentRepository _appointmentRepo;
-        private readonly IEmailNotificationService _emailNotificationService;
-        private readonly IamGrpcClient _iamGrpcClient;
-        private readonly TestOrderManagementDbContext _context;
+        private readonly INotificationRepository _notificationRepo;
         private readonly ILogger<TestResultService> _logger;
 
+        /// <summary>Creates the service.</summary>
         public TestResultService(
-            ITestResultRepository repo, 
-            ITestParameterRepository paramRepo,
+            ITestResultRepository repo,
             IAppointmentRepository appointmentRepo,
-            IEmailNotificationService emailNotificationService,
-            IamGrpcClient iamGrpcClient,
-            TestOrderManagementDbContext context,
+            INotificationRepository notificationRepo,
             ILogger<TestResultService> logger)
         {
             _repo = repo;
-            _paramRepo = paramRepo;
             _appointmentRepo = appointmentRepo;
-            _emailNotificationService = emailNotificationService;
-            _iamGrpcClient = iamGrpcClient;
-            _context = context;
+            _notificationRepo = notificationRepo;
             _logger = logger;
         }
 
-        public async Task<IEnumerable<TestResultDto>> GetAllAsync()
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<TestResultDto> Items, long Total)> GetPagedAsync(int page, int pageSize, CancellationToken ct = default)
         {
-            var list = await _repo.GetAllAsync();
-            return list.Select(x => new TestResultDto
-            {
-                TestResultId = x.TestResultId,
-                AppointmentId = x.AppointmentId,
-                SampleId = x.SampleId,
-              
-                ReagentCode = x.ReagentCode,
-                Quantity = x.Quantity.HasValue ? (int)x.Quantity.Value : 0,
-                DeviceId = x.DeviceId,
-                ReviewedBy = x.ReviewedBy,
-                ReviewedAt = x.ReviewedAt,
-                Status = x.Status,
-                CreatedAt = x.CreatedAt,
-                UpdatedAt = x.UpdatedAt
-            });
+            var (items, total) = await _repo.GetPagedAsync(page, pageSize, ct);
+            return (items.Select(ToDto).ToList(), total);
         }
 
-        public async Task<TestResultDto?> GetByIdAsync(string id)
+        /// <inheritdoc />
+        public async Task<TestResultDto?> GetByIdAsync(string id, CancellationToken ct = default)
         {
-            var x = await _repo.GetByIdAsync(id);
-            if (x == null) return null;
-
-            return new TestResultDto
-            {
-                TestResultId = x.TestResultId,
-                AppointmentId = x.AppointmentId,
-                SampleId = x.SampleId,
-               
-                ReagentCode = x.ReagentCode,
-                Quantity = (int)x.Quantity,
-                DeviceId = x.DeviceId,
-                ReviewedBy = x.ReviewedBy,
-                ReviewedAt = x.ReviewedAt,
-                Status = x.Status,
-                CreatedAt = x.CreatedAt,
-                UpdatedAt = x.UpdatedAt
-            };
+            var x = await _repo.GetByIdAsync(id, ct);
+            return x is null ? null : ToDto(x);
         }
 
-        public async Task CreateAsync(CreateFullTestResultDto dto)
+        /// <inheritdoc />
+        public async Task<TestResultDto> CreateAsync(CreateFullTestResultDto dto, CancellationToken ct = default)
         {
-            var random = new Random();
+            var now = DateTime.UtcNow;
+            // Server-generated, collision-resistant id (was "TRE" + Random 6 digits).
+            var resultId = $"TRE-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
             var entity = new TestResult
             {
-                TestResultId = $"TRE{random.Next(0, 999999):D6}",
+                Id = resultId,
+                TestResultId = resultId,
                 AppointmentId = dto.AppointmentId,
                 SampleId = dto.SampleId,
-               
                 ReagentCode = dto.ReagentCode,
                 Quantity = dto.Quantity,
                 DeviceId = dto.DeviceId,
                 ReviewedBy = dto.ReviewedBy,
                 Status = dto.Status,
-                CreatedAt = DateTime.Now,
-                ReviewedAt = DateTime.Now
+                Items = ToItems(dto.Parameters),
+                CreatedAt = now,
+                ReviewedAt = now
             };
 
-            await _repo.AddAsync(entity);
-            var parameters = dto.Parameters.Select(p => new TestParameter
-            {
-                ParamId = Guid.NewGuid().ToString(),
-                TestResultId = entity.TestResultId,
-                CriteriaId = p.CriteriaId,
-                ParamName = p.ParamName,
-                Abbreviation = p.Abbreviation,
-                Value = p.Value,
-                CreatedAt = DateTime.Now
-            }).ToList();
-
-            await _paramRepo.AddRangeAsync(parameters);
-
-            await _repo.SaveChangesAsync();
+            await _repo.AddAsync(entity, ct);
+            return ToDto(entity);
         }
 
-        public async Task UpdateAsync(string id, UpdateTestResultDto dto)
+        /// <inheritdoc />
+        public async Task UpdateAsync(string id, UpdateTestResultDto dto, CancellationToken ct = default)
         {
-            var entity = await _repo.GetByIdAsync(id);
-            if (entity == null)
-                throw new KeyNotFoundException("Không tìm thấy kết quả xét nghiệm để cập nhật.");
+            var entity = await _repo.GetByIdAsync(id, ct)
+                ?? throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để cập nhật.");
+            ThrowIfSigned(entity);
 
             var oldStatus = entity.Status;
-            entity.ReagentCode = dto.ReagentCode ?? entity.ReagentCode;
-            entity.Quantity = dto.Quantity != 0 ? dto.Quantity : entity.Quantity;
-            entity.DeviceId = dto.DeviceId ?? entity.DeviceId;
-            entity.ReviewedBy = dto.ReviewedBy ?? entity.ReviewedBy;
-            entity.Status = dto.Status ?? entity.Status;
-            entity.ReviewedAt = dto.ReviewedAt ?? DateTime.Now;
-            entity.UpdatedAt = DateTime.Now;
+            var changes = new TestResultFieldChanges(
+                ReagentCode: dto.ReagentCode,
+                Quantity: dto.Quantity != 0 ? dto.Quantity : null,
+                DeviceId: dto.DeviceId,
+                ReviewedBy: dto.ReviewedBy,
+                ReviewedAt: dto.ReviewedAt ?? DateTime.UtcNow,
+                Status: dto.Status,
+                // Parameters replace the previous set in the same atomic write (was delete + re-insert rows).
+                Items: dto.Parameters is { Count: > 0 } ? ToItems(dto.Parameters) : null);
 
-            await _repo.UpdateAsync(entity);
+            if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
+                throw await NotUpdatedAsync(entity.Id, "Không tìm thấy kết quả xét nghiệm để cập nhật.", ct);
 
-            if (dto.Parameters != null && dto.Parameters.Any())
-            {
-                await _paramRepo.DeleteByTestResultIdAsync(id);
-
-                var newParams = dto.Parameters.Select(p => new TestParameter
-                {
-                    ParamId = Guid.NewGuid().ToString(),
-                    TestResultId = entity.TestResultId,
-                    CriteriaId = p.CriteriaId,
-                    ParamName = p.ParamName,
-                    Abbreviation = p.Abbreviation,
-                    Value = p.Value,
-                    CreatedAt = DateTime.Now
-                }).ToList();
-
-                await _paramRepo.AddRangeAsync(newParams);
-            }
-
-            await _repo.SaveChangesAsync();
-
-            // Send email notification when status changes to "waiting_review"
-            if (oldStatus != "waiting_review" && entity.Status == "waiting_review")
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await SendTestResultWaitingReviewEmailAsync(entity);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "❌ Failed to send email notification for TestResult {TestResultId}", entity.TestResultId);
-                    }
-                });
-            }
+            // Notify the patient when the result moves into "waiting_review" (former email side effect).
+            if (oldStatus != WaitingReviewStatus && dto.Status == WaitingReviewStatus)
+                await NotifyWaitingReviewAsync(entity, ct);
         }
 
-        private async Task SendTestResultWaitingReviewEmailAsync(TestResult testResult)
+        /// <inheritdoc />
+        public async Task DeleteAsync(string id, CancellationToken ct = default)
         {
-            try
-            {
-                // Get Appointment with related data (load entity with includes)
-                var appointment = await _context.Appointments
-                    .Include(a => a.TestPackage)
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(a => a.AppointmentId == testResult.AppointmentId);
-
-                if (appointment == null)
-                {
-                    _logger.LogWarning("⚠️ Appointment not found for TestResult {TestResultId}", testResult.TestResultId);
-                    return;
-                }
-
-                // Get patient email from iam-service using CreatedBy (userId)
-                var userResponse = await _iamGrpcClient.GetUserByIdAsync(appointment.CreatedBy);
-                if (userResponse == null || string.IsNullOrWhiteSpace(userResponse.Email))
-                {
-                    _logger.LogWarning("⚠️ Patient email not found for userId {UserId}", appointment.CreatedBy);
-                    return;
-                }
-
-                var testPackageName = appointment.TestPackage?.PackageName ?? "Không xác định";
-                await _emailNotificationService.SendTestResultWaitingReviewEmailAsync(
-                    userResponse.Email,
-                    testResult.TestResultId,
-                    testResult.AppointmentId,
-                    testPackageName
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Error sending TestResult waiting review email for {TestResultId}", testResult.TestResultId);
-            }
+            // Soft delete: results are medical records and stay available for audit / timeline.
+            var entity = await _repo.GetByIdAsync(id, ct)
+                ?? throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để xóa.");
+            ThrowIfSigned(entity);
+            if (!await _repo.SoftDeleteAsync(entity.Id, ct))
+                throw await NotUpdatedAsync(entity.Id, "Không tìm thấy kết quả xét nghiệm để xóa.", ct);
         }
 
-
-        public async Task DeleteAsync(string id)
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TestResultDto>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default)
         {
-            var entity = await _repo.GetByIdAsync(id);
-            if (entity == null)
-                throw new KeyNotFoundException("Không tìm thấy kết quả xét nghiệm để xóa.");
-
-           
-            await _paramRepo.DeleteByTestResultIdAsync(id);
-
-           
-            await _repo.DeleteAsync(id);
-
-            await _repo.SaveChangesAsync();
-        }
-
-        public async Task<IEnumerable<TestResultDto>> GetByAppointmentIdAsync(string appointmentId)
-        {
-            var list = await _repo.GetByAppointmentIdAsync(appointmentId);
-            return list.Select(x => new TestResultDto
-            {
-                TestResultId = x.TestResultId,
-                AppointmentId = x.AppointmentId,
-                SampleId = x.SampleId,
-                ReagentCode = x.ReagentCode,
-                Quantity = x.Quantity.HasValue ? (int)x.Quantity.Value : 0,
-                DeviceId = x.DeviceId,
-                ReviewedBy = x.ReviewedBy,
-                ReviewedAt = x.ReviewedAt,
-                Status = x.Status,
-                CreatedAt = x.CreatedAt,
-                UpdatedAt = x.UpdatedAt
-            });
+            var list = await _repo.GetByAppointmentIdAsync(appointmentId, ct);
+            return list.Select(ToDto).ToList();
         }
 
         /// <summary>
@@ -247,71 +126,121 @@ namespace TestOrder.Services.Implement
         /// </summary>
         /// <param name="id">Test result identifier.</param>
         /// <param name="dto">Approval metadata including approver identity, role, and digital signature.</param>
+        /// <param name="ct">Cancellation token.</param>
         /// <returns>The approved test result data transfer object.</returns>
-        /// <exception cref="KeyNotFoundException">Thrown when target test result is not found in MongoDB.</exception>
-        public async Task<TestResultDto> ApproveAsync(string id, ApproveTestResultDto dto)
+        /// <exception cref="ResourceNotFoundException">Thrown when target test result is not found in MongoDB.</exception>
+        public async Task<TestResultDto> ApproveAsync(string id, ApproveTestResultDto dto, CancellationToken ct = default)
         {
-            var entity = await _repo.GetByIdAsync(id);
-            if (entity == null)
-                throw new KeyNotFoundException($"Test result '{id}' was not found.");
+            var entity = await _repo.GetByIdAsync(id, ct)
+                ?? throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
+            ThrowIfSigned(entity); // a signature is final; re-approving would overwrite the signer
 
             // BUSINESS RULE: Approval transitions the result to 'Completed' and digitally seals it,
             // making it viewable by the patient and preventing subsequent unauthorized edits.
-            entity.Status = "Completed";
-            entity.ReviewedBy = !string.IsNullOrWhiteSpace(dto.ApproverName)
-                ? $"{dto.ApproverName} ({dto.ApproverRole ?? "Doctor"})"
-                : dto.ApproverId;
-            entity.ReviewedAt = DateTime.UtcNow;
-            entity.UpdatedAt = DateTime.UtcNow;
+            // TODO(senior-dev, Đợt 3): enforce approver role, read-only after signing and SHA-256 seal (BA rules UC49).
+            var now = DateTime.UtcNow;
+            var changes = new TestResultFieldChanges(
+                Status: CompletedStatus,
+                ReviewedBy: !string.IsNullOrWhiteSpace(dto.ApproverName)
+                    ? $"{dto.ApproverName} ({dto.ApproverRole ?? "Doctor"})"
+                    : dto.ApproverId,
+                ReviewedAt: now,
+                DeviceId: string.IsNullOrWhiteSpace(dto.DeviceId) ? null : dto.DeviceId,
+                Quantity: dto.Quantity is > 0 ? dto.Quantity : null,
+                // Keep the existing ISO validation fields in sync with the legacy string status.
+                ValidationStatus: ResultValidationStatus.DoctorApproved,
+                ApprovedByDoctorId: dto.ApproverId,
+                ApprovedAt: now);
 
-            if (!string.IsNullOrWhiteSpace(dto.DeviceId))
-            {
-                entity.DeviceId = dto.DeviceId;
-            }
-
-            if (dto.Quantity.HasValue && dto.Quantity.Value > 0)
-            {
-                entity.Quantity = dto.Quantity.Value;
-            }
-
-            await _repo.UpdateAsync(entity);
+            if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
+                throw await NotUpdatedAsync(entity.Id, $"Test result '{id}' was not found.", ct);
 
             // SIDE EFFECT: Automatically synchronize parent appointment status to 'completed'
             // so billing, reception, and patient portals reflect the final test state.
             if (!string.IsNullOrWhiteSpace(entity.AppointmentId))
-
             {
                 try
                 {
-                    var appointment = await _appointmentRepo.GetByIdAsync(entity.AppointmentId);
-                    if (appointment != null)
-                    {
-                        appointment.Status = "completed";
-                        await _appointmentRepo.UpdateAsync(appointment);
-                    }
+                    await _appointmentRepo.UpdateStatusAsync(entity.AppointmentId, AppointmentStatus.Completed, ct);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    // The approval is already persisted; a failed side effect must not report the approval as failed.
                     _logger.LogWarning(ex, "Failed to update appointment status for AppointmentId {AppointmentId}", entity.AppointmentId);
                 }
             }
 
-            await _repo.SaveChangesAsync();
-
-            return new TestResultDto
-            {
-                TestResultId = entity.TestResultId,
-                AppointmentId = entity.AppointmentId,
-                SampleId = entity.SampleId,
-                ReagentCode = entity.ReagentCode,
-                Quantity = entity.Quantity.HasValue ? (int)entity.Quantity.Value : 0,
-                DeviceId = entity.DeviceId,
-                ReviewedBy = entity.ReviewedBy,
-                ReviewedAt = entity.ReviewedAt,
-                Status = entity.Status,
-                CreatedAt = entity.CreatedAt,
-                UpdatedAt = entity.UpdatedAt
-            };
+            var approved = await _repo.GetByIdAsync(entity.Id, ct) ?? entity;
+            return ToDto(approved);
         }
+
+        /// <summary>Quy trình Đợt 3A Q5: a signed result is read-only (409 RESULT_SIGNED_READ_ONLY).</summary>
+        private static void ThrowIfSigned(TestResult entity)
+        {
+            if (TestResultRules.IsSigned(entity))
+                throw new ConflictStateException("RESULT_SIGNED_READ_ONLY", "Kết quả đã được ký duyệt, chỉ được xem, không được sửa hay xóa.");
+        }
+
+        // The repository refuses writes to signed rows atomically; tell "signed meanwhile" apart from "not found".
+        private async Task<AppException> NotUpdatedAsync(string id, string notFoundMessage, CancellationToken ct)
+        {
+            var current = await _repo.GetByIdAsync(id, ct);
+            return current != null && TestResultRules.IsSigned(current)
+                ? new ConflictStateException("RESULT_SIGNED_READ_ONLY", "Kết quả đã được ký duyệt, chỉ được xem, không được sửa hay xóa.")
+                : new ResourceNotFoundException(NotFoundCode, notFoundMessage);
+        }
+
+        private async Task NotifyWaitingReviewAsync(TestResult result, CancellationToken ct)
+        {
+            var appointment = await _appointmentRepo.GetByIdAsync(result.AppointmentId, ct);
+            if (appointment is null || string.IsNullOrWhiteSpace(appointment.PatientId))
+            {
+                _logger.LogWarning("Appointment not found for TestResult {TestResultId}; waiting-review notification skipped", result.TestResultId);
+                return;
+            }
+
+            await _notificationRepo.AddAsync(new Notification
+            {
+                NotificationId = $"NOT{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                UserId = appointment.PatientId,
+                Role = "Patient",
+                Title = "Kết quả xét nghiệm đang chờ duyệt",
+                Message = $"Kết quả xét nghiệm của lịch hẹn {appointment.AppointmentCode} đã có và đang chờ bác sĩ duyệt.",
+                Type = "result_waiting_review",
+                ReferenceId = result.TestResultId,
+                CreatedAt = DateTime.UtcNow
+            }, ct);
+        }
+
+        private static List<TestResultItem> ToItems(IEnumerable<TestParameterDto>? parameters) =>
+            (parameters ?? []).Select(p => new TestResultItem
+            {
+                CriterionId = p.CriteriaId,
+                CriterionCode = p.Abbreviation ?? string.Empty,
+                CriterionName = p.ParamName,
+                MeasuredValue = p.Value ?? string.Empty
+            }).ToList();
+
+        private static TestResultDto ToDto(TestResult x) => new()
+        {
+            TestResultId = string.IsNullOrWhiteSpace(x.TestResultId) ? x.Id : x.TestResultId,
+            AppointmentId = x.AppointmentId,
+            SampleId = x.SampleId,
+            ReagentCode = x.ReagentCode,
+            Quantity = x.Quantity.HasValue ? (int)x.Quantity.Value : 0,
+            DeviceId = x.DeviceId,
+            ReviewedBy = x.ReviewedBy,
+            ReviewedAt = x.ReviewedAt,
+            Status = x.Status,
+            CreatedAt = x.CreatedAt,
+            UpdatedAt = x.UpdatedAt,
+            Parameters = x.Items.Select(i => new TestParameterDto
+            {
+                CriteriaId = i.CriterionId,
+                ParamName = i.CriterionName,
+                Abbreviation = i.CriterionCode,
+                Value = i.MeasuredValue
+            }).ToList()
+        };
     }
 }

@@ -33,7 +33,17 @@ public static class DependencyInjection
 
         // Iteration 3: Core Medical, Billing & Tracking Services
         services.AddScoped<ITrackTestProgressService, TrackTestProgressService>();
-        services.AddScoped<ICalculateFeeService, CalculateFeeService>();
+        // WHY a factory: the parameterless constructor exists only for the offline UC53 check; DI must use the catalog one.
+        services.AddScoped<BillingSettingsService>();
+        services.AddScoped<IBillingSettingsService>(sp => sp.GetRequiredService<BillingSettingsService>());
+        services.AddScoped<IFeePolicyProvider>(sp => sp.GetRequiredService<BillingSettingsService>());
+        services.AddScoped<ICalculateFeeService>(sp => new CalculateFeeService(
+            sp.GetRequiredService<IServicePackageRepository>(),
+            sp.GetRequiredService<BMS.Core.Interfaces.ITestOrderRepository>(),
+            sp.GetRequiredService<IFeePolicyProvider>(),
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddScoped<IOrderPaymentService, OrderPaymentService>();
+        services.AddScoped<IOrderRefundService, OrderRefundService>();
         services.AddScoped<IPushNotificationService, PushNotificationService>();
         services.AddScoped<IQcService, QcService>();
 
@@ -43,6 +53,16 @@ public static class DependencyInjection
         // Iteration 3: Analytics & Reporting Services
         services.AddScoped<ITatStatisticsService, TatStatisticsService>();
         services.AddScoped<IRevenueReportService, RevenueReportService>();
+
+        // Iteration 3 features ported from the old microservices (Đợt 1 recovery)
+        services.AddScoped<IAuditLogService, AuditLogService>();
+        services.AddScoped<ILabRoomService, LabRoomService>();
+        services.AddScoped<IBloodSampleService, BloodSampleService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<ITestResultService, TestResultService>();
+        services.AddScoped<IQcFlagService, QcFlagService>();
+        services.AddScoped<IPatientFeedbackService, PatientFeedbackService>();
+        services.AddScoped<IPaymentRecordService, PaymentRecordService>();
 
         return services;
     }

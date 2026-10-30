@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Roles;
 using BMS.Application.DTOs.Users;
@@ -16,6 +17,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/laboratory/reference-intervals")]
 [Route("api/reference-intervals")]
 [Produces("application/json")]
+// WHY: UC57: read/evaluate Manager, Lab, Doctor; configure Manager only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class ReferenceIntervalsController : ControllerBase
 {
@@ -33,6 +35,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Lấy danh sách khoảng tham chiếu có phân trang và bộ lọc (UC57).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<ReferenceIntervalResponseDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetIntervals(
@@ -48,6 +51,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Lấy tất cả khoảng tham chiếu đã cấu hình cho một chỉ số xét nghiệm cụ thể (theo mã chỉ số).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("criterion/{criterionCode}")]
     [ProducesResponseType(typeof(ApiResponse<List<ReferenceIntervalResponseDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByCriterionCode(
@@ -64,6 +68,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Lấy thông tin chi tiết một khoảng tham chiếu theo ID.
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -85,8 +90,8 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Cấu hình / Thêm mới một khoảng tham chiếu sinh học (UC57).
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPost]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateInterval(
@@ -116,8 +121,8 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Cập nhật thông tin khoảng tham chiếu sinh học (UC57).
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPut("{id}")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -149,8 +154,8 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Vô hiệu hóa (khóa mềm) khoảng tham chiếu sinh học, bảo toàn dữ liệu lịch sử xét nghiệm.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin,LabTechnician,Doctor")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeactivateInterval(string id, CancellationToken ct = default)
@@ -170,6 +175,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// Đánh giá kết quả xét nghiệm theo khoảng tham chiếu chuẩn (BR-LAB-02 / BR-LAB-03).
     /// Tự động gắn cờ L (Low - Vàng cam), H (High - Đỏ) hoặc PANIC (Báo động đỏ nguy kịch).
     /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpPost("evaluate")]
     [ProducesResponseType(typeof(ApiResponse<EvaluateTestResultResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]

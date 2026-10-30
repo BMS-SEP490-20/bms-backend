@@ -1,146 +1,74 @@
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
-using BMS.Infrastructure.Data;
 using MongoDB.Driver;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace BMS.Infrastructure.Repositories;
 
-/// <summary>
-/// MongoDB repository implementation for Queue Tickets (UC27).
-/// Synchronizes with BmsDbContext in-memory store for high-performance and resilient development.
-/// </summary>
-public class QueueRepository : IQueueRepository
+/// <inheritdoc />
+public sealed class QueueRepository(IMongoDatabase database) : IQueueRepository
 {
-    private readonly IMongoCollection<QueueTicket>? _collection;
-    private readonly BmsDbContext _dbContext;
+    /// <summary>MongoDB collection name.</summary>
+    public const string CollectionName = "queue_tickets";
 
-    public QueueRepository(BmsDbContext dbContext, IMongoDatabase? database = null)
+    private readonly IMongoCollection<QueueTicket> _tickets = database.GetCollection<QueueTicket>(CollectionName);
+
+    /// <summary>Indexes: unique (queueDate, ticketNumber) for new tickets; (queueDate, status, sequence) for the board.</summary>
+    public static IEnumerable<CreateIndexModel<QueueTicket>> Indexes()
     {
-        _dbContext = dbContext;
-        if (database != null)
-        {
-            try
+        var k = Builders<QueueTicket>.IndexKeys;
+        yield return new CreateIndexModel<QueueTicket>(
+            k.Ascending(t => t.QueueDate).Ascending(t => t.TicketNumber),
+            new CreateIndexOptions<QueueTicket>
             {
-                _collection = database.GetCollection<QueueTicket>("queue_tickets");
-                var indexKeys = Builders<QueueTicket>.IndexKeys
-                    .Ascending(x => x.TicketNumber)
-                    .Ascending(x => x.Status);
-                _collection.Indexes.CreateOne(new CreateIndexModel<QueueTicket>(indexKeys));
-            }
-            catch
-            {
-                _collection = null;
-            }
-        }
+                Name = "ux_queue_date_ticket",
+                Unique = true,
+                // WHY partial: legacy tickets have no queueDate and may repeat numbers across days.
+                PartialFilterExpression = Builders<QueueTicket>.Filter.Exists(t => t.QueueDate)
+            });
+        yield return new CreateIndexModel<QueueTicket>(
+            k.Ascending(t => t.QueueDate).Ascending(t => t.Status).Ascending(t => t.Sequence),
+            new CreateIndexOptions { Name = "ix_queue_date_status_seq" });
+        yield return new CreateIndexModel<QueueTicket>(
+            k.Ascending(t => t.QueueDate).Descending(t => t.CallOrder),
+            new CreateIndexOptions { Name = "ix_queue_date_callorder" });
     }
 
-    public async Task<List<QueueTicket>> GetTodayQueueAsync(CancellationToken ct = default)
-    {
-        if (_collection != null)
-        {
-            try
-            {
-                var list = await _collection.Find(_ => true)
-                    .SortBy(x => x.TicketNumber)
-                    .ToListAsync(ct);
-                if (list.Count > 0) return list;
-            }
-            catch { }
-        }
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<QueueTicket>> GetByDateAsync(string queueDate, CancellationToken ct = default) =>
+        await _tickets.Find(t => t.QueueDate == queueDate).SortBy(t => t.Sequence).ToListAsync(ct);
 
-        lock (_dbContext.QueueTickets)
-        {
-            return _dbContext.QueueTickets
-                .OrderBy(x => x.TicketNumber)
-                .ToList();
-        }
+    /// <inheritdoc />
+    public async Task<QueueTicket?> GetByIdAsync(string id, string queueDate, CancellationToken ct = default) =>
+        await _tickets.Find(t => t.Id == id || (t.QueueDate == queueDate && t.TicketNumber == id)).FirstOrDefaultAsync(ct);
+
+    /// <inheritdoc />
+    public Task InsertAsync(QueueTicket ticket, CancellationToken ct = default) =>
+        _tickets.InsertOneAsync(ticket, cancellationToken: ct);
+
+    /// <inheritdoc />
+    public async Task<QueueTicket?> TryTransitionAsync(string id, IReadOnlyCollection<QueueTicketStatus> from,
+        QueueTicketStatus to, string? counterName, DateTime nowUtc, long? callOrder = null, CancellationToken ct = default)
+    {
+        var f = Builders<QueueTicket>.Filter;
+        var filter = f.Eq(t => t.Id, id) & f.In(t => t.Status, from);
+        var update = Builders<QueueTicket>.Update.Set(t => t.Status, to);
+        if (!string.IsNullOrWhiteSpace(counterName)) update = update.Set(t => t.CounterName, counterName);
+        if (to == QueueTicketStatus.Called) update = update.Set(t => t.CalledAt, nowUtc);
+        if (callOrder.HasValue) update = update.Set(t => t.CallOrder, callOrder);
+        if (to is QueueTicketStatus.Completed or QueueTicketStatus.Skipped) update = update.Set(t => t.CompletedAt, nowUtc);
+        return await _tickets.FindOneAndUpdateAsync(filter, update,
+            new FindOneAndUpdateOptions<QueueTicket> { ReturnDocument = ReturnDocument.After }, ct);
     }
 
-    public async Task<QueueTicket?> GetByIdAsync(string id, CancellationToken ct = default)
+    /// <inheritdoc />
+    public async Task<QueuePriority?> GetLastCalledNonStatPriorityAsync(string queueDate, CancellationToken ct = default)
     {
-        if (_collection != null)
-        {
-            try
-            {
-                var item = await _collection.Find(x => x.Id == id || x.TicketNumber == id).FirstOrDefaultAsync(ct);
-                if (item != null) return item;
-            }
-            catch { }
-        }
-
-        lock (_dbContext.QueueTickets)
-        {
-            return _dbContext.QueueTickets.FirstOrDefault(x => x.Id == id || x.TicketNumber == id);
-        }
-    }
-
-    public async Task<string> GetNextTicketNumberAsync(CancellationToken ct = default)
-    {
-        var list = await GetTodayQueueAsync(ct);
-        int maxSeq = 0;
-        foreach (var t in list)
-        {
-            if (t.TicketNumber.StartsWith("Q-") && int.TryParse(t.TicketNumber[2..], out var seq))
-            {
-                if (seq > maxSeq) maxSeq = seq;
-            }
-        }
-
-        return $"Q-{(maxSeq + 1):D3}";
-    }
-
-    public async Task InsertAsync(QueueTicket ticket, CancellationToken ct = default)
-    {
-        lock (_dbContext.QueueTickets)
-        {
-            _dbContext.QueueTickets.Add(ticket);
-        }
-
-        if (_collection != null)
-        {
-            try
-            {
-                await _collection.InsertOneAsync(ticket, cancellationToken: ct);
-            }
-            catch { }
-        }
-    }
-
-    public async Task UpdateStatusAsync(string id, QueueTicketStatus status, string? counterName = null, CancellationToken ct = default)
-    {
-        lock (_dbContext.QueueTickets)
-        {
-            var item = _dbContext.QueueTickets.FirstOrDefault(x => x.Id == id || x.TicketNumber == id);
-            if (item != null)
-            {
-                item.Status = status;
-                if (!string.IsNullOrEmpty(counterName)) item.CounterName = counterName;
-                if (status == QueueTicketStatus.Called) item.CalledAt = DateTime.UtcNow;
-            }
-        }
-
-        if (_collection != null)
-        {
-            try
-            {
-                var updateBuilder = Builders<QueueTicket>.Update.Set(x => x.Status, status);
-                if (!string.IsNullOrEmpty(counterName))
-                {
-                    updateBuilder = updateBuilder.Set(x => x.CounterName, counterName);
-                }
-                if (status == QueueTicketStatus.Called)
-                {
-                    updateBuilder = updateBuilder.Set(x => x.CalledAt, DateTime.UtcNow);
-                }
-
-                await _collection.UpdateOneAsync(x => x.Id == id || x.TicketNumber == id, updateBuilder, cancellationToken: ct);
-            }
-            catch { }
-        }
+        var f = Builders<QueueTicket>.Filter;
+        var last = await _tickets
+            .Find(f.Eq(t => t.QueueDate, queueDate) & f.Ne(t => t.CallOrder, null) & f.Ne(t => t.Priority, QueuePriority.STAT))
+            .SortByDescending(t => t.CallOrder)
+            .Project(t => (QueuePriority?)t.Priority)
+            .FirstOrDefaultAsync(ct);
+        return last;
     }
 }

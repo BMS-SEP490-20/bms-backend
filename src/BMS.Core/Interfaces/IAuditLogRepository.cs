@@ -1,9 +1,9 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
+using BMS.Core.Entities;
 
-namespace Testorder_service.Repositories.Interface
+namespace BMS.Core.Interfaces
 {
     /// <summary>
     /// Repository interface for querying and saving AuditLog records in MongoDB.
@@ -13,27 +13,27 @@ namespace Testorder_service.Repositories.Interface
         /// <summary>
         /// Retrieves filtered audit logs with pagination from MongoDB.
         /// </summary>
-        Task<IEnumerable<AuditLog>> GetAllAsync(AuditLogFilterDto filter);
+        Task<IReadOnlyList<AuditLog>> GetAllAsync(AuditLogQuery filter, CancellationToken ct = default);
 
         /// <summary>
         /// Gets total matching count of audit logs for pagination calculation.
         /// </summary>
-        Task<int> GetCountAsync(AuditLogFilterDto filter);
+        Task<long> GetCountAsync(AuditLogQuery filter, CancellationToken ct = default);
 
         /// <summary>
         /// Retrieves an audit log by its unique record ID.
         /// </summary>
-        Task<AuditLog?> GetByIdAsync(string id);
+        Task<AuditLog?> GetByIdAsync(string id, CancellationToken ct = default);
 
         /// <summary>
-        /// Inserts a new audit log record into the database context.
+        /// Inserts a new audit log record. MongoDB writes are immediate, so there is no separate SaveChanges step.
         /// </summary>
-        Task AddAsync(AuditLog entity);
+        Task AddAsync(AuditLog entity, CancellationToken ct = default);
 
         /// <summary>
-        /// Asynchronously commits pending audit log changes to MongoDB.
+        /// Computes audit counters (total, security, access, critical, failed) with server-side counts
+        /// instead of loading documents into memory.
         /// </summary>
-        Task SaveChangesAsync();
+        Task<AuditLogStatistics> GetStatisticsAsync(CancellationToken ct = default);
     }
 }
-

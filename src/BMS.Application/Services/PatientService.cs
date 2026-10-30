@@ -1,3 +1,5 @@
+using BMS.Core.Utilities;
+using BMS.Core.Constants;
 using System.Security.Cryptography;
 using BMS.Application.DTOs.Common;
 using BMS.Application.DTOs.Patients;
@@ -15,6 +17,7 @@ namespace BMS.Application.Services;
 public sealed class PatientService(
     IPatientRepository patientRepository,
     IUserRepository userRepository,
+    ISequenceGenerator sequences,
     TimeProvider clock,
     ILogger<PatientService> logger) : IPatientService
 {
@@ -35,15 +38,18 @@ public sealed class PatientService(
             ? null
             : request.IdentityNumber.Trim();
 
-        // 1. Check duplicate identity card number (CCCD / CMND)
+        PatientIdentityRules.Validate(identityNumber, phone);
+
+        // 1. Check duplicate identity card number (CCCD) — MSG-ERR-REC-01. WHY masked: the message reaches the
+        // UI and logs; it must not echo the full CCCD or another patient's name (INV-4).
         if (!string.IsNullOrWhiteSpace(identityNumber))
         {
             var existingByIdCard = await patientRepository.FindByIdentityNumberAsync(identityNumber, ct);
             if (existingByIdCard != null)
             {
                 throw new PatientDuplicateException(
-                    "PATIENT_IDENTITY_EXISTS",
-                    $"Số CCCD/CMND '{identityNumber}' đã được đăng ký cho hồ sơ bệnh nhân '{existingByIdCard.FullName}' (Mã: {existingByIdCard.Id}).");
+                    "MSG-ERR-REC-01",
+                    $"Số CCCD {PiiMasker.Mask(identityNumber)} đã có hồ sơ (mã {existingByIdCard.Id}).");
             }
         }
 
@@ -54,18 +60,15 @@ public sealed class PatientService(
         {
             throw new PatientDuplicateException(
                 "PATIENT_DUPLICATE_PROFILE",
-                $"Hồ sơ bệnh nhân '{fullName}' với số điện thoại '{phone}' đã tồn tại trong hệ thống (Mã: {existingByDemographics.Id}).");
+                $"Hồ sơ bệnh nhân với số điện thoại {PiiMasker.Mask(phone)} và ngày sinh này đã tồn tại (mã {existingByDemographics.Id}).");
         }
 
-        // 3. Generate deterministic or unique patient ID following BMS_Database convention (PAT-xxx)
-        var patientId = !string.IsNullOrWhiteSpace(identityNumber)
-            ? $"PAT-{identityNumber}"
-            : $"PAT-GUEST-{now:yyyyMMdd}-{RandomNumberGenerator.GetInt32(1000, 10000)}";
-
-        if (await patientRepository.GetByIdOrCodeAsync(patientId, ct) != null)
-        {
-            patientId = $"PAT-GUEST-{now:yyyyMMddHHmmss}-{RandomNumberGenerator.GetInt32(100, 1000)}";
-        }
+        // 3. Patient code PAT-YYMMDD-XXXX from the atomic daily counter (BA:L32). WHY: the old code embedded
+        // the CCCD in the id (PII in every URL/log) and used random suffixes that could collide.
+        var localDate = ClinicTime.LocalDate(now);
+        var seq = await sequences.NextAsync($"patient:{localDate:yyyy-MM-dd}", ct);
+        if (seq > 9999) throw new SequenceExhaustedException("PAT-");
+        var patientId = PatientIdentityRules.FormatPatientCode(localDate, seq);
 
         var dobUtc = request.DateOfBirth.HasValue
             ? (request.DateOfBirth.Value.Kind == DateTimeKind.Unspecified
@@ -84,7 +87,8 @@ public sealed class PatientService(
             GenderString = NormalizeGender(request.Gender),
             PhoneNumber = phone,
             Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant(),
-            IdentityCardNumber = identityNumber ?? patientId,
+            // WHY null (not the patient id) when absent: a fake CCCD would occupy the unique CCCD index.
+            IdentityCardNumber = identityNumber,
             Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim(),
             BloodType = string.IsNullOrWhiteSpace(request.BloodType) ? "Unknown" : request.BloodType.Trim().ToUpperInvariant(),
             EmergencyContactName = string.IsNullOrWhiteSpace(request.EmergencyContactName) ? null : request.EmergencyContactName.Trim(),
@@ -112,7 +116,7 @@ public sealed class PatientService(
 
         logger.LogInformation(
             "Guest patient profile created: {PatientId} ({FullName}, Phone={Phone}) by {CreatedBy}",
-            entity.Id, entity.FullName, entity.PhoneNumber, createdByUserId ?? "ANONYMOUS");
+            entity.Id, PiiMasker.MaskName(entity.FullName), PiiMasker.Mask(entity.PhoneNumber), createdByUserId ?? "ANONYMOUS");
 
         return MapToDto(entity, [], [], now);
     }

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -12,6 +14,8 @@ namespace BMS.Api.Controllers.Billing;
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
+// WHY: UC43: Receptionist. Receipt verify requires login until Phát approves public verify (C3). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Receptionist)]
 public class ReceiptsController(IReceiptService receiptService) : ControllerBase
 {
     /// <summary>

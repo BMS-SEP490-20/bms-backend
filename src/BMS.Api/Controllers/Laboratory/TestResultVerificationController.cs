@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using BMS.Application.DTOs.Laboratory;
@@ -12,6 +14,8 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/laboratory/verification")]
+// WHY: UC72: Lab (verifier), Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleSets.LabOrManager)]
 public class TestResultVerificationController : ControllerBase
 {
     private readonly ITestResultVerificationService _verificationService;

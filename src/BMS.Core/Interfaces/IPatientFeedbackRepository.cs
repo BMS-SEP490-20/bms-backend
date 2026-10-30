@@ -1,8 +1,9 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
-using Testorder_service.Models.Entities;
+using BMS.Core.Entities;
 
-namespace Testorder_service.Repositories.Interface
+namespace BMS.Core.Interfaces
 {
     /// <summary>
     /// Repository interface for PatientFeedback persistence operations in MongoDB.
@@ -10,39 +11,33 @@ namespace Testorder_service.Repositories.Interface
     public interface IPatientFeedbackRepository
     {
         /// <summary>
-        /// Retrieves filtered patient feedback entries from MongoDB.
+        /// Retrieves filtered patient feedback entries from MongoDB (newest first, bounded).
         /// </summary>
-        Task<IEnumerable<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm);
+        Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, CancellationToken ct = default);
 
         /// <summary>
         /// Retrieves feedback entries submitted by a specific patient ID.
         /// </summary>
-        Task<IEnumerable<PatientFeedback>> GetByPatientIdAsync(string patientId);
+        Task<IReadOnlyList<PatientFeedback>> GetByPatientIdAsync(string patientId, CancellationToken ct = default);
 
         /// <summary>
         /// Retrieves a feedback entity by its identifier.
         /// </summary>
-        Task<PatientFeedback?> GetByIdAsync(string id);
+        Task<PatientFeedback?> GetByIdAsync(string id, CancellationToken ct = default);
 
         /// <summary>
-        /// Adds a new feedback entity to the database context.
+        /// Inserts a new feedback entry (MongoDB writes are immediate; no SaveChanges step).
         /// </summary>
-        Task AddAsync(PatientFeedback entity);
+        Task AddAsync(PatientFeedback entity, CancellationToken ct = default);
 
         /// <summary>
-        /// Marks a feedback entity as modified in the database context.
+        /// Replaces a feedback document. Returns false when it no longer exists.
         /// </summary>
-        Task UpdateAsync(PatientFeedback entity);
+        Task<bool> UpdateAsync(PatientFeedback entity, CancellationToken ct = default);
 
         /// <summary>
-        /// Removes a feedback entity from the database context.
+        /// Computes feedback statistics with a server-side aggregation (DELETED entries excluded).
         /// </summary>
-        Task DeleteAsync(PatientFeedback entity);
-
-        /// <summary>
-        /// Asynchronously commits all pending changes to MongoDB.
-        /// </summary>
-        Task SaveChangesAsync();
+        Task<PatientFeedbackStatistics> GetStatisticsAsync(CancellationToken ct = default);
     }
 }
-

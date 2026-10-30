@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Roles;
 using BMS.Application.DTOs.Users;
 using BMS.Application.Interfaces;
@@ -12,6 +14,8 @@ namespace BMS.Api.Controllers.Users;
 [ApiController]
 [Route("api/v1/roles")]
 [Produces("application/json")]
+// WHY: UC13: Admin only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Admin)]
 public class RolesController : ControllerBase
 {
     private readonly IRoleService _roleService;

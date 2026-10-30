@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Appointment;
 using BMS.Application.DTOs.Reception;
 using BMS.Application.Interfaces;
@@ -13,7 +14,8 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/reception")]
-[Authorize]
+// WHY: UC28: Receptionist only; queue-status requires login (C3 default). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Receptionist)]
 public class PatientReceptionController : ControllerBase
 {
     private readonly IPatientReceptionService _receptionService;
@@ -189,8 +191,11 @@ public class PatientReceptionController : ControllerBase
     /// <summary>
     /// Gets current queue waiting list and currently serving patient for clinic or kiosk boards.
     /// </summary>
-    [HttpGet("queue")]
-    [AllowAnonymous]
+    /// <remarks>
+    /// Moved from GET api/reception/queue, which clashed with QueueController (UC27). That route still
+    /// returns this payload when roomId/doctorId are supplied.
+    /// </remarks>
+    [HttpGet("queue-status")]
     [ProducesResponseType(typeof(QueueStatusResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetQueue(
         [FromQuery] string? roomId,

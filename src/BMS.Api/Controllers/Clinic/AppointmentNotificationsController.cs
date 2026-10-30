@@ -1,3 +1,4 @@
+using BMS.Core.Constants;
 using BMS.Application.DTOs.Appointment;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -16,6 +17,8 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api")]
+// WHY: UC22: Patient reads own; Receptionist sends. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize]
 public class AppointmentNotificationsController : ControllerBase
 {
     private readonly IAppointmentNotificationService _notificationService;
@@ -29,6 +32,7 @@ public class AppointmentNotificationsController : ControllerBase
     /// UC22 - Retrieves appointment confirmation receipt and check-in QR payload.
     /// Can be fetched by Appointment ID or AppointmentCode (e.g. APT-261010-0342).
     /// </summary>
+    [Authorize(Roles = RoleSets.ReceptionOrPatient)]
     [HttpGet("appointments/{id}/confirmation")]
     [ProducesResponseType(typeof(AppointmentConfirmationDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -54,6 +58,7 @@ public class AppointmentNotificationsController : ControllerBase
     /// <summary>
     /// UC22 - Triggers or resends notification (Email, Push, In-App) for an appointment.
     /// </summary>
+    [Authorize(Roles = RoleNames.Receptionist)]
     [HttpPost("appointments/{id}/notify")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -83,6 +88,7 @@ public class AppointmentNotificationsController : ControllerBase
     /// <summary>
     /// UC22 - Gets appointment notifications for a patient.
     /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
     [HttpGet("notifications/appointments")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPatientNotifications(
@@ -118,6 +124,7 @@ public class AppointmentNotificationsController : ControllerBase
     /// <summary>
     /// UC22 - Marks a notification as read.
     /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
     [HttpPut("notifications/{id}/read")]
     public async Task<IActionResult> MarkAsRead(string id, CancellationToken ct)
     {

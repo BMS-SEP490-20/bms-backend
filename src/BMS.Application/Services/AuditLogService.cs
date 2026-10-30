@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
-using Testorder_service.Services.Interface;
+using BMS.Application.DTOs.AuditLogs;
+using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
 
-namespace Testorder_service.Services.Implement
+namespace BMS.Application.Services
 {
     /// <summary>
     /// Service managing operational, security, and access audit logs.
@@ -17,6 +17,7 @@ namespace Testorder_service.Services.Implement
     {
         private readonly IAuditLogRepository _repository;
 
+        /// <summary>Creates the service over the audit log repository.</summary>
         public AuditLogService(IAuditLogRepository repository)
         {
             _repository = repository;
@@ -25,30 +26,28 @@ namespace Testorder_service.Services.Implement
         /// <summary>
         /// Retrieves paginated audit logs based on the provided filter criteria.
         /// </summary>
-        public async Task<(IEnumerable<AuditLog> Logs, int TotalCount)> GetAuditLogsAsync(AuditLogFilterDto filter)
+        public async Task<(IReadOnlyList<AuditLog> Logs, long TotalCount)> GetAuditLogsAsync(AuditLogFilterDto filter, CancellationToken ct = default)
         {
-            var logs = await _repository.GetAllAsync(filter);
-            var count = await _repository.GetCountAsync(filter);
+            var query = filter.ToQuery();
+            var logs = await _repository.GetAllAsync(query, ct);
+            var count = await _repository.GetCountAsync(query, ct);
             return (logs, count);
         }
 
         /// <summary>
         /// Retrieves an individual audit log by its unique record ID.
         /// </summary>
-        public async Task<AuditLog?> GetByIdAsync(string id)
-        {
-            return await _repository.GetByIdAsync(id);
-        }
+        public Task<AuditLog?> GetByIdAsync(string id, CancellationToken ct = default) => _repository.GetByIdAsync(id, ct);
 
         /// <summary>
         /// Inserts an immutable audit record capturing system or user actions.
         /// </summary>
-        public async Task<AuditLog> LogAsync(CreateAuditLogDto dto)
+        public async Task<AuditLog> LogAsync(CreateAuditLogDto dto, CancellationToken ct = default)
         {
             // Business rule: timestamps and unique log IDs are generated on the server for non-repudiation.
             var log = new AuditLog
             {
-                AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
+                AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 Timestamp = DateTime.UtcNow,
                 UserId = dto.UserId ?? "SYSTEM",
                 UserName = dto.UserName ?? "Hệ thống",
@@ -56,40 +55,22 @@ namespace Testorder_service.Services.Implement
                 Action = dto.Action,
                 Category = dto.Category,
                 Severity = dto.Severity,
-                IpAddress = dto.IpAddress ?? "127.0.0.1",
+                IpAddress = dto.IpAddress ?? "unknown",
                 TargetEntity = dto.TargetEntity ?? "System",
                 EntityId = dto.EntityId,
                 Details = dto.Details,
                 Status = dto.Status,
-                Browser = dto.Browser ?? "Web Browser (Chrome/124.0)"
+                // Record only what the client actually sent; never invent a user agent.
+                Browser = dto.Browser
             };
 
-            await _repository.AddAsync(log);
-            await _repository.SaveChangesAsync();
+            await _repository.AddAsync(log, ct);
             return log;
         }
 
         /// <summary>
-        /// Computes live audit metric counters directly from MongoDB.
+        /// Computes live audit metric counters directly from MongoDB (server-side counts, no 1000-row cap).
         /// </summary>
-        public async Task<object> GetStatisticsAsync()
-        {
-            var all = (await _repository.GetAllAsync(new AuditLogFilterDto { PageSize = 1000 })).ToList();
-
-            var total = all.Count;
-            var securityCount = all.Count(x => x.Category == "SECURITY");
-            var accessCount = all.Count(x => x.Category == "ACCESS");
-            var criticalCount = all.Count(x => x.Severity == "CRITICAL" || x.Severity == "ERROR");
-            var failedCount = all.Count(x => x.Status == "FAILED");
-
-            return new
-            {
-                totalLogs = total,
-                securityEvents = securityCount,
-                accessEvents = accessCount,
-                criticalAlerts = criticalCount,
-                failedActions = failedCount
-            };
-        }
+        public Task<AuditLogStatistics> GetStatisticsAsync(CancellationToken ct = default) => _repository.GetStatisticsAsync(ct);
     }
 }

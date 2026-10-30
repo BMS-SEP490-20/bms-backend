@@ -20,6 +20,10 @@ public interface ICalculateFeeService
     /// </summary>
     Task<CalculateFeeResultDto?> EstimateOrderFeeAsync(string orderId, CancellationToken cancellationToken = default);
 
+    /// <summary>Fee for a stored order with optional BHYT card, voucher and home collection (UC53 = UC55 numbers).</summary>
+    Task<CalculateFeeResultDto?> EstimateOrderFeeAsync(string orderId, string? insuranceCard, string? voucherCode, bool homeCollection,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Validates a standalone voucher code against order parameters.
     /// </summary>

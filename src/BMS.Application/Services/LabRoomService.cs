@@ -1,74 +1,66 @@
-﻿using TestOrder.Models.DTO;
-using TestOrder.Repositories.Interface;
-using TestOrder.Services.Interface;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
-using Testorder_service.Services.Interface;
+using BMS.Application.DTOs.Laboratory;
+using BMS.Application.Interfaces;
+using BMS.Core.Entities;
+using BMS.Core.Exceptions;
+using BMS.Core.Interfaces;
 
-namespace TestOrder.Services.Implement
+namespace BMS.Application.Services
 {
+    /// <summary>Lab room management (#43): listing, creation, update and soft delete.</summary>
     public class LabRoomService : ILabRoomService
     {
+        private const string NotFoundCode = "LAB_ROOM_NOT_FOUND";
+        private const string NotFoundMessage = "Không tìm thấy phòng.";
+        private const int MaxIdAttempts = 5;
         private readonly ILabRoomRepository _repo;
 
+        /// <summary>Creates the service over the lab room repository.</summary>
         public LabRoomService(ILabRoomRepository repo)
         {
             _repo = repo;
         }
 
-        public async Task<IEnumerable<LabRoomDto>> GetAllAsync()
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<LabRoomDto> Items, long Total)> GetPagedAsync(int page, int pageSize, CancellationToken ct = default)
         {
-            var rooms = await _repo.GetAllAsync();
-            return rooms.Select(r => new LabRoomDto
-            {
-                RoomId = r.RoomId,
-                RoomName = r.RoomName,
-                RoomLocation = r.RoomLocation,
-                RoomType = r.RoomType,
-                IsAvailable = r.IsAvailable,
-                CreatedAt = r.CreatedAt
-            });
+            var (rooms, total) = await _repo.GetPagedAsync(page, pageSize, ct);
+            return (rooms.Select(ToDto).ToList(), total);
         }
 
-        public async Task<LabRoomDto?> GetByIdAsync(string id)
+        /// <inheritdoc />
+        public async Task<LabRoomDto?> GetByIdAsync(string id, CancellationToken ct = default)
         {
-            var room = await _repo.GetByIdAsync(id);
-            if (room == null) return null;
-
-            return new LabRoomDto
-            {
-                RoomId = room.RoomId,
-                RoomName = room.RoomName,
-                RoomLocation = room.RoomLocation,
-                RoomType = room.RoomType,
-                IsAvailable = room.IsAvailable,
-                CreatedAt = room.CreatedAt
-            };
+            var room = await _repo.GetByIdAsync(id, ct);
+            return room is null ? null : ToDto(room);
         }
 
-        public async Task CreateAsync(CreateLabRoomDto dto)
+        /// <inheritdoc />
+        public async Task<LabRoomDto> CreateAsync(CreateLabRoomDto dto, CancellationToken ct = default)
         {
-            var room = new LabRoom
+            // Ids are generated from the current max sequence; a concurrent insert of the same id hits the
+            // unique _id index, so we retry with a fresh sequence instead of loading every room into memory.
+            for (var attempt = 0; attempt < MaxIdAttempts; attempt++)
             {
-                RoomId = await GenerateRoomId(),
-                RoomName = dto.RoomName,
-                RoomLocation = dto.RoomLocation,
-                RoomType = dto.RoomType,
-                IsAvailable = dto.IsAvailable ?? true,
-                AssignedEquipment = dto.AssignedEquipment,
-                TechnicianInCharge = dto.TechnicianInCharge,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            await _repo.AddAsync(room);
-            await _repo.SaveChangesAsync();
+                var room = new LabRoom
+                {
+                    RoomId = $"R{await _repo.GetMaxRoomSequenceAsync(ct) + 1:D3}",
+                    RoomName = dto.RoomName.Trim(),
+                    RoomLocation = dto.RoomLocation,
+                    RoomType = dto.RoomType,
+                    IsAvailable = dto.IsAvailable ?? true,
+                    AssignedEquipment = dto.AssignedEquipment,
+                    TechnicianInCharge = dto.TechnicianInCharge,
+                    CreatedAt = DateTime.UtcNow
+                };
+                if (await _repo.TryAddAsync(room, ct)) return ToDto(room);
+            }
+            throw new DomainValidationException("LAB_ROOM_ID_CONFLICT", "Không thể cấp mã phòng, vui lòng thử lại.");
         }
 
-        public async Task UpdateAsync(string id, UpdateLabRoomDto dto)
+        /// <inheritdoc />
+        public async Task UpdateAsync(string id, UpdateLabRoomDto dto, CancellationToken ct = default)
         {
-            var room = await _repo.GetByIdAsync(id);
-            if (room == null) throw new KeyNotFoundException("Không tìm thấy phòng.");
+            var room = await _repo.GetByIdAsync(id, ct) ?? throw new ResourceNotFoundException(NotFoundCode, NotFoundMessage);
 
             room.RoomName = dto.RoomName ?? room.RoomName;
             room.RoomLocation = dto.RoomLocation ?? room.RoomLocation;
@@ -77,27 +69,24 @@ namespace TestOrder.Services.Implement
             room.AssignedEquipment = dto.AssignedEquipment ?? room.AssignedEquipment;
             room.TechnicianInCharge = dto.TechnicianInCharge ?? room.TechnicianInCharge;
 
-            await _repo.UpdateAsync(room);
-            await _repo.SaveChangesAsync();
+            if (!await _repo.UpdateAsync(room, ct)) throw new ResourceNotFoundException(NotFoundCode, NotFoundMessage);
         }
 
-        public async Task DeleteAsync(string id)
+        /// <inheritdoc />
+        public async Task DeleteAsync(string id, CancellationToken ct = default)
         {
-            var room = await _repo.GetByIdAsync(id);
-            if (room == null) throw new KeyNotFoundException("Không tìm thấy phòng.");
+            // Soft delete keeps historical shift / profile references to the room valid.
+            if (!await _repo.SoftDeleteAsync(id, ct)) throw new ResourceNotFoundException(NotFoundCode, NotFoundMessage);
+        }
 
-            await _repo.DeleteAsync(room);
-            await _repo.SaveChangesAsync();
-        }
-        private async Task<string> GenerateRoomId()
+        private static LabRoomDto ToDto(LabRoom r) => new()
         {
-            var rooms = await _repo.GetAllAsync();
-            var existingIds = rooms.Select(r => r.RoomId)
-                                 .Where(id => id.StartsWith("R"))
-                                 .Select(id => int.TryParse(id[1..], out int num) ? num : 0)
-                                 .DefaultIfEmpty(0)
-                                 .Max();
-            return $"R{(existingIds + 1):D3}";
-        }
+            RoomId = r.RoomId,
+            RoomName = r.RoomName,
+            RoomLocation = r.RoomLocation,
+            RoomType = r.RoomType,
+            IsAvailable = r.IsAvailable,
+            CreatedAt = r.CreatedAt
+        };
     }
 }

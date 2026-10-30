@@ -22,6 +22,9 @@ public interface IServicePackageRepository
     Task<PagedResult<ServicePackage>> SearchAsync(ServicePackageQuery query, CancellationToken ct = default);
     Task<bool> CodeExistsAsync(string code, CancellationToken ct = default);
 
+    /// <summary>Active, non-deleted packages whose code is in <paramref name="codes"/> (one query, case-sensitive codes).</summary>
+    Task<IReadOnlyList<ServicePackage>> GetActiveByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct = default);
+
     /// <summary>Kiểm tra gói dịch vụ có đang được tham chiếu bởi lịch hẹn đang hoạt động hay không.</summary>
     Task<bool> HasActiveDependenciesAsync(string id, string code, CancellationToken ct = default);
 

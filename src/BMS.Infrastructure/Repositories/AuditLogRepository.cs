@@ -1,121 +1,85 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Testorder_service.Data;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
-using Testorder_service.Repositories.Interface;
+using System.Text.RegularExpressions;
+using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
-namespace Testorder_service.Repositories.Implement
+namespace BMS.Infrastructure.Repositories
 {
-    public class AuditLogRepository : IAuditLogRepository
+    /// <summary>
+    /// MongoDB implementation of <see cref="IAuditLogRepository"/> over the <c>audit_logs</c> collection (I3-049).
+    /// Replaces the former EF Core <c>TestOrderManagementDbContext</c> implementation, which does not exist in BMS.
+    /// </summary>
+    public sealed class AuditLogRepository : IAuditLogRepository
     {
-        private readonly TestOrderManagementDbContext _context;
+        /// <summary>Collection name shared with UC76 Test History audit entries.</summary>
+        public const string CollectionName = "audit_logs";
 
-        public AuditLogRepository(TestOrderManagementDbContext context)
+        private const string AllFilterValue = "ALL";
+        private readonly IMongoCollection<AuditLog> _logs;
+
+        /// <summary>Creates the repository bound to the <c>audit_logs</c> collection.</summary>
+        public AuditLogRepository(IMongoDatabase database)
         {
-            _context = context;
+            _logs = database.GetCollection<AuditLog>(CollectionName);
         }
 
-        public async Task<IEnumerable<AuditLog>> GetAllAsync(AuditLogFilterDto filter)
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<AuditLog>> GetAllAsync(AuditLogQuery filter, CancellationToken ct = default)
         {
-            var query = _context.AuditLogs.AsQueryable();
-
-            if (!string.IsNullOrWhiteSpace(filter.Category) && filter.Category != "ALL")
-            {
-                query = query.Where(a => a.Category == filter.Category);
-            }
-
-            if (!string.IsNullOrWhiteSpace(filter.Severity) && filter.Severity != "ALL")
-            {
-                query = query.Where(a => a.Severity == filter.Severity);
-            }
-
-            if (!string.IsNullOrWhiteSpace(filter.Status) && filter.Status != "ALL")
-            {
-                query = query.Where(a => a.Status == filter.Status);
-            }
-
-            if (!string.IsNullOrWhiteSpace(filter.Action) && filter.Action != "ALL")
-            {
-                query = query.Where(a => a.Action == filter.Action);
-            }
-
-            if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
-            {
-                var term = filter.SearchTerm.Trim().ToLower();
-                query = query.Where(a => a.UserName.ToLower().Contains(term) ||
-                                         a.Action.ToLower().Contains(term) ||
-                                         a.Details.ToLower().Contains(term) ||
-                                         a.TargetEntity.ToLower().Contains(term));
-            }
-
-            if (filter.FromDate.HasValue)
-            {
-                query = query.Where(a => a.Timestamp >= filter.FromDate.Value);
-            }
-
-            if (filter.ToDate.HasValue)
-            {
-                query = query.Where(a => a.Timestamp <= filter.ToDate.Value);
-            }
-
-            var skip = (Math.Max(1, filter.PageNumber) - 1) * Math.Max(1, filter.PageSize);
-            return await query.OrderByDescending(a => a.Timestamp)
-                              .Skip(skip)
-                              .Take(Math.Max(1, filter.PageSize))
-                              .ToListAsync();
+            var pageSize = Math.Clamp(filter.PageSize, 1, 200);
+            var skip = (Math.Max(1, filter.PageNumber) - 1) * pageSize;
+            return await _logs.Find(BuildFilter(filter))
+                .SortByDescending(a => a.Timestamp)
+                .Skip(skip)
+                .Limit(pageSize)
+                .ToListAsync(ct);
         }
 
-        public async Task<int> GetCountAsync(AuditLogFilterDto filter)
+        /// <inheritdoc />
+        public Task<long> GetCountAsync(AuditLogQuery filter, CancellationToken ct = default) =>
+            _logs.CountDocumentsAsync(BuildFilter(filter), cancellationToken: ct);
+
+        /// <inheritdoc />
+        public async Task<AuditLog?> GetByIdAsync(string id, CancellationToken ct = default) =>
+            await _logs.Find(Builders<AuditLog>.Filter.Eq(a => a.AuditId, id)).FirstOrDefaultAsync(ct);
+
+        /// <inheritdoc />
+        public Task AddAsync(AuditLog entity, CancellationToken ct = default) =>
+            _logs.InsertOneAsync(entity, cancellationToken: ct);
+
+        /// <inheritdoc />
+        public async Task<AuditLogStatistics> GetStatisticsAsync(CancellationToken ct = default)
         {
-            var query = _context.AuditLogs.AsQueryable();
+            var f = Builders<AuditLog>.Filter;
+            var total = await _logs.CountDocumentsAsync(f.Empty, cancellationToken: ct);
+            var security = await _logs.CountDocumentsAsync(f.Eq(x => x.Category, "SECURITY"), cancellationToken: ct);
+            var access = await _logs.CountDocumentsAsync(f.Eq(x => x.Category, "ACCESS"), cancellationToken: ct);
+            var critical = await _logs.CountDocumentsAsync(f.In(x => x.Severity, new[] { "CRITICAL", "ERROR" }), cancellationToken: ct);
+            var failed = await _logs.CountDocumentsAsync(f.Eq(x => x.Status, "FAILED"), cancellationToken: ct);
+            return new AuditLogStatistics(total, security, access, critical, failed);
+        }
 
-            if (!string.IsNullOrWhiteSpace(filter.Category) && filter.Category != "ALL")
-                query = query.Where(a => a.Category == filter.Category);
-
-            if (!string.IsNullOrWhiteSpace(filter.Severity) && filter.Severity != "ALL")
-                query = query.Where(a => a.Severity == filter.Severity);
-
-            if (!string.IsNullOrWhiteSpace(filter.Status) && filter.Status != "ALL")
-                query = query.Where(a => a.Status == filter.Status);
-
-            if (!string.IsNullOrWhiteSpace(filter.Action) && filter.Action != "ALL")
-                query = query.Where(a => a.Action == filter.Action);
-
-            if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+        private static FilterDefinition<AuditLog> BuildFilter(AuditLogQuery q)
+        {
+            var f = Builders<AuditLog>.Filter;
+            var filter = f.Empty;
+            if (IsSet(q.Category)) filter &= f.Eq(a => a.Category, q.Category);
+            if (IsSet(q.Severity)) filter &= f.Eq(a => a.Severity, q.Severity);
+            if (IsSet(q.Status)) filter &= f.Eq(a => a.Status, q.Status);
+            if (IsSet(q.Action)) filter &= f.Eq(a => a.Action, q.Action);
+            if (!string.IsNullOrWhiteSpace(q.SearchTerm))
             {
-                var term = filter.SearchTerm.Trim().ToLower();
-                query = query.Where(a => a.UserName.ToLower().Contains(term) ||
-                                         a.Action.ToLower().Contains(term) ||
-                                         a.Details.ToLower().Contains(term) ||
-                                         a.TargetEntity.ToLower().Contains(term));
+                // Escape user input so it is matched literally, never as a regex supplied by the caller.
+                var regex = new BsonRegularExpression(Regex.Escape(q.SearchTerm.Trim()), "i");
+                filter &= f.Or(f.Regex(a => a.UserName, regex), f.Regex(a => a.Action, regex),
+                    f.Regex(a => a.Details, regex), f.Regex(a => a.TargetEntity, regex));
             }
-
-            if (filter.FromDate.HasValue)
-                query = query.Where(a => a.Timestamp >= filter.FromDate.Value);
-
-            if (filter.ToDate.HasValue)
-                query = query.Where(a => a.Timestamp <= filter.ToDate.Value);
-
-            return await query.CountAsync();
+            if (q.FromDate.HasValue) filter &= f.Gte(a => a.Timestamp, q.FromDate.Value);
+            if (q.ToDate.HasValue) filter &= f.Lte(a => a.Timestamp, q.ToDate.Value);
+            return filter;
         }
 
-        public async Task<AuditLog?> GetByIdAsync(string id)
-        {
-            return await _context.AuditLogs.FirstOrDefaultAsync(a => a.AuditId == id);
-        }
-
-        public async Task AddAsync(AuditLog entity)
-        {
-            await _context.AuditLogs.AddAsync(entity);
-        }
-
-        public async Task SaveChangesAsync()
-        {
-            await _context.SaveChangesAsync();
-        }
+        private static bool IsSet(string? value) => !string.IsNullOrWhiteSpace(value) && value != AllFilterValue;
     }
 }

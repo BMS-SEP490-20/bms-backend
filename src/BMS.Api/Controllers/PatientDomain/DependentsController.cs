@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+using BMS.Core.Constants;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.PatientDomain;
@@ -8,6 +10,8 @@ namespace BMS.Api.Controllers.PatientDomain;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+// WHY: Stub: a patient's dependents (own). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+[Authorize(Roles = RoleNames.Patient)]
 public class DependentsController : ControllerBase
 {
     /// <summary>

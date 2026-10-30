@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace Testorder_service.Models.DTO
+namespace BMS.Application.DTOs.QC
 {
     /// <summary>
     /// Data transfer object for creating a new Quality Control flag.
@@ -46,5 +46,7 @@ namespace Testorder_service.Models.DTO
         public decimal? LowerLimit { get; set; }
         public decimal? UpperLimit { get; set; }
     }
-}
 
+    /// <summary>QC flag counters computed by the database.</summary>
+    public sealed record QcFlagStatisticsDto(long TotalFlags, long ActiveFlags, long InvestigatingFlags, long ResolvedFlags, long CriticalFlags);
+}

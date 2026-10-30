@@ -17,6 +17,13 @@ public enum ResultValidationStatus
     Rejected = 4
 }
 
+/// <summary>Signature predicate shared by result editing and order cancellation (Quy trình Đợt 3A Q5).</summary>
+public static class TestResultRules
+{
+    /// <summary>A result is signed once approved: it is then read-only and its order can no longer be cancelled.</summary>
+    public static bool IsSigned(TestResult r) => r.ValidationStatus == ResultValidationStatus.DoctorApproved || r.ApprovedAt != null;
+}
+
 /// <summary>
 /// Clinical evaluation flag for a test result measurement compared against biological reference intervals.
 /// </summary>
@@ -132,13 +139,12 @@ public class TestResult
     [BsonElement("updatedAt")]
     public DateTime? UpdatedAt { get; set; }
 
-    // Navigation properties for EF / In-Memory relational mapping (Ignored in MongoDB BSON serialization)
-    [BsonIgnore]
-    public virtual Appointment Appointment { get; set; } = null!;
-
-    [BsonIgnore]
-    public virtual BloodSample Sample { get; set; } = null!;
-
-    [BsonIgnore]
-    public virtual ICollection<TestParameter> TestParameters { get; set; } = new List<TestParameter>();
+    /// <summary>
+    /// Soft-delete flag (<c>isDeleted</c>); UC71 Sample Timeline and UC76 Test History already exclude
+    /// documents where it is true. Replaces the former EF navigation properties (Appointment, BloodSample,
+    /// TestParameters), which MongoDB cannot populate; parameters are stored in <see cref="Items"/>.
+    /// </summary>
+    [BsonElement("isDeleted")]
+    [BsonIgnoreIfDefault]
+    public bool IsDeleted { get; set; }
 }

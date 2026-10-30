@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 using System.Text;
 using BMS.Application.Interfaces;
 using BMS.Application.Options;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
+using BMS.Core.Exceptions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -38,6 +40,14 @@ public sealed class JwtTokenService : ITokenService
     /// </summary>
     public AccessTokenResult CreateAccessToken(User user, Role? role)
     {
+        // WHY (R8): the role claim must be one of the six canonical names, derived from the seeded RoleId,
+        // never from a display name in the roles collection. No resolvable role => no token.
+        // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
+        var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? role?.Id;
+        var roleName = RoleNames.FromRoleId(roleId) ?? RoleNames.Normalize(role?.RoleName)
+            ?? throw new RoleNotAssignedException();
+        roleId = RoleNames.ToRoleId(roleName);
+
         var now = _clock.GetUtcNow().UtcDateTime;
         var expires = now.AddMinutes(_jwt.AccessTokenMinutes);
 
@@ -48,8 +58,8 @@ public sealed class JwtTokenService : ITokenService
             new(JwtRegisteredClaimNames.Email, user.Email),
             new("preferred_username", user.Username),
             new("name", user.FullName),
-            new("role_id", user.RoleId?.ToString() ?? string.Empty),
-            new("role", role?.RoleName ?? "Unknown")
+            new("role_id", roleId!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new("role", roleName)
         };
 
         // Mỗi permission là 1 claim; JWT sẽ serialize thành mảng

@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace Testorder_service.Models.DTO
+namespace BMS.Application.DTOs.Notifications
 {
     /// <summary>
     /// Data transfer object for system notifications history display.
