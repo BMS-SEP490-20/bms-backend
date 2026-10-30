@@ -130,7 +130,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Cấu hình / Thêm mới một khoảng tham chiếu sinh học (UC57).
     /// </summary>
-    [Authorize(Roles = RoleNames.Manager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -174,7 +174,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Cập nhật thông tin khoảng tham chiếu sinh học (UC57).
     /// </summary>
-    [Authorize(Roles = RoleNames.Manager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpPut("{id}")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -220,7 +220,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Vô hiệu hóa (khóa mềm) khoảng tham chiếu sinh học, bảo toàn dữ liệu lịch sử xét nghiệm.
     /// </summary>
-    [Authorize(Roles = RoleNames.Manager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpDelete("{id}")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
