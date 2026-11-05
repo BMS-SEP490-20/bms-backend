@@ -28,6 +28,9 @@ public class DashboardService : IDashboardService
     private readonly IMongoCollection<BsonDocument>? _samplesCol;
     private readonly IMongoCollection<BsonDocument>? _notificationsCol;
     private readonly IMongoCollection<BsonDocument>? _accountsCol;
+    private readonly IMongoCollection<BsonDocument>? _invoicesCol;
+    private readonly IMongoCollection<BsonDocument>? _iotLogsCol;
+    private readonly IMongoCollection<BsonDocument>? _verificationsCol;
 
     private readonly IAdminOpsDashboardReader? _adminOps;
     private readonly TimeProvider _clock;
@@ -49,6 +52,9 @@ public class DashboardService : IDashboardService
                 _samplesCol = database.GetCollection<BsonDocument>("blood_samples");
                 _notificationsCol = database.GetCollection<BsonDocument>("notifications");
                 _accountsCol = database.GetCollection<BsonDocument>("accounts");
+                _invoicesCol = database.GetCollection<BsonDocument>("invoices");
+                _iotLogsCol = database.GetCollection<BsonDocument>("iot_temperature_logs");
+                _verificationsCol = database.GetCollection<BsonDocument>("test_verifications");
             }
             catch
             {

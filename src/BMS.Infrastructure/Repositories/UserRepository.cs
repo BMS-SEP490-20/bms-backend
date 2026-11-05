@@ -36,43 +36,35 @@ public sealed class UserRepository : IUserRepository
         string id,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        var trimmed = id.Trim();
+
         if (_context.Users != null)
         {
             try
             {
-                if (ObjectId.TryParse(id, out _))
-                {
-                    var filter = Builders<User>.Filter.And(
-                        Builders<User>.Filter.Eq(u => u.Id, id),
-                        Builders<User>.Filter.Eq(u => u.IsDeleted, false));
+                var fb = Builders<User>.Filter;
+                var filter = fb.And(
+                    fb.Or(
+                        fb.Eq(u => u.Id, trimmed),
+                        fb.Eq(u => u.Username, trimmed),
+                        fb.Eq(u => u.PatientCode, trimmed)
+                    ),
+                    fb.Eq(u => u.IsDeleted, false));
 
-                    var found = await _context.Users
-                        .Find(filter)
-                        .FirstOrDefaultAsync(ct);
-                    if (found != null) return found;
-                }
-
-                var usernameFilter = Builders<User>.Filter.And(
-                    Builders<User>.Filter.Eq(u => u.Username, id),
-                    Builders<User>.Filter.Eq(u => u.IsDeleted, false));
-
-                var byUsername = await _context.Users
-                    .Find(usernameFilter)
-                    .FirstOrDefaultAsync(ct);
-                if (byUsername != null) return byUsername;
+                var found = await _context.Users.Find(filter).FirstOrDefaultAsync(ct);
+                if (found != null) return found;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(
-                    ex,
-                    "Failed to query user by ID. Falling back to memory.");
+                _logger.LogWarning(ex, "Failed to query user by ID. Falling back to memory.");
             }
         }
 
-        return _memoryUsers.TryGetValue(id, out var user)
-            && !user.IsDeleted
-                ? user
-                : null;
+        return _memoryUsers.Values.FirstOrDefault(u =>
+            (string.Equals(u.Id, trimmed, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(u.Username, trimmed, StringComparison.OrdinalIgnoreCase)) &&
+            !u.IsDeleted);
     }
 
     public async Task<User?> FindByIdAsync(
@@ -100,7 +92,14 @@ public sealed class UserRepository : IUserRepository
                         Builders<User>.Filter.Eq("Email", keyword),
                         Builders<User>.Filter.Eq("email", keyword),
                         Builders<User>.Filter.Eq("Username", keyword),
-                        Builders<User>.Filter.Eq("username", keyword)),
+                        Builders<User>.Filter.Eq("username", keyword),
+                        Builders<User>.Filter.Eq("PhoneNumber", keyword),
+                        Builders<User>.Filter.Eq("phoneNumber", keyword),
+                        Builders<User>.Filter.Eq("phone", keyword),
+                        Builders<User>.Filter.Eq("identityCardNumber", keyword),
+                        Builders<User>.Filter.Eq("IdentityCardNumber", keyword),
+                        Builders<User>.Filter.Eq("patientCode", keyword),
+                        Builders<User>.Filter.Eq("PatientCode", keyword)),
                     Builders<User>.Filter.Ne("isDeleted", true));
 
                 var found = await _context.Users
@@ -118,8 +117,21 @@ public sealed class UserRepository : IUserRepository
 
         return _memoryUsers.Values.FirstOrDefault(u =>
             !u.IsDeleted &&
-            (string.Equals(u.Email, keyword, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(u.Username, keyword, StringComparison.OrdinalIgnoreCase)));
+            (string.Equals(
+                 u.Email, keyword,
+                 StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(
+                 u.Username, keyword,
+                 StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(
+                 u.PhoneNumber, keyword,
+                 StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(
+                 u.IdentityCardNumber, keyword,
+                 StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(
+                 u.PatientCode, keyword,
+                 StringComparison.OrdinalIgnoreCase)));
     }
 
     public async Task<User?> FindByLoginAsync(

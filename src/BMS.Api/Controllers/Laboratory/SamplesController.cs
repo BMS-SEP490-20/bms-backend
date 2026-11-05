@@ -21,7 +21,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Produces("application/json")]
 // WHY: UC17/40/45/47: queue Lab, Manager (view); collection Lab; status Lab, Manager; rerun Lab; rerun view + Doctor. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
-public class SamplesController(ILabQueueService labQueueService) : ControllerBase
+public class SamplesController(ILabQueueService labQueueService, IQcService? qcService = null) : ControllerBase
 {
     /// <summary>
     /// UC17 - Xem Hàng đợi Xét nghiệm (View Lab Queue)
@@ -255,11 +255,46 @@ public class SamplesController(ILabQueueService labQueueService) : ControllerBas
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> UpdateSampleStatus(
+        public async Task<IActionResult> UpdateSampleStatus(
         string id,
         [FromBody] UpdateSampleStatusDto request,
         CancellationToken ct)
     {
+        // RÀNG BUỘC NGHIỆP VỤ Y TẾ (ISO 15189 / Westgard IQC Multi-Rules):
+        // Nếu chuyển trạng thái sang Testing (Đang phân tích), kiểm tra trạng thái máy xét nghiệm / cờ vi phạm IQC
+        if (!string.IsNullOrWhiteSpace(request.Status) &&
+            request.Status.Trim().Equals("Testing", StringComparison.OrdinalIgnoreCase) &&
+            qcService != null)
+        {
+            var activeFlags = await qcService.GetActiveQcFlagsAsync(ct);
+            var lockedOrRejected = activeFlags.FirstOrDefault(f =>
+                f.IsLocked ||
+                (f.ViolatedRules != null && f.ViolatedRules.Any(r => r.Contains("1_3s", StringComparison.OrdinalIgnoreCase))) ||
+                (f.Status != null && f.Status.Contains("REJECT_1_3S", StringComparison.OrdinalIgnoreCase)));
+
+            if (lockedOrRejected != null)
+            {
+                var ruleText = lockedOrRejected.ViolatedRules != null && lockedOrRejected.ViolatedRules.Count > 0
+                    ? string.Join(", ", lockedOrRejected.ViolatedRules)
+                    : "Westgard 1_3s";
+
+                return Conflict(new ProblemDetails
+                {
+                    Status = StatusCodes.Status409Conflict,
+                    Title = "Máy xét nghiệm đang bị khóa do vi phạm nội kiểm IQC (Westgard 1_3s).",
+                    Detail = $"Không thể đưa mẫu xét nghiệm '{id}' vào phân tích (Testing). Thiết bị đo đang bị KHÓA BẢO VỆ do vi phạm quy tắc nội kiểm {ruleText}. Bắt buộc Kỹ thuật viên trưởng xử lý sự cố, ký duyệt khắc phục (Corrective Action) trước khi phân tích mẫu bệnh nhân.",
+                    Extensions =
+                    {
+                        ["code"] = "ANALYZER_QC_LOCKED",
+                        ["runId"] = lockedOrRejected.RunId,
+                        ["status"] = lockedOrRejected.Status,
+                        ["violatedRules"] = lockedOrRejected.ViolatedRules,
+                        ["traceId"] = HttpContext.TraceIdentifier
+                    }
+                });
+            }
+        }
+
         try
         {
             var updated = await labQueueService.UpdateSampleStatusDetailedAsync(id, request, CurrentUserId, ct);

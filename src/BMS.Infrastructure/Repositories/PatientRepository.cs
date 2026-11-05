@@ -194,6 +194,13 @@ public sealed class PatientRepository : IPatientRepository
         }
     }
 
+    public async Task UpdateAsync(Patient patient, CancellationToken ct = default)
+    {
+        patient.UpdatedAt = DateTime.UtcNow;
+        var filter = Builders<Patient>.Filter.Eq(p => p.Id, patient.Id);
+        await _patients.ReplaceOneAsync(filter, patient, new ReplaceOptions { IsUpsert = false }, ct);
+    }
+
     public async Task<IReadOnlyList<PatientAppointmentSummaryDto>> GetRecentAppointmentsAsync(
         string patientId,
         int limit = 10,

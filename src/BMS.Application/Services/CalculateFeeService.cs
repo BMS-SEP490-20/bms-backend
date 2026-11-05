@@ -124,7 +124,13 @@ public class CalculateFeeService : ICalculateFeeService
         else
         {
             var pkgs = await _packages!.GetActiveByCodesAsync(codes.Distinct().ToList(), ct);
-            found = pkgs.ToDictionary(p => p.Code, p => new FeeLine(p.Code, p.Name, p.Category ?? string.Empty, p.Price), StringComparer.OrdinalIgnoreCase);
+            found = new Dictionary<string, FeeLine>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in pkgs)
+            {
+                var feeLine = new FeeLine(p.Code, p.Name, p.Category ?? string.Empty, p.Price);
+                if (!string.IsNullOrWhiteSpace(p.Code)) found[p.Code] = feeLine;
+                if (!string.IsNullOrWhiteSpace(p.Id)) found[p.Id] = feeLine;
+            }
         }
         var missing = codes.Where(c => !found.ContainsKey(c)).Distinct().ToList();
         if (missing.Count > 0)

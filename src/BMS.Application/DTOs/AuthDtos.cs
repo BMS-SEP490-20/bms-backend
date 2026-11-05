@@ -12,9 +12,7 @@ public class RegisterRequestDto
     [EmailAddress(ErrorMessage = "Định dạng email không hợp lệ")]
     public string Email { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "Tên đăng nhập là bắt buộc")]
-    [StringLength(50, MinimumLength = 3)]
-    public string Username { get; set; } = string.Empty;
+    public string? Username { get; set; }
 
     [Required(ErrorMessage = "Mật khẩu là bắt buộc")]
     [StringLength(100, MinimumLength = 6, ErrorMessage = "Mật khẩu tối thiểu 6 ký tự")]
@@ -30,6 +28,21 @@ public class RegisterRequestDto
     public string? Address { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
+
+    /// <summary>Số Căn cước công dân (12 chữ số) theo chuẩn QĐ 2429/QĐ-BYT.</summary>
+    public string? IdentityCard { get; set; }
+
+    /// <summary>Tỉnh / Thành phố thường trú</summary>
+    public string? Province { get; set; }
+
+    /// <summary>Quận / Huyện</summary>
+    public string? District { get; set; }
+
+    /// <summary>Phường / Xã</summary>
+    public string? Ward { get; set; }
+
+    /// <summary>Số nhà, tên đường, thôn/xóm</summary>
+    public string? StreetAddress { get; set; }
 }
 
 public class VerifyOtpDto
@@ -69,6 +82,7 @@ public class UserDto
     public string? PhoneNumber { get; set; }
     public string Role { get; set; } = string.Empty;
     public bool EmailConfirmed { get; set; }
+    public bool MedicalProfileCompleted { get; set; }
 }
 
 public class ChangePasswordDto

@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.Reception;
 [ApiController]
 [Route("api/reception/queue")]
 // WHY: UC27: Receptionist. Live board requires login until Phát approves a public masked board (C3). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
-[Authorize(Roles = RoleNames.Receptionist)]
+[Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
 public class QueueController : ControllerBase
 {
     private readonly IQueueService _queueService;

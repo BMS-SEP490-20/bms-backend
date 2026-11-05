@@ -15,7 +15,7 @@ namespace BMS.Api.Controllers.Clinic;
 [ApiController]
 [Route("api/reception")]
 // WHY: UC28: Receptionist only; queue-status requires login (C3 default). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
-[Authorize(Roles = RoleNames.Receptionist)]
+[Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
 public class PatientReceptionController : ControllerBase
 {
     private readonly IPatientReceptionService _receptionService;

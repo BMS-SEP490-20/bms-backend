@@ -121,6 +121,30 @@ public class PatientsController(
     }
 
     /// <summary>
+    /// <summary>
+    /// Updates the authenticated patient's clinical medical profile (blood type, vitals, coagulation, allergies, emergency contacts).
+    /// </summary>
+    [Authorize(Roles = RoleNames.Patient)]
+    [HttpPut("me")]
+    [ProducesResponseType(typeof(PatientInformationDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PatientInformationDto>> UpdateMyProfile(
+        [FromBody] UpdatePatientProfileRequest request,
+        CancellationToken ct)
+    {
+        var demoHeader = Request.Headers["X-Demo-User"].FirstOrDefault();
+        var userId = CurrentUserId ?? (!string.IsNullOrWhiteSpace(demoHeader) ? demoHeader.Trim() : null);
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            throw new UnauthorizedAccessException();
+        }
+
+        var result = await patients.UpdateMyPatientInformationAsync(userId, request, ct);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Retrieves detailed patient information by Patient ID, Patient Code, or CCCD/CMND (UC30).
     /// Staff/Doctors/Receptionists can view any patient; Patients can only view their own profile.
     /// </summary>
