@@ -2,13 +2,14 @@ using BMS.Api.Authorization;
 using BMS.Application.DTOs;
 using BMS.Application.DTOs.Common;
 using BMS.Application.Interfaces;
+using BMS.Core.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Catalog;
 
 /// <summary>
-/// API controller for UC01 – View Service Catalog &amp; Search Test Packages (Web &amp; Mobile).
+/// API controller for UC01 &amp; UC20 – View Service Catalog &amp; Search Test Packages (Web &amp; Mobile).
 /// Publicly accessible (AllowAnonymous) for patients and guests; staff with MANAGE_SERVICE_PACKAGE
 /// can also view/filter inactive test packages.
 /// </summary>
@@ -35,7 +36,7 @@ public class ServiceCatalogController : ControllerBase
     }
 
     /// <summary>
-    /// Searches and filters test packages with keyword matching, category, sample tube, price range, sorting, and pagination.
+    /// Searches and filters test packages with keyword matching, category, sample tube, price range, sorting, and pagination (UC20).
     /// Accessible via GET /api/test-packages, GET /api/test-packages/search, GET /api/v1/catalog/services/search.
     /// </summary>
     [HttpGet]
@@ -48,13 +49,39 @@ public class ServiceCatalogController : ControllerBase
         [FromQuery] TestPackageSearchRequest request,
         CancellationToken cancellationToken = default)
     {
-        var includeInactive = await CanManagePackagesAsync();
-        _logger.LogInformation(
-            "SearchTestPackages called. Keyword={Keyword}, Category={Category}, SampleTube={SampleTube}, Page={Page}",
-            request.EffectiveKeyword, request.Category, request.SampleTube, request.Page);
+        try
+        {
+            var includeInactive = await CanManagePackagesAsync();
+            _logger.LogInformation(
+                "UC20 SearchTestPackages called. Keyword={Keyword}, Category={Category}, SampleTube={SampleTube}, Page={Page}",
+                request.EffectiveKeyword, request.Category, request.SampleTube, request.Page);
 
-        var result = await _service.SearchTestPackagesAsync(request, includeInactive, cancellationToken);
-        return Ok(result);
+            var result = await _service.SearchTestPackagesAsync(request, includeInactive, cancellationToken);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                success = false,
+                message = ex.Message,
+                title = ex.Message,
+                code = ex.Code,
+                status = ex.StatusCode
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "UC20 SearchTestPackages failed.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "Không thể tìm kiếm danh mục gói xét nghiệm lúc này. Vui lòng thử lại sau.",
+                title = "Không thể tìm kiếm danh mục gói xét nghiệm lúc này. Vui lòng thử lại sau.",
+                code = "SEARCH_TEST_PACKAGES_ERROR",
+                status = StatusCodes.Status500InternalServerError
+            });
+        }
     }
 
     /// <summary>
@@ -68,12 +95,38 @@ public class ServiceCatalogController : ControllerBase
         [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "UC01 GetServiceCatalog called. Category={Category}, Search={Search}",
-            category, search);
+        try
+        {
+            _logger.LogInformation(
+                "UC01 GetServiceCatalog called. Category={Category}, Search={Search}",
+                category, search);
 
-        var result = await _service.GetServiceCatalogAsync(category, search, cancellationToken);
-        return Ok(result);
+            var result = await _service.GetServiceCatalogAsync(category, search, cancellationToken);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                success = false,
+                message = ex.Message,
+                title = ex.Message,
+                code = ex.Code,
+                status = ex.StatusCode
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "UC01 GetServiceCatalog failed.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "Không thể tải danh mục gói xét nghiệm lúc này. Vui lòng thử lại sau.",
+                title = "Không thể tải danh mục gói xét nghiệm lúc này. Vui lòng thử lại sau.",
+                code = "GET_SERVICE_CATALOG_ERROR",
+                status = StatusCodes.Status500InternalServerError
+            });
+        }
     }
 
     /// <summary>
@@ -88,21 +141,50 @@ public class ServiceCatalogController : ControllerBase
         string id,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("UC01 GetServiceById called. Id={Id}", id);
-
-        var includeInactive = await CanManagePackagesAsync();
-        var result = await _service.GetByIdAsync(id, includeInactive, cancellationToken);
-        if (result is null)
+        try
         {
-            return NotFound(new ProblemDetails
+            _logger.LogInformation("UC01/UC20 GetServiceById called. Id={Id}", id);
+
+            var includeInactive = await CanManagePackagesAsync();
+            var result = await _service.GetByIdAsync(id, includeInactive, cancellationToken);
+            if (result is null)
             {
-                Status = StatusCodes.Status404NotFound,
-                Title = $"Không tìm thấy gói xét nghiệm '{id}'.",
-                Extensions = { ["code"] = "TEST_PACKAGE_NOT_FOUND", ["traceId"] = HttpContext.TraceIdentifier }
+                return NotFound(new
+                {
+                    success = false,
+                    message = $"Không tìm thấy gói xét nghiệm '{id}'.",
+                    title = $"Không tìm thấy gói xét nghiệm '{id}'.",
+                    code = "TEST_PACKAGE_NOT_FOUND",
+                    status = StatusCodes.Status404NotFound,
+                    traceId = HttpContext.TraceIdentifier
+                });
+            }
+
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                success = false,
+                message = ex.Message,
+                title = ex.Message,
+                code = ex.Code,
+                status = ex.StatusCode
             });
         }
-
-        return Ok(result);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "UC01/UC20 GetServiceById failed for Id={Id}.", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "Không thể tải chi tiết gói xét nghiệm lúc này. Vui lòng thử lại sau.",
+                title = "Không thể tải chi tiết gói xét nghiệm lúc này. Vui lòng thử lại sau.",
+                code = "GET_TEST_PACKAGE_ERROR",
+                status = StatusCodes.Status500InternalServerError
+            });
+        }
     }
 
     private async Task<bool> CanManagePackagesAsync()

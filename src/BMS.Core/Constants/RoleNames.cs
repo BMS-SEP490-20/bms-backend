@@ -2,7 +2,7 @@ namespace BMS.Core.Constants;
 
 /// <summary>
 /// Single source of truth for the six BMS role names carried in the JWT <c>role</c> claim
-/// (decision 30/10/2026 point 1: 1 Admin, 2 Manager, 3 Lab, 4 Doctor, 5 Receptionist, 6 Patient).
+/// (1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager).
 /// </summary>
 /// <remarks>
 /// WHY constants: <c>[Authorize(Roles = ...)]</c> compares role strings ordinally (case-sensitive),
@@ -25,7 +25,7 @@ public static class RoleNames
     public const string Patient = "Patient";
 
     /// <summary>All six canonical names, indexed by role ID (index 0 unused).</summary>
-    private static readonly string[] ById = ["", Admin, Manager, Lab, Doctor, Receptionist, Patient];
+    private static readonly string[] ById = ["", Admin, Doctor, Lab, Receptionist, Patient, Manager];
 
     /// <summary>Maps a seeded role ID (1–6) to its canonical claim name; any other ID returns <c>null</c>.</summary>
     public static string? FromRoleId(int? roleId)

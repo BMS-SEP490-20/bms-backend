@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.Api.Authorization;
 using BMS.Application.DTOs.Common;
@@ -11,7 +12,7 @@ namespace BMS.Api.Controllers.PatientDomain;
 
 /// <summary>
 /// Controller managing clinical &amp; guest patient profiles and demographic/medical information
-/// (Create Guest Profile &amp; View Patient Information use cases).
+/// (UC25 Create Guest Profile &amp; UC30 View Patient Information use cases).
 /// </summary>
 [ApiController]
 [Route("api/patients")]
@@ -24,7 +25,7 @@ public class PatientsController(
     IAuthorizationService authorization) : ControllerBase
 {
     /// <summary>
-    /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Staff / Admin / Doctor / Receptionist).
+    /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Staff / Manager / Doctor / Lab / Receptionist).
     /// </summary>
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet]
@@ -33,8 +34,35 @@ public class PatientsController(
         [FromQuery] PatientSearchRequest request,
         CancellationToken ct)
     {
-        var result = await patients.SearchPatientsAsync(request, ct);
-        return Ok(result);
+        try
+        {
+            var result = await patients.SearchPatientsAsync(request, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                code = ex.Code,
+                title = ex.Message,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = StatusCodes.Status500InternalServerError,
+                code = "SEARCH_PATIENTS_ERROR",
+                title = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau.",
+                detail = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau.",
+                message = "Không thể tải danh sách hồ sơ bệnh nhân lúc này. Vui lòng thử lại sau."
+            });
+        }
     }
 
     /// <summary>
@@ -46,16 +74,53 @@ public class PatientsController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PatientInformationDto>> GetMyProfile(CancellationToken ct)
     {
-        var demoHeader = Request.Headers["X-Demo-User"].FirstOrDefault();
-        var userId = CurrentUserId ?? (!string.IsNullOrWhiteSpace(demoHeader) ? demoHeader.Trim() : null);
-        if (string.IsNullOrWhiteSpace(userId))
+        try
         {
-            throw new UnauthorizedAccessException();
+            var demoHeader = Request.Headers["X-Demo-User"].FirstOrDefault();
+            var userId = CurrentUserId ?? (!string.IsNullOrWhiteSpace(demoHeader) ? demoHeader.Trim() : null);
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return StatusCode(StatusCodes.Status401Unauthorized, new
+                {
+                    success = false,
+                    status = StatusCodes.Status401Unauthorized,
+                    code = "UNAUTHORIZED",
+                    title = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân.",
+                    detail = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân.",
+                    message = "Vui lòng đăng nhập để xem thông tin hồ sơ bệnh nhân."
+                });
+            }
+
+            var result = await patients.GetMyPatientInformationAsync(userId, ct);
+            return Ok(result);
         }
-        var result = await patients.GetMyPatientInformationAsync(userId, ct);
-        return Ok(result);
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                code = ex.Code,
+                title = ex.Message,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = StatusCodes.Status500InternalServerError,
+                code = "GET_MY_PATIENT_ERROR",
+                title = "Không thể tải thông tin hồ sơ bệnh nhân lúc này.",
+                detail = "Không thể tải thông tin hồ sơ bệnh nhân lúc này.",
+                message = "Không thể tải thông tin hồ sơ bệnh nhân lúc này."
+            });
+        }
     }
 
+    /// <summary>
     /// <summary>
     /// Updates the authenticated patient's clinical medical profile (blood type, vitals, coagulation, allergies, emergency contacts).
     /// </summary>
@@ -80,7 +145,7 @@ public class PatientsController(
     }
 
     /// <summary>
-    /// Retrieves detailed patient information by Patient ID, Patient Code, or CCCD/CMND.
+    /// Retrieves detailed patient information by Patient ID, Patient Code, or CCCD/CMND (UC30).
     /// Staff/Doctors/Receptionists can view any patient; Patients can only view their own profile.
     /// </summary>
     // Patient is admitted here but the service limits a Patient to their own profile (CanViewAllPatientsAsync = false).
@@ -93,13 +158,40 @@ public class PatientsController(
         string id,
         CancellationToken ct)
     {
-        var isStaffOrAdmin = await CanViewAllPatientsAsync();
-        var result = await patients.GetPatientInformationAsync(id, CurrentUserId, isStaffOrAdmin, ct);
-        return Ok(result);
+        try
+        {
+            var isStaffOrAdmin = await CanViewAllPatientsAsync();
+            var result = await patients.GetPatientInformationAsync(id, CurrentUserId, isStaffOrAdmin, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                code = ex.Code,
+                title = ex.Message,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = StatusCodes.Status500InternalServerError,
+                code = "GET_PATIENT_ERROR",
+                title = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này.",
+                detail = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này.",
+                message = "Không thể tra cứu thông tin hồ sơ bệnh nhân lúc này."
+            });
+        }
     }
 
     /// <summary>
-    /// Creates a new walk-in / guest patient profile (Create Guest Profile use case).
+    /// Creates a new walk-in / guest patient profile (UC25 Create Guest Profile use case).
     /// Strictly restricted to authenticated Receptionist role.
     /// Accessible via POST /api/patients/guests, POST /api/patients/guest, or POST /api/patients.
     /// </summary>
@@ -116,19 +208,48 @@ public class PatientsController(
         [FromBody] CreateGuestProfileRequest request,
         CancellationToken ct)
     {
-        if (!IsReceptionist())
+        try
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new
+            if (!IsReceptionist())
             {
-                status = 403,
-                title = "Forbidden",
-                detail = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile).",
-                message = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile)."
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    success = false,
+                    status = StatusCodes.Status403Forbidden,
+                    code = "FORBIDDEN",
+                    title = "Forbidden",
+                    detail = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile).",
+                    message = "Chỉ tài khoản Lễ Tân (Receptionist) mới có quyền tạo hồ sơ khách vãng lai (Create Guest Profile)."
+                });
+            }
+
+            var created = await patients.CreateGuestProfileAsync(request, CurrentUserId, ct);
+            return CreatedAtAction(nameof(GetPatientById), new { id = created.Id }, created);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                code = ex.Code,
+                title = ex.Message,
+                detail = ex.Message,
+                message = ex.Message
             });
         }
-
-        var created = await patients.CreateGuestProfileAsync(request, CurrentUserId, ct);
-        return CreatedAtAction(nameof(GetPatientById), new { id = created.Id }, created);
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = StatusCodes.Status500InternalServerError,
+                code = "CREATE_GUEST_PROFILE_ERROR",
+                title = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau.",
+                detail = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau.",
+                message = "Không thể khởi tạo hồ sơ khách vãng lai lúc này. Vui lòng thử lại sau."
+            });
+        }
     }
 
     private bool IsReceptionist()
