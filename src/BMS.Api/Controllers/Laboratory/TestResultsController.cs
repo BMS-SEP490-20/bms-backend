@@ -55,8 +55,6 @@ public class TestResultsController : ControllerBase
     /// <summary>
     /// Tra cứu kết quả xét nghiệm sinh hóa / huyết học theo Barcode, Sample ID, Patient ID hoặc từ khóa tìm kiếm (UC75 - Look Up Biochemical Results).
     /// </summary>
-    // WHY: this lookup has no per-patient scoping yet, so a Patient token would see every result (BOLA).
-    // Patients read their own signed results through api/test-history (UC76, scoped by token) until Đợt 3.
     [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet]
     public async Task<IActionResult> GetResults(
@@ -96,13 +94,6 @@ public class TestResultsController : ControllerBase
                         {
                             var sId = sampleDoc["_id"].AsString;
                             doc = await _resultsCol.Find(Builders<BsonDocument>.Filter.Eq("sample_id", sId)).FirstOrDefaultAsync();
-                            
-                            // If no test_result document exists yet for this completed sample, synthesize a result object from sample
-                            if (doc == null && sampleDoc.Contains("status") && sampleDoc["status"].AsString.Equals("Completed", StringComparison.OrdinalIgnoreCase))
-                            {
-                                var enrichedSampleResult = await BuildSynthesizedResultAsync(sampleDoc);
-                                return Ok(new { success = true, data = enrichedSampleResult });
-                            }
                         }
                     }
 
@@ -128,6 +119,8 @@ public class TestResultsController : ControllerBase
                         var detailed = await BuildDetailedResultAsync(doc);
                         return Ok(new { success = true, data = detailed });
                     }
+
+                    return NotFound(new { success = false, message = $"Không tìm thấy kết quả xét nghiệm phù hợp cho '{trimmed}'." });
                 }
 
                 // If patientId is explicitly provided and multiple results exist
@@ -163,21 +156,12 @@ public class TestResultsController : ControllerBase
             }
         }
 
-        return Ok(new
-        {
-            success = true,
-            status = "Available",
-            milestone = "Production",
-            message = "Tra cứu kết quả xét nghiệm sinh hóa thành công.",
-            barcode = barcode ?? sampleId ?? "N/A"
-        });
+        return NotFound(new { success = false, message = "Không tìm thấy kết quả xét nghiệm phù hợp." });
     }
 
     /// <summary>
     /// Xem chi tiết một kết quả xét nghiệm sinh hóa theo Result ID (UC75).
     /// </summary>
-    // WHY: this lookup has no per-patient scoping yet, so a Patient token would see every result (BOLA).
-    // Patients read their own signed results through api/test-history (UC76, scoped by token) until Đợt 3.
     [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetResultById(string id)
@@ -287,9 +271,9 @@ public class TestResultsController : ControllerBase
             tubeColor = tubeColor,
             sampleType = sampleType,
             priority = priority,
-            equipmentCode = doc.Contains("equipment_code") ? doc["equipment_code"].AsString : "EQ-BIOCHEM-01",
+            equipmentCode = doc.Contains("equipment_code") && !doc["equipment_code"].IsBsonNull ? doc["equipment_code"].AsString : null,
             status = doc.Contains("status") ? doc["status"].AsString : "Approved",
-            digitalSignature = doc.Contains("digital_signature") && !doc["digital_signature"].IsBsonNull ? doc["digital_signature"].AsString : "SHA256:8f9a2b4e7c1d3f5a0e6b8c9d2f4a1e7b",
+            digitalSignature = doc.Contains("digital_signature") && !doc["digital_signature"].IsBsonNull ? doc["digital_signature"].AsString : null,
             approvedAt = doc.Contains("approved_at") && doc["approved_at"].IsBsonDateTime ? doc["approved_at"].ToUniversalTime() : (DateTime?)null,
             conclusionNotes = doc.Contains("conclusion_notes") && !doc["conclusion_notes"].IsBsonNull ? doc["conclusion_notes"].AsString : "",
             rerunRequested = doc.Contains("rerun_requested") && doc["rerun_requested"].AsBoolean,
@@ -349,47 +333,6 @@ public class TestResultsController : ControllerBase
         };
     }
 
-    private async Task<object> BuildSynthesizedResultAsync(BsonDocument sampleDoc)
-    {
-        var sampleId = sampleDoc["_id"].AsString;
-        var barcode = sampleDoc.Contains("barcode") ? sampleDoc["barcode"].AsString : sampleId;
-        var patientId = sampleDoc.Contains("patient_id") ? sampleDoc["patient_id"].AsString : "";
-        var patientName = sampleDoc.Contains("patient_name") ? sampleDoc["patient_name"].AsString : "";
-
-        return new
-        {
-            id = "RES-" + sampleId,
-            sampleId = sampleId,
-            barcode = barcode,
-            packageId = "PKG-STANDARD",
-            packageName = sampleDoc.Contains("test_package_name") ? sampleDoc["test_package_name"].AsString : "Gói xét nghiệm lâm sàng",
-            patientId = patientId,
-            patientName = !string.IsNullOrWhiteSpace(patientName) ? patientName : "Bệnh nhân " + patientId,
-            patientGender = sampleDoc.Contains("patient_gender") ? sampleDoc["patient_gender"].AsString : "Chưa rõ",
-            patientDob = "",
-            patientPhone = "",
-            patientAddress = "",
-            tubeColor = sampleDoc.Contains("tube_color") ? sampleDoc["tube_color"].AsString : "Purple",
-            sampleType = sampleDoc.Contains("sample_type") ? sampleDoc["sample_type"].AsString : "Blood",
-            priority = sampleDoc.Contains("priority") ? sampleDoc["priority"].AsString : "Normal",
-            equipmentCode = "EQ-AUTO-01",
-            status = "Approved",
-            digitalSignature = "SHA256:d8a9f018e8201bfae92900bc190288f01838841a0e",
-            approvedAt = sampleDoc.Contains("completed_at") && sampleDoc["completed_at"].IsBsonDateTime ? sampleDoc["completed_at"].ToUniversalTime() : DateTime.UtcNow,
-            conclusionNotes = "Các chỉ số xét nghiệm đã hoàn thành xử lý trên máy phân tích tự động.",
-            rerunRequested = false,
-            reportPdfUrl = (string?)null,
-            parameters = new[]
-            {
-                new { code = "GLU", name = "Đường huyết đói (Glucose)", value = 5.2, unit = "mmol/L", referenceRange = "3.9 - 6.4", flag = "NORMAL", isAbnormal = false },
-                new { code = "URE", name = "Ure máu", value = 5.1, unit = "mmol/L", referenceRange = "2.5 - 7.5", flag = "NORMAL", isAbnormal = false },
-                new { code = "CRE", name = "Creatinine", value = 85.0, unit = "umol/L", referenceRange = "62 - 106", flag = "NORMAL", isAbnormal = false },
-                new { code = "AST", name = "Men gan AST (GOT)", value = 28.0, unit = "U/L", referenceRange = "10 - 40", flag = "NORMAL", isAbnormal = false },
-                new { code = "ALT", name = "Men gan ALT (GPT)", value = 32.0, unit = "U/L", referenceRange = "10 - 40", flag = "NORMAL", isAbnormal = false }
-            }
-        };
-    }
-
     /// <summary>
     /// Retrieves formatted patient diagnostic test result details, reference intervals, historical deltas, and doctor assessment.
     /// </summary>
@@ -402,8 +345,49 @@ public class TestResultsController : ControllerBase
         if (result != null && !await this.MayAccessPatientAsync(result.PatientId, HttpContext.RequestAborted)) result = null;
         if (result == null)
         {
-            return NotFound(new { message = $"No test results found for order ID '{orderId}'." });
+            return NotFound(new { success = false, message = $"No test results found for order ID '{orderId}'." });
         }
-        return Ok(result);
+        return Ok(new { success = true, data = result });
+    }
+
+    /// <summary>
+    /// Retrieves all released test results for a specific patient.
+    /// </summary>
+    [Authorize(Roles = RoleSets.DoctorOrPatient)]
+    [HttpGet("patient/{patientId}")]
+    public async Task<IActionResult> GetPatientResults(string patientId)
+    {
+        if (User.IsInRole(RoleNames.Patient) && !await this.MayAccessPatientAsync(patientId, HttpContext.RequestAborted))
+        {
+            return Forbid();
+        }
+        var results = await _patientResultExportService.GetResultsByPatientIdAsync(patientId);
+        return Ok(new { success = true, data = results });
+    }
+
+    /// <summary>
+    /// Exports formatted printable HTML and PDF download metadata for a patient test result.
+    /// </summary>
+    [Authorize(Roles = RoleSets.DoctorOrPatient)]
+    [HttpGet("patient/order/{orderId}/export-pdf")]
+    public async Task<IActionResult> ExportPatientPdf(string orderId)
+    {
+        var export = await _patientResultExportService.ExportResultPdfAsync(orderId);
+        if (export == null)
+        {
+            return NotFound(new { success = false, message = $"Không thể xuất PDF cho mã phiếu '{orderId}'." });
+        }
+        return Ok(new { success = true, data = export });
+    }
+
+    /// <summary>
+    /// Generates a time-limited secure link to share results with an external consulting doctor.
+    /// </summary>
+    [Authorize(Roles = RoleSets.DoctorOrPatient)]
+    [HttpPost("patient/order/{orderId}/share")]
+    public async Task<IActionResult> ShareResult(string orderId)
+    {
+        var share = await _patientResultExportService.GenerateShareLinkAsync(orderId);
+        return Ok(new { success = true, data = share });
     }
 }

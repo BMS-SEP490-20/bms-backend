@@ -83,7 +83,7 @@ public sealed class ServicePackageRepository : IServicePackageRepository
     public async Task<IReadOnlyList<ServicePackage>> GetActiveByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct = default)
         => codes.Count == 0
             ? []
-            : await _col.Find(F.In(x => x.Code, codes) & F.Eq(x => x.IsDeleted, false) & F.Eq(x => x.IsActive, true)).ToListAsync(ct);
+            : await _col.Find((F.In(x => x.Code, codes) | F.In(x => x.Id, codes)) & F.Eq(x => x.IsDeleted, false) & F.Eq(x => x.IsActive, true)).ToListAsync(ct);
 
     public async Task<bool> CodeExistsAsync(string code, CancellationToken ct = default)
         => await _col.Find(F.And(F.Eq(x => x.Code, code), F.Eq(x => x.IsDeleted, false)))

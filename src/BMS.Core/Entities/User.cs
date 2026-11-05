@@ -132,6 +132,9 @@ public class User : ISupportInitialize
     [BsonElement("emailConfirmed")]
     public bool EmailConfirmed { get; set; }
 
+    [BsonElement("medicalProfileCompleted")]
+    public bool MedicalProfileCompleted { get; set; } = false;
+
     // OTP xác thực email
     [BsonElement("verificationOtp")]
     public string? VerificationOtp { get; set; }
@@ -220,6 +223,9 @@ public class User : ISupportInitialize
 
         if (LastLoginAt == null && ExtraElements.TryGetValue("lastLoginAt", out var lla) && lla.IsValidDateTime)
             LastLoginAt = lla.ToUniversalTime();
+
+        if (!MedicalProfileCompleted && ExtraElements.TryGetValue("medicalProfileCompleted", out var mpc) && mpc.IsBoolean)
+            MedicalProfileCompleted = mpc.AsBoolean;
 
         ExtraElements = null;
     }

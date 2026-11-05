@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using BMS.Core.Constants;
 using System.Security.Claims;
+using BMS.Api.Authorization;
 using BMS.Application.DTOs.Billing;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
@@ -15,14 +16,14 @@ namespace BMS.Api.Controllers.Billing;
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-// WHY: UC54: Receptionist; Manager view only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+// WHY: UC54: Receptionist; Manager view; Patient view own invoices. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class InvoicesController(IReceiptService receiptService) : ControllerBase
 {
     /// <summary>
     /// Retrieves paginated list of billing invoices with optional filters.
     /// </summary>
-    [Authorize(Roles = RoleSets.ReceptionOrManager)]
+    [Authorize(Roles = RoleSets.ReceptionOrManager + "," + RoleNames.Patient)]
     [HttpGet]
     public async Task<IActionResult> GetInvoices(
         [FromQuery] string? patientId,
@@ -33,6 +34,18 @@ public class InvoicesController(IReceiptService receiptService) : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
+        if (User.IsInRole(RoleNames.Patient))
+        {
+            if (!string.IsNullOrWhiteSpace(patientId))
+            {
+                if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
+            }
+            else
+            {
+                patientId = User.AccountId();
+            }
+        }
+
         var invoices = await receiptService.GetInvoicesAsync(patientId, status, fromDate, toDate, page, pageSize, ct);
         return Ok(new
         {
@@ -47,7 +60,7 @@ public class InvoicesController(IReceiptService receiptService) : ControllerBase
     /// <summary>
     /// Retrieves invoice details by identifier or invoice code.
     /// </summary>
-    [Authorize(Roles = RoleSets.ReceptionOrManager)]
+    [Authorize(Roles = RoleSets.ReceptionOrManager + "," + RoleNames.Patient)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetInvoiceById(string id, CancellationToken ct = default)
     {
@@ -59,6 +72,18 @@ public class InvoicesController(IReceiptService receiptService) : ControllerBase
                 success = false,
                 message = $"Không tìm thấy hóa đơn với mã '{id}'."
             });
+        }
+
+        if (User.IsInRole(RoleNames.Patient))
+        {
+            if (!string.IsNullOrWhiteSpace(invoice.PatientId) && !await this.MayAccessPatientAsync(invoice.PatientId, ct))
+            {
+                return NotFound(new
+                {
+                    success = false,
+                    message = $"Không tìm thấy hóa đơn với mã '{id}'."
+                });
+            }
         }
 
         return Ok(new

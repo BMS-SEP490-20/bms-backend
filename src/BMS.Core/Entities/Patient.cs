@@ -147,6 +147,18 @@ public class Patient : ISupportInitialize
     [BsonIgnoreIfNull]
     public string? EmergencyContactPhone { get; set; }
 
+    [BsonElement("emergency_contact_relationship")]
+    [BsonIgnoreIfNull]
+    public string? EmergencyContactRelationship { get; set; }
+
+    [BsonElement("current_medications")]
+    [BsonIgnoreIfNull]
+    public string? CurrentMedications { get; set; }
+
+    [BsonElement("coagulation_disorders")]
+    [BsonIgnoreIfNull]
+    public string? CoagulationDisorders { get; set; }
+
     [BsonElement("medical_history")]
     [BsonIgnoreIfNull]
     public string? MedicalHistory { get; set; }
@@ -210,6 +222,15 @@ public class Patient : ISupportInitialize
 
             if (string.IsNullOrWhiteSpace(MedicalHistory) && ExtraElements.TryGetValue("medicalHistory", out var mh) && mh.IsString)
                 MedicalHistory = mh.AsString;
+
+            if (string.IsNullOrWhiteSpace(EmergencyContactRelationship) && ExtraElements.TryGetValue("emergencyContactRelationship", out var ecr) && ecr.IsString)
+                EmergencyContactRelationship = ecr.AsString;
+
+            if (string.IsNullOrWhiteSpace(CurrentMedications) && ExtraElements.TryGetValue("currentMedications", out var cm) && cm.IsString)
+                CurrentMedications = cm.AsString;
+
+            if (string.IsNullOrWhiteSpace(CoagulationDisorders) && ExtraElements.TryGetValue("coagulationDisorders", out var cd) && cd.IsString)
+                CoagulationDisorders = cd.AsString;
 
             if (!ExtraElements.Contains("is_guest"))
                 IsGuest = IsGuest || string.IsNullOrWhiteSpace(AccountId);

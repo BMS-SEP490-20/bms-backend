@@ -44,7 +44,7 @@ public sealed class ShiftRepository : IShiftRepository
     public async Task<PagedResult<DoctorShift>> SearchAsync(ShiftFilterRequest filter, CancellationToken ct = default)
     {
         var page = Math.Max(1, filter.Page);
-        var pageSize = Math.Clamp(filter.PageSize, 1, 100);
+        var pageSize = Math.Clamp(filter.PageSize, 1, 200);
 
         var fb = Builders<DoctorShift>.Filter;
         var filters = new List<FilterDefinition<DoctorShift>>();

@@ -45,7 +45,7 @@ public class TestResultNotificationsController : ControllerBase
     /// Phát hành thông báo kết quả xét nghiệm mới (UC60).
     /// Được gọi tự động khi duyệt kết quả hoặc do KTV / Bác sĩ phát hành thủ công.
     /// </summary>
-    [Authorize(Roles = RoleNames.Lab)]
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPost("dispatch")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -170,7 +170,7 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Gửi lại thông báo kết quả xét nghiệm qua SMS / Email / Push (UC60).
     /// </summary>
-    [Authorize(Roles = RoleNames.Lab)]
+    [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPost("{id}/resend")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
