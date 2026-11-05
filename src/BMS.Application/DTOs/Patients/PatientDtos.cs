@@ -185,6 +185,10 @@ public sealed class PatientInformationDto
     public string? BloodType { get; set; }
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
+    public string? EmergencyContactRelationship { get; set; }
+    public string? CurrentMedications { get; set; }
+    public string? CoagulationDisorders { get; set; }
+    public bool IsProfileComplete { get; set; }
     public string? MedicalHistory { get; set; }
     public IReadOnlyList<string> Allergies { get; set; } = Array.Empty<string>();
     public PatientVitalsDto? Vitals { get; set; }
@@ -194,4 +198,52 @@ public sealed class PatientInformationDto
     public DateTime? UpdatedAt { get; set; }
     public IReadOnlyList<PatientAppointmentSummaryDto> RecentAppointments { get; set; } = Array.Empty<PatientAppointmentSummaryDto>();
     public IReadOnlyList<PatientMedicalRecordSummaryDto> RecentMedicalRecords { get; set; } = Array.Empty<PatientMedicalRecordSummaryDto>();
+}
+
+/// <summary>
+/// Request payload for updating the patient's clinical medical profile according to laboratory standards.
+/// </summary>
+public sealed class UpdatePatientProfileRequest
+{
+    [Required(ErrorMessage = "Họ và tên bệnh nhân là bắt buộc.")]
+    [StringLength(150, MinimumLength = 2, ErrorMessage = "Họ và tên phải từ 2 đến 150 ký tự.")]
+    public string FullName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Ngày sinh là bắt buộc.")]
+    public DateTime? DateOfBirth { get; set; }
+
+    [Required(ErrorMessage = "Giới tính là bắt buộc.")]
+    public string Gender { get; set; } = "Male";
+
+    [Required(ErrorMessage = "Số điện thoại liên hệ là bắt buộc.")]
+    public string PhoneNumber { get; set; } = string.Empty;
+
+    public string? Email { get; set; }
+
+    [Required(ErrorMessage = "Số CCCD (12 số) là bắt buộc.")]
+    [RegularExpression(@"^[0-9]{12}$", ErrorMessage = "Số CCCD phải gồm đúng 12 chữ số.")]
+    public string IdentityNumber { get; set; } = string.Empty;
+
+    public string? Address { get; set; }
+
+    [Required(ErrorMessage = "Nhóm máu (ABO / Rh) là bắt buộc đối với hồ sơ xét nghiệm máu.")]
+    public string BloodType { get; set; } = string.Empty;
+
+    public PatientVitalsDto? Vitals { get; set; }
+
+    public string? MedicalHistory { get; set; }
+
+    public string? CoagulationDisorders { get; set; }
+
+    public string? CurrentMedications { get; set; }
+
+    public List<string>? Allergies { get; set; }
+
+    [Required(ErrorMessage = "Họ tên người liên hệ khẩn cấp là bắt buộc.")]
+    public string EmergencyContactName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Số điện thoại người liên hệ khẩn cấp là bắt buộc.")]
+    public string EmergencyContactPhone { get; set; } = string.Empty;
+
+    public string? EmergencyContactRelationship { get; set; }
 }

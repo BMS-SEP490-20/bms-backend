@@ -31,6 +31,8 @@ public class TestResultVerificationDetailDto
     public string VerifiedBy { get; set; } = string.Empty;
     public DateTime? VerifiedAt { get; set; }
     public string? ReturnedReason { get; set; }
+    public string? DigitalSignature { get; set; }
+    public bool IsLocked { get; set; }
     public int FlagCount { get; set; }
 }
 

@@ -169,7 +169,7 @@ namespace BMS.Infrastructure.Repositories
         public async Task<List<Doctor>> GetDoctorsByIdsAsync(
             IEnumerable<string> doctorIds, CancellationToken ct = default)
         {
-            var ids = doctorIds.Distinct().ToList();
+            var ids = doctorIds.Where(id => MongoDB.Bson.ObjectId.TryParse(id, out _)).Distinct().ToList();
             if (ids.Count == 0) return new List<Doctor>();
             return await _doctorCollection.Find(x => ids.Contains(x.Id)).ToListAsync(ct);
         }
@@ -191,7 +191,12 @@ namespace BMS.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(patientId))
             {
-                filter &= builder.Eq(x => x.PatientId, patientId);
+                var cleanPat = patientId.Trim();
+                var patRx = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(cleanPat), "i");
+                filter &= builder.Or(
+                    builder.Eq(x => x.PatientId, cleanPat),
+                    builder.Regex(x => x.PatientId, patRx)
+                );
             }
 
             if (!string.IsNullOrWhiteSpace(doctorId))

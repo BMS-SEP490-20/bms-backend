@@ -35,7 +35,8 @@ public sealed record UserInfoDto(
     string? PhoneNumber,
     int RoleId,
     string Role,
-    IReadOnlyList<string> Permissions);
+    IReadOnlyList<string> Permissions,
+    bool MedicalProfileCompleted = false);
 
 public sealed record AuthResponse(
     string AccessToken,

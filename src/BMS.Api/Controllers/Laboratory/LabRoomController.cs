@@ -11,6 +11,13 @@ namespace BMS.Api.Controllers.Laboratory
     /// Supports room listing, retrieval, creation, updating, and deletion.
     /// </summary>
     [Route("TestOrder/[controller]")]
+    [Route("TestOrder/labroom")]
+    [Route("gateway/testorder/labroom")]
+    [Route("gateway/testorder/lab-rooms")]
+    [Route("api/gateway/testorder/labroom")]
+    [Route("api/gateway/testorder/lab-rooms")]
+    [Route("api/testorder/labroom")]
+    [Route("api/labroom")]
     [ApiController]
 // WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize(Roles = RoleSets.AdminOrManager)]
@@ -46,8 +53,7 @@ namespace BMS.Api.Controllers.Laboratory
             // Paging is done in MongoDB (Skip/Limit) instead of loading every room into memory.
             var (pagedRooms, totalCount) = await _service.GetPagedAsync(page, Math.Min(pageSize, 100), ct);
 
-            if (pagedRooms.Count == 0)
-                return NotFound(new { message = "Không có phòng nào được tìm thấy." });
+            // Empty list returns 200 OK with empty array
 
             return Ok(new
             {

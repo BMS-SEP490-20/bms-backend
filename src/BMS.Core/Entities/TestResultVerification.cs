@@ -69,6 +69,12 @@ public class TestResultVerification
     [BsonElement("returned_reason")]
     public string? ReturnedReason { get; set; }
 
+    [BsonElement("digital_signature")]
+    public string? DigitalSignature { get; set; }
+
+    [BsonElement("is_locked")]
+    public bool IsLocked { get; set; }
+
     [BsonElement("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
