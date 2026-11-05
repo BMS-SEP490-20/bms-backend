@@ -41,6 +41,13 @@ namespace BMS.Application.DTOs.Appointment
         public string DoctorId { get; set; } = string.Empty;
         public string DoctorName { get; set; } = string.Empty;
         public string Specialty { get; set; } = string.Empty;
+        public string ShiftType { get; set; } = "Morning";
+        public string ShiftStart { get; set; } = "07:00";
+        public string ShiftEnd { get; set; } = "11:30";
+        public string RoomId { get; set; } = string.Empty;
+        public string RoomName { get; set; } = string.Empty;
+        public string RoomNumber { get; set; } = string.Empty;
+        public string Floor { get; set; } = string.Empty;
     }
 
     public class ApiErrorResponse

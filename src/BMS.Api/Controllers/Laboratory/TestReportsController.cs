@@ -15,6 +15,7 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/reports")]
 // WHY: UC42: generate Lab (after Manager signs); view Patient (own), Doctor, Lab, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class TestReportsController : ControllerBase
@@ -74,6 +75,25 @@ public class TestReportsController : ControllerBase
         {
             success = true,
             data = report
+        });
+    }
+
+    /// <summary>
+    /// Retrieves all diagnostic reports for a specific patient.
+    /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
+    [HttpGet("patient/{patientId}")]
+    public async Task<IActionResult> GetReportsByPatient(string patientId)
+    {
+        if (User.IsInRole(RoleNames.Patient) && !await this.MayAccessPatientAsync(patientId, HttpContext.RequestAborted))
+        {
+            return Forbid();
+        }
+        var reports = await _testReportService.GetReportsByPatientIdAsync(patientId);
+        return Ok(new
+        {
+            success = true,
+            data = reports
         });
     }
 

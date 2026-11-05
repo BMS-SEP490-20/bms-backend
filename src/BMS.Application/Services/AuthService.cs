@@ -26,6 +26,7 @@ public class AuthService : IAuthService
     private readonly IPasswordHasher? _passwordHasher;
     private readonly IEmailService? _emailService;
     private readonly IOtpRepository? _otpRepository;
+    private readonly IPatientRepository? _patientRepository;
     private readonly AuthOptions _authOpt;
     private readonly TimeProvider _clock;
     private readonly ILogger<AuthService>? _logger;
@@ -39,6 +40,7 @@ public class AuthService : IAuthService
         IPasswordHasher? passwordHasher = null,
         IEmailService? emailService = null,
         IOtpRepository? otpRepository = null,
+        IPatientRepository? patientRepository = null,
         IOptions<AuthOptions>? authOptions = null,
         TimeProvider? clock = null,
         ILogger<AuthService>? logger = null)
@@ -51,6 +53,7 @@ public class AuthService : IAuthService
         _passwordHasher = passwordHasher;
         _emailService = emailService;
         _otpRepository = otpRepository;
+        _patientRepository = patientRepository;
         _authOpt = authOptions?.Value ?? new AuthOptions();
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
@@ -83,7 +86,9 @@ public class AuthService : IAuthService
         {
             user = _context.Users.FirstOrDefault(u =>
                 u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
+                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase) ||
+                (u.PhoneNumber != null && u.PhoneNumber.Equals(login, StringComparison.OrdinalIgnoreCase)) ||
+                (u.IdentityCardNumber != null && u.IdentityCardNumber.Equals(login, StringComparison.OrdinalIgnoreCase)));
         }
 
         // 1. User not found -> constant-time dummy BCrypt verify to prevent timing-based account enumeration
@@ -414,12 +419,26 @@ public class AuthService : IAuthService
         u.PhoneNumber,
         role?.Id ?? u.RoleId ?? (int)u.Role,
         role?.RoleName ?? u.Role.ToString(),
-        role?.Permissions ?? []);
+        role?.Permissions ?? [],
+        u.MedicalProfileCompleted);
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
     {
-        var usernameTrimmed = dto.Username.Trim();
         var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
+        var usernameTrimmed = !string.IsNullOrWhiteSpace(dto.Username)
+            ? dto.Username.Trim()
+            : emailTrimmed;
+
+        // Compose detailed address from cascading parts if provided
+        var resolvedAddress = dto.Address;
+        if (!string.IsNullOrWhiteSpace(dto.StreetAddress))
+        {
+            var parts = new List<string> { dto.StreetAddress.Trim() };
+            if (!string.IsNullOrWhiteSpace(dto.Ward)) parts.Add(dto.Ward.Trim());
+            if (!string.IsNullOrWhiteSpace(dto.District)) parts.Add(dto.District.Trim());
+            if (!string.IsNullOrWhiteSpace(dto.Province)) parts.Add(dto.Province.Trim());
+            resolvedAddress = string.Join(", ", parts);
+        }
 
         // 1. Check duplicate username or email across MongoDB and in-memory context
         User? existingUser = null;
@@ -454,6 +473,10 @@ public class AuthService : IAuthService
             existingUser.PasswordHash = _passwordHasher != null ? _passwordHasher.Hash(dto.Password) : BmsDbContext.HashPassword(dto.Password);
             existingUser.FullName = dto.FullName.Trim();
             existingUser.PhoneNumber = dto.PhoneNumber;
+            existingUser.Address = resolvedAddress ?? existingUser.Address;
+            if (!string.IsNullOrWhiteSpace(dto.IdentityCard)) existingUser.IdentityCardNumber = dto.IdentityCard.Trim();
+            if (dto.DateOfBirth.HasValue) existingUser.DateOfBirth = dto.DateOfBirth.Value;
+            if (!string.IsNullOrWhiteSpace(dto.Gender)) existingUser.Gender = dto.Gender;
             existingUser.UpdatedAt = DateTime.UtcNow;
 
             if (_userRepository != null && !string.IsNullOrWhiteSpace(existingUser.Id))
@@ -491,7 +514,8 @@ public class AuthService : IAuthService
             Email = emailTrimmed,
             FullName = dto.FullName.Trim(),
             PhoneNumber = dto.PhoneNumber,
-            Address = dto.Address,
+            Address = resolvedAddress,
+            IdentityCardNumber = dto.IdentityCard?.Trim(),
             DateOfBirth = dto.DateOfBirth,
             Gender = dto.Gender,
             // WHY (R7): self-registered accounts are patients, seeded RoleId 6. 9 was a legacy value.
@@ -601,6 +625,39 @@ public class AuthService : IAuthService
         if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
         {
             try { await _userRepository.UpdateAsync(user); } catch {}
+        }
+
+        // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection (BR-REC-01)
+        if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
+        {
+            try
+            {
+                var existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
+                if (existingPat == null)
+                {
+                    var idNum = user.IdentityCardNumber?.Trim();
+                    var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
+                    var newPat = new Patient
+                    {
+                        Id = patId,
+                        AccountId = user.Id,
+                        FullName = user.FullName,
+                        Email = user.Email,
+                        PhoneNumber = user.PhoneNumber ?? "",
+                        IdentityCardNumber = idNum,
+                        Address = user.Address ?? "",
+                        DateOfBirth = user.DateOfBirth ?? DateTime.UtcNow.AddYears(-20),
+                        GenderString = user.Gender ?? "Nam",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    await _patientRepository.InsertAsync(newPat);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Non-fatal: could not auto-create patient profile for user {UserId}", user.Id);
+            }
         }
 
         return new AuthResponseDto
@@ -824,7 +881,8 @@ public class AuthService : IAuthService
             FullName = user.FullName,
             PhoneNumber = user.PhoneNumber,
             Role = user.Role.ToString(),
-            EmailConfirmed = user.EmailConfirmed
+            EmailConfirmed = user.EmailConfirmed,
+            MedicalProfileCompleted = user.MedicalProfileCompleted
         };
     }
 }

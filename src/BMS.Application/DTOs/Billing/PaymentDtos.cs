@@ -75,3 +75,25 @@ public class PaymentCheckoutDto
     public string? QrCodePayload { get; set; }
     public string Message { get; set; } = string.Empty;
 }
+
+public class CreateVnPayUrlRequest
+{
+    public string? InvoiceId { get; set; }
+    public string? AppointmentId { get; set; }
+    public decimal Amount { get; set; }
+    public string? OrderInfo { get; set; }
+    public string? ReturnUrl { get; set; }
+}
+
+public class DemoPayRequest
+{
+    public string? InvoiceId { get; set; }
+    public string? AppointmentId { get; set; }
+    public decimal Amount { get; set; }
+    public string? BankCode { get; set; } = "NCB";
+    public string? CardNumber { get; set; } = "9704198526191432198";
+    public string? CardHolder { get; set; } = "NGUYEN VAN A";
+    public string? IssueDate { get; set; } = "07/15";
+    public string? Otp { get; set; } = "123456";
+    public bool SimulateFailure { get; set; }
+}

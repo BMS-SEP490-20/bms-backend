@@ -163,6 +163,132 @@ public sealed class PatientService(
         return MapToDto(patient, appointments, medicalRecords, now);
     }
 
+    public async Task<PatientInformationDto> UpdateMyPatientInformationAsync(
+        string userId,
+        UpdatePatientProfileRequest request,
+        CancellationToken ct = default)
+    {
+        var now = clock.GetUtcNow().UtcDateTime;
+        var patient = await patientRepository.GetByAccountIdAsync(userId, ct)
+                      ?? await patientRepository.GetByIdOrCodeAsync(userId, ct);
+
+        var isNewPatient = false;
+        if (patient is null)
+        {
+            isNewPatient = true;
+            var account = await userRepository.FindByIdAsync(userId, ct);
+            var patCode = account != null && !string.IsNullOrWhiteSpace(account.PatientCode)
+                ? account.PatientCode
+                : $"PAT-{userId[..Math.Min(8, userId.Length)].ToUpperInvariant()}";
+
+            patient = new Patient
+            {
+                Id = patCode,
+                PatientCodeField = patCode,
+                AccountId = userId,
+                IsGuest = false,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+        }
+
+        // Validate CCCD duplicate if modified
+        var cleanCccd = request.IdentityNumber.Trim();
+        if (!string.Equals(patient.IdentityCardNumber, cleanCccd, StringComparison.OrdinalIgnoreCase))
+        {
+            var existingByCccd = await patientRepository.FindByIdentityNumberAsync(cleanCccd, ct);
+            if (existingByCccd != null && !string.Equals(existingByCccd.Id, patient.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PatientDuplicateException(
+                    "MSG-ERR-REC-01",
+                    $"Số CCCD {PiiMasker.Mask(cleanCccd)} đã được liên kết với một hồ sơ bệnh nhân khác.");
+            }
+        }
+
+        patient.FullName = request.FullName.Trim();
+        patient.PhoneNumber = request.PhoneNumber.Trim();
+        patient.IdentityCardNumber = cleanCccd;
+        patient.GenderString = NormalizeGender(request.Gender);
+        if (request.DateOfBirth.HasValue)
+        {
+            patient.DateOfBirth = request.DateOfBirth.Value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(request.DateOfBirth.Value.Date, DateTimeKind.Utc)
+                : request.DateOfBirth.Value.ToUniversalTime().Date;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Email))
+            patient.Email = request.Email.Trim().ToLowerInvariant();
+
+        if (!string.IsNullOrWhiteSpace(request.Address))
+            patient.Address = request.Address.Trim();
+
+        patient.BloodType = string.IsNullOrWhiteSpace(request.BloodType) ? "Unknown" : request.BloodType.Trim().ToUpperInvariant();
+        patient.MedicalHistory = string.IsNullOrWhiteSpace(request.MedicalHistory) ? "Chưa ghi nhận bệnh lý mãn tính" : request.MedicalHistory.Trim();
+        patient.CoagulationDisorders = string.IsNullOrWhiteSpace(request.CoagulationDisorders) ? "Không có" : request.CoagulationDisorders.Trim();
+        patient.CurrentMedications = string.IsNullOrWhiteSpace(request.CurrentMedications) ? "Không có" : request.CurrentMedications.Trim();
+        patient.EmergencyContactName = request.EmergencyContactName.Trim();
+        patient.EmergencyContactPhone = request.EmergencyContactPhone.Trim();
+        patient.EmergencyContactRelationship = string.IsNullOrWhiteSpace(request.EmergencyContactRelationship) ? "Người thân" : request.EmergencyContactRelationship.Trim();
+
+        if (request.Allergies != null)
+        {
+            patient.Allergies = request.Allergies.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim()).ToList();
+        }
+
+        if (request.Vitals != null)
+        {
+            patient.Vitals = new PatientVitals
+            {
+                HeightCm = request.Vitals.HeightCm,
+                WeightKg = request.Vitals.WeightKg,
+                BloodPressure = request.Vitals.BloodPressure,
+                HeartRateBpm = request.Vitals.HeartRateBpm,
+                TemperatureC = request.Vitals.TemperatureC,
+                Spo2Percent = request.Vitals.Spo2Percent
+            };
+        }
+
+        patient.UpdatedAt = now;
+
+        if (isNewPatient)
+        {
+            await patientRepository.InsertAsync(patient, ct);
+        }
+        else
+        {
+            await patientRepository.UpdateAsync(patient, ct);
+        }
+
+        // Synchronize basic fields to accounts collection if linked
+        try
+        {
+            var account = await userRepository.FindByIdAsync(userId, ct);
+            if (account != null)
+            {
+                account.FullName = patient.FullName;
+                account.PhoneNumber = patient.PhoneNumber;
+                account.DateOfBirth = patient.DateOfBirth;
+                account.Gender = patient.GenderString;
+                account.IdentityCardNumber = patient.IdentityCardNumber;
+                account.Address = patient.Address;
+                account.BloodType = patient.BloodType;
+                account.MedicalProfileCompleted = true;
+                account.UpdatedAt = now;
+                await userRepository.UpdateAsync(account, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to sync patient update to user account {UserId}", userId);
+        }
+
+        var appointments = await patientRepository.GetRecentAppointmentsAsync(patient.Id, 10, ct);
+        var medicalRecords = await patientRepository.GetRecentMedicalRecordsAsync(patient.Id, 10, ct);
+
+        logger.LogInformation("Patient medical profile updated successfully for {PatientId} ({FullName})", patient.Id, PiiMasker.MaskName(patient.FullName));
+        return MapToDto(patient, appointments, medicalRecords, now);
+    }
+
     public async Task<PatientInformationDto> GetMyPatientInformationAsync(
         string userId,
         CancellationToken ct = default)
@@ -173,26 +299,22 @@ public sealed class PatientService(
 
         if (patient is null)
         {
-            // Fallback: check if account exists in accounts collection and construct profile view
             var account = await userRepository.FindByIdAsync(userId, ct);
-            if (account is null)
-                throw new PatientNotFoundException(userId);
-
             patient = new Patient
             {
-                Id = !string.IsNullOrWhiteSpace(account.PatientCode) ? account.PatientCode : $"PAT-{account.Id}",
-                AccountId = account.Id,
+                Id = !string.IsNullOrWhiteSpace(account?.PatientCode) ? account.PatientCode : $"PAT-{userId[..Math.Min(8, userId.Length)].ToUpperInvariant()}",
+                AccountId = userId,
                 IsGuest = false,
-                FullName = account.FullName,
-                DateOfBirth = account.DateOfBirth,
-                GenderString = account.Gender ?? "Unspecified",
-                PhoneNumber = account.PhoneNumber,
-                Email = account.Email,
-                IdentityCardNumber = account.IdentityCardNumber,
-                Address = account.Address,
-                BloodType = account.BloodType ?? "Unknown",
-                CreatedAt = account.CreatedAt,
-                UpdatedAt = account.UpdatedAt
+                FullName = account?.FullName ?? "Bệnh Nhân",
+                DateOfBirth = account?.DateOfBirth,
+                GenderString = account?.Gender ?? "Unspecified",
+                PhoneNumber = account?.PhoneNumber,
+                Email = account?.Email,
+                IdentityCardNumber = account?.IdentityCardNumber,
+                Address = account?.Address,
+                BloodType = account?.BloodType ?? "Unknown",
+                CreatedAt = account?.CreatedAt ?? now,
+                UpdatedAt = account?.UpdatedAt ?? now
             };
         }
 
@@ -255,6 +377,17 @@ public sealed class PatientService(
             BloodType = p.BloodType,
             EmergencyContactName = p.EmergencyContactName,
             EmergencyContactPhone = p.EmergencyContactPhone,
+            EmergencyContactRelationship = p.EmergencyContactRelationship,
+            CurrentMedications = p.CurrentMedications,
+            CoagulationDisorders = p.CoagulationDisorders,
+            IsProfileComplete = !string.IsNullOrWhiteSpace(p.FullName)
+                && p.DateOfBirth.HasValue
+                && !string.IsNullOrWhiteSpace(p.PhoneNumber)
+                && !string.IsNullOrWhiteSpace(p.IdentityCardNumber)
+                && !string.IsNullOrWhiteSpace(p.BloodType) && !string.Equals(p.BloodType, "Unknown", StringComparison.OrdinalIgnoreCase)
+                && p.Vitals != null && (p.Vitals.HeightCm ?? 0) > 0 && (p.Vitals.WeightKg ?? 0) > 0
+                && !string.IsNullOrWhiteSpace(p.EmergencyContactName)
+                && !string.IsNullOrWhiteSpace(p.EmergencyContactPhone),
             MedicalHistory = p.MedicalHistory,
             Allergies = p.Allergies ?? [],
             Vitals = p.Vitals == null

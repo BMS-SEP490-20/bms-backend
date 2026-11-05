@@ -12,6 +12,7 @@ public interface IPatientRepository
     Task<Patient?> FindDuplicateGuestAsync(string fullName, string phoneNumber, DateTime? dateOfBirth, CancellationToken ct = default);
     Task<PagedResult<Patient>> SearchAsync(PatientSearchRequest request, CancellationToken ct = default);
     Task InsertAsync(Patient patient, CancellationToken ct = default);
+    Task UpdateAsync(Patient patient, CancellationToken ct = default);
     Task<IReadOnlyList<PatientAppointmentSummaryDto>> GetRecentAppointmentsAsync(string patientId, int limit = 10, CancellationToken ct = default);
     Task<IReadOnlyList<PatientMedicalRecordSummaryDto>> GetRecentMedicalRecordsAsync(string patientId, int limit = 10, CancellationToken ct = default);
 }
@@ -40,6 +41,11 @@ public interface IPatientService
     /// </summary>
     Task<PatientInformationDto> GetMyPatientInformationAsync(
         string userId,
+        CancellationToken ct = default);
+
+    Task<PatientInformationDto> UpdateMyPatientInformationAsync(
+        string userId,
+        UpdatePatientProfileRequest request,
         CancellationToken ct = default);
 
     /// <summary>
