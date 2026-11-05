@@ -1,4 +1,5 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System;
 using System.Security.Claims;
 using System.Threading;
@@ -6,6 +7,7 @@ using System.Threading.Tasks;
 using BMS.Application.DTOs.Backup;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BMS.Api.Controllers.Backup;
@@ -17,6 +19,7 @@ namespace BMS.Api.Controllers.Backup;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/v1/backup")]
 // WHY: UC80: Admin only (incl. restore validate/execute). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize(Roles = RoleNames.Admin)]
 public class BackupController : ControllerBase
@@ -28,6 +31,12 @@ public class BackupController : ControllerBase
         _backupService = backupService;
     }
 
+    private string CurrentOperatorId =>
+        User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "SYSTEM";
+
+    private string CurrentOperatorName =>
+        User.FindFirstValue("name") ?? User.FindFirstValue("fullName") ?? User.FindFirstValue(ClaimTypes.Name) ?? "Quản trị viên hệ thống";
+
     /// <summary>
     /// Creates a new backup snapshot of patient test results or full database.
     /// </summary>
@@ -36,21 +45,29 @@ public class BackupController : ControllerBase
         [FromBody] CreateBackupRequestDto dto,
         CancellationToken ct)
     {
-        if (!ModelState.IsValid)
+        try
         {
-            return BadRequest(new { success = false, message = "Dữ liệu yêu cầu không hợp lệ.", errors = ModelState });
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new { success = false, code = "MSG-ERR-VALIDATION", message = "Dữ liệu yêu cầu sao lưu không hợp lệ." });
+            }
+
+            var (success, message, data) = await _backupService.CreateBackupAsync(dto, CurrentOperatorId, CurrentOperatorName, ct);
+            if (!success)
+            {
+                return BadRequest(new { success = false, code = "MSG-ERR-BACKUP-CREATE", message });
+            }
+
+            return Ok(new { success = true, message, data });
         }
-
-        string operatorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "USR-ADMIN-01";
-        string operatorName = User.FindFirstValue(ClaimTypes.Name) ?? "Hứa Khánh Duy (Lab Manager)";
-
-        var (success, message, data) = await _backupService.CreateBackupAsync(dto, operatorId, operatorName, ct);
-        if (!success)
+        catch (AppException ex)
         {
-            return BadRequest(new { success = false, message });
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
         }
-
-        return Ok(new { success = true, message, data });
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi khởi tạo bản sao lưu dữ liệu." });
+        }
     }
 
     /// <summary>
@@ -61,8 +78,19 @@ public class BackupController : ControllerBase
         [FromQuery] BackupQueryParameters query,
         CancellationToken ct)
     {
-        var result = await _backupService.GetBackupsPagedAsync(query, ct);
-        return Ok(new { success = true, data = result });
+        try
+        {
+            var result = await _backupService.GetBackupsPagedAsync(query, ct);
+            return Ok(new { success = true, data = result });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải danh sách bản sao lưu." });
+        }
     }
 
     /// <summary>
@@ -73,13 +101,24 @@ public class BackupController : ControllerBase
         string id,
         CancellationToken ct)
     {
-        var backup = await _backupService.GetBackupByIdAsync(id, ct);
-        if (backup == null)
+        try
         {
-            return NotFound(new { success = false, message = $"Không tìm thấy bản sao lưu với mã '{id}'." });
-        }
+            var backup = await _backupService.GetBackupByIdAsync(id, ct);
+            if (backup == null)
+            {
+                return NotFound(new { success = false, code = "MSG-ERR-BACKUP-NOT-FOUND", message = $"Không tìm thấy bản sao lưu với mã '{id}'." });
+            }
 
-        return Ok(new { success = true, data = backup });
+            return Ok(new { success = true, data = backup });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải chi tiết bản sao lưu." });
+        }
     }
 
     /// <summary>
@@ -90,8 +129,19 @@ public class BackupController : ControllerBase
         string id,
         CancellationToken ct)
     {
-        var result = await _backupService.VerifyIntegrityAsync(id, ct);
-        return Ok(new { success = true, data = result });
+        try
+        {
+            var result = await _backupService.VerifyIntegrityAsync(id, ct);
+            return Ok(new { success = true, data = result });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi xác thực mã băm SHA-256 của bản sao lưu." });
+        }
     }
 
     /// <summary>
@@ -102,8 +152,19 @@ public class BackupController : ControllerBase
         string id,
         CancellationToken ct)
     {
-        var result = await _backupService.ValidateRestoreDryRunAsync(id, ct);
-        return Ok(new { success = true, data = result });
+        try
+        {
+            var result = await _backupService.ValidateRestoreDryRunAsync(id, ct);
+            return Ok(new { success = true, data = result });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi kiểm tra sơ bộ bản sao lưu trước khi khôi phục." });
+        }
     }
 
     /// <summary>
@@ -115,18 +176,27 @@ public class BackupController : ControllerBase
         [FromBody] RestoreRequestDto dto,
         CancellationToken ct)
     {
-        dto.BackupId = id;
-        string operatorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "USR-ADMIN-01";
-        string operatorName = User.FindFirstValue(ClaimTypes.Name) ?? "Võ Gia Huy (System Admin)";
-        string operatorRole = User.FindFirstValue(ClaimTypes.Role) ?? "Admin";
-
-        var result = await _backupService.ExecuteRestoreAsync(dto, operatorId, operatorName, operatorRole, ct);
-        if (!result.Success)
+        try
         {
-            return BadRequest(new { success = false, message = result.Message });
-        }
+            dto.BackupId = id;
+            string operatorRole = User.FindFirstValue(ClaimTypes.Role) ?? RoleNames.Admin;
 
-        return Ok(new { success = true, data = result });
+            var result = await _backupService.ExecuteRestoreAsync(dto, CurrentOperatorId, CurrentOperatorName, operatorRole, ct);
+            if (!result.Success)
+            {
+                return BadRequest(new { success = false, code = "MSG-ERR-RESTORE-FAILED", message = result.Message });
+            }
+
+            return Ok(new { success = true, data = result });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi thực thi khôi phục dữ liệu." });
+        }
     }
 
     /// <summary>
@@ -137,13 +207,24 @@ public class BackupController : ControllerBase
         string id,
         CancellationToken ct)
     {
-        var (success, stream, fileName, contentType) = await _backupService.DownloadBackupAsync(id, ct);
-        if (!success || stream == null)
+        try
         {
-            return NotFound(new { success = false, message = $"Không tìm thấy file sao lưu '{id}'." });
-        }
+            var (success, stream, fileName, contentType) = await _backupService.DownloadBackupAsync(id, ct);
+            if (!success || stream == null)
+            {
+                return NotFound(new { success = false, code = "MSG-ERR-BACKUP-NOT-FOUND", message = $"Không tìm thấy file sao lưu '{id}'." });
+            }
 
-        return File(stream, contentType, fileName);
+            return File(stream, contentType, fileName);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải tệp sao lưu." });
+        }
     }
 
     /// <summary>
@@ -154,8 +235,19 @@ public class BackupController : ControllerBase
         [FromQuery] string? backupId,
         CancellationToken ct)
     {
-        var logs = await _backupService.GetRestoreHistoryAsync(backupId, ct);
-        return Ok(new { success = true, data = logs });
+        try
+        {
+            var logs = await _backupService.GetRestoreHistoryAsync(backupId, ct);
+            return Ok(new { success = true, data = logs });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải nhật ký khôi phục dữ liệu." });
+        }
     }
 
     /// <summary>
@@ -166,8 +258,19 @@ public class BackupController : ControllerBase
         string id,
         CancellationToken ct)
     {
-        var logs = await _backupService.GetRestoreHistoryAsync(id, ct);
-        return Ok(new { success = true, data = logs });
+        try
+        {
+            var logs = await _backupService.GetRestoreHistoryAsync(id, ct);
+            return Ok(new { success = true, data = logs });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải nhật ký khôi phục của bản sao lưu." });
+        }
     }
 
     /// <summary>
@@ -176,8 +279,19 @@ public class BackupController : ControllerBase
     [HttpGet("stats")]
     public async Task<IActionResult> GetStats(CancellationToken ct)
     {
-        var stats = await _backupService.GetStatsAsync(ct);
-        return Ok(new { success = true, data = stats });
+        try
+        {
+            var stats = await _backupService.GetStatsAsync(ct);
+            return Ok(new { success = true, data = stats });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi tải thống kê sao lưu." });
+        }
     }
 
     /// <summary>
@@ -186,12 +300,23 @@ public class BackupController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteBackup(string id, CancellationToken ct)
     {
-        bool deleted = await _backupService.DeleteBackupAsync(id, ct);
-        if (!deleted)
+        try
         {
-            return NotFound(new { success = false, message = $"Không tìm thấy bản sao lưu '{id}' để xóa." });
-        }
+            bool deleted = await _backupService.DeleteBackupAsync(id, ct);
+            if (!deleted)
+            {
+                return NotFound(new { success = false, code = "MSG-ERR-BACKUP-NOT-FOUND", message = $"Không tìm thấy bản sao lưu '{id}' để xóa." });
+            }
 
-        return Ok(new { success = true, message = "Xóa bản sao lưu thành công." });
+            return Ok(new { success = true, message = "Xóa bản sao lưu thành công." });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode(ex.StatusCode, new { success = false, code = ex.Code, message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, code = "MSG-ERR-INTERNAL", message = "Lỗi hệ thống khi xóa bản sao lưu." });
+        }
     }
 }
