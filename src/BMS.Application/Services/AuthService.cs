@@ -389,34 +389,44 @@ public class AuthService : IAuthService
         // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection (BR-REC-01)
         if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
         {
+            Patient? existingPat = null;
             try
             {
-                var existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
-                if (existingPat == null)
-                {
-                    var idNum = user.IdentityCardNumber?.Trim();
-                    var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
-                    var newPat = new Patient
-                    {
-                        Id = patId,
-                        AccountId = user.Id,
-                        FullName = user.FullName,
-                        Email = user.Email,
-                        PhoneNumber = user.PhoneNumber ?? "",
-                        IdentityCardNumber = idNum,
-                        Address = user.Address ?? "",
-                        DateOfBirth = user.DateOfBirth,
-                        GenderString = NormalizeGender(user.Gender),
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    await _patientRepository.InsertAsync(newPat);
-                }
+                existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for Google SSO user {UserId}", user.Id);
-                return AuthLoginResult.Fail(500, "Không thể khởi tạo hồ sơ bệnh nhân từ tài khoản Google. Vui lòng liên hệ quản trị viên hoặc thử lại sau.", "PATIENT_PROFILE_CREATION_FAILED");
+                _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile for Google SSO user {UserId}", user.Id);
+            }
+
+            if (existingPat == null)
+            {
+                var idNum = user.IdentityCardNumber?.Trim();
+                var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
+                var newPat = new Patient
+                {
+                    Id = patId,
+                    AccountId = user.Id,
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    PhoneNumber = user.PhoneNumber ?? "",
+                    IdentityCardNumber = idNum,
+                    Address = user.Address ?? "",
+                    DateOfBirth = user.DateOfBirth,
+                    GenderString = NormalizeGender(user.Gender),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                try
+                {
+                    await _patientRepository.InsertAsync(newPat);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for Google SSO user {UserId}", user.Id);
+                    return AuthLoginResult.Fail(500, "Không thể khởi tạo hồ sơ bệnh nhân từ tài khoản Google. Vui lòng liên hệ quản trị viên hoặc thử lại sau.", "PATIENT_PROFILE_CREATION_FAILED");
+                }
             }
         }
 
@@ -887,33 +897,49 @@ public class AuthService : IAuthService
         // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection (BR-REC-01)
         if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
         {
+            Patient? existingPat = null;
             try
             {
-                var existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
-                if (existingPat == null)
-                {
-                    var idNum = user.IdentityCardNumber?.Trim();
-                    var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
-                    var newPat = new Patient
-                    {
-                        Id = patId,
-                        AccountId = user.Id,
-                        FullName = user.FullName,
-                        Email = user.Email,
-                        PhoneNumber = user.PhoneNumber ?? "",
-                        IdentityCardNumber = idNum,
-                        Address = user.Address ?? "",
-                        DateOfBirth = user.DateOfBirth,
-                        GenderString = NormalizeGender(user.Gender),
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    await _patientRepository.InsertAsync(newPat);
-                }
+                existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Non-fatal: could not auto-create patient profile for user {UserId}", user.Id);
+                _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile during OTP verification for user {UserId}", user.Id);
+            }
+
+            if (existingPat == null)
+            {
+                var idNum = user.IdentityCardNumber?.Trim();
+                var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
+                var newPat = new Patient
+                {
+                    Id = patId,
+                    AccountId = user.Id,
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    PhoneNumber = user.PhoneNumber ?? "",
+                    IdentityCardNumber = idNum,
+                    Address = user.Address ?? "",
+                    DateOfBirth = user.DateOfBirth,
+                    GenderString = NormalizeGender(user.Gender),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                try
+                {
+                    await _patientRepository.InsertAsync(newPat);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for verified OTP user {UserId}", user.Id);
+                    return new AuthResponseDto
+                    {
+                        Success = false,
+                        Message = "Xác thực OTP thành công nhưng không thể khởi tạo hồ sơ bệnh nhân. Vui lòng liên hệ hỗ trợ kỹ thuật hoặc thử lại.",
+                        ErrorCode = "PATIENT_PROFILE_CREATION_FAILED"
+                    };
+                }
             }
         }
 
