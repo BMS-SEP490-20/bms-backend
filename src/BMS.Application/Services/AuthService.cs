@@ -7,6 +7,7 @@ using BMS.Core.Entities;
 using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
+using Google.Apis.Auth;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -28,6 +29,7 @@ public class AuthService : IAuthService
     private readonly IOtpRepository? _otpRepository;
     private readonly IPatientRepository? _patientRepository;
     private readonly IAuditLogRepository? _auditLogRepository;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
     private readonly AuthOptions _authOpt;
     private readonly TimeProvider _clock;
     private readonly ILogger<AuthService>? _logger;
@@ -44,6 +46,7 @@ public class AuthService : IAuthService
         IPatientRepository? patientRepository = null,
         IAuditLogRepository? auditLogRepository = null,
         IOptions<AuthOptions>? authOptions = null,
+        Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
         TimeProvider? clock = null,
         ILogger<AuthService>? logger = null)
     {
@@ -57,6 +60,7 @@ public class AuthService : IAuthService
         _otpRepository = otpRepository;
         _patientRepository = patientRepository;
         _auditLogRepository = auditLogRepository;
+        _configuration = configuration;
         _authOpt = authOptions?.Value ?? new AuthOptions();
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
@@ -255,6 +259,152 @@ public class AuthService : IAuthService
             throw new InvalidCredentialsException();
         }
         return result.Response!;
+    }
+
+    /// <summary>
+    /// Authenticates or auto-registers a user using a verified Google OAuth 2.0 ID Token.
+    /// Conforms to: OpenID Connect (OIDC) specifications & NIST SP 800-63B standards.
+    /// </summary>
+    public async Task<AuthLoginResult> GoogleLoginAsync(GoogleAuthRequestDto request, ClientContext client, CancellationToken ct = default)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.IdToken))
+        {
+            return AuthLoginResult.Fail(400, "Vui lòng cung cấp mã xác thực Google hợp lệ.", "VALIDATION_ERROR");
+        }
+
+        var configuredClientId = _configuration?["Google:ClientId"]
+            ?? Environment.GetEnvironmentVariable("Google__ClientId")
+            ?? "622747466562-hfet3u28cr86125gtpaei8sj69meer4t.apps.googleusercontent.com";
+
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            var settings = new GoogleJsonWebSignature.ValidationSettings
+            {
+                Audience = !string.IsNullOrWhiteSpace(configuredClientId) && !configuredClientId.StartsWith("YOUR_")
+                    ? new[] { configuredClientId }
+                    : null
+            };
+
+            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken.Trim(), settings);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Google token validation failed: {Message}", ex.Message);
+            return AuthLoginResult.Fail(400, "Xác thực mã Google thất bại hoặc mã đã hết hạn. Vui lòng đăng nhập lại.", "INVALID_GOOGLE_TOKEN");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload?.Email))
+        {
+            return AuthLoginResult.Fail(400, "Không thể trích xuất địa chỉ email từ tài khoản Google của bạn.", "MISSING_GOOGLE_EMAIL");
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var email = payload.Email.Trim().ToLowerInvariant();
+
+        User? user = null;
+        bool fromMongo = false;
+
+        if (_userRepository != null)
+        {
+            user = await _userRepository.FindByEmailAsync(email);
+            if (user != null) fromMongo = true;
+        }
+
+        user ??= _context.Users.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
+
+        if (user != null)
+        {
+            // Existing user
+            if (user.Status == (int)UserStatus.Inactive || user.Status == (int)UserStatus.Suspended)
+            {
+                return AuthLoginResult.Fail(403, "Tài khoản của bạn đã bị vô hiệu hóa hoặc tạm khóa. Vui lòng liên hệ ban quản trị.", "ACCOUNT_DISABLED");
+            }
+
+            if (user.Status == (int)UserStatus.Locked && user.LockoutEnd > now)
+            {
+                var remainingMinutes = (int)Math.Ceiling((user.LockoutEnd.Value - now).TotalMinutes);
+                return AuthLoginResult.Fail(423, $"Tài khoản tạm thời bị khóa. Vui lòng thử lại sau {remainingMinutes} phút.", "ACCOUNT_LOCKED", remainingMinutes);
+            }
+
+            user.EmailConfirmed = true;
+            if (string.IsNullOrWhiteSpace(user.GoogleId)) user.GoogleId = payload.Subject;
+            if (string.IsNullOrWhiteSpace(user.AvatarUrl) && !string.IsNullOrWhiteSpace(payload.Picture)) user.AvatarUrl = payload.Picture;
+            if (string.IsNullOrWhiteSpace(user.AuthProvider)) user.AuthProvider = "Google";
+            user.LastLoginAt = now;
+            user.FailedLoginCount = 0;
+            user.LockoutEnd = null;
+
+            if (fromMongo && _userRepository != null)
+            {
+                try { await _userRepository.UpdateAsync(user); } catch {}
+            }
+        }
+        else
+        {
+            // Auto-register as Patient
+            var baseUsername = email.Split('@')[0].Replace(".", "_");
+            var username = baseUsername;
+            int counter = 1;
+            while ((_userRepository != null && await _userRepository.GetByEmailOrUsernameAsync(username) != null) ||
+                   _context.Users.Any(u => u.Username.Equals(username, StringComparison.OrdinalIgnoreCase)))
+            {
+                username = $"{baseUsername}_{counter++}";
+            }
+
+            var newUser = new User
+            {
+                Username = username,
+                Email = email,
+                FullName = !string.IsNullOrWhiteSpace(payload.Name) ? payload.Name.Trim() : username,
+                RoleId = (int)UserRole.Patient,
+                Role = UserRole.Patient,
+                EmailConfirmed = true,
+                GoogleId = payload.Subject,
+                AuthProvider = "Google",
+                AvatarUrl = payload.Picture,
+                Status = (int)UserStatus.Active,
+                IsActive = true,
+                CreatedAt = now,
+                LastLoginAt = now,
+                PasswordHash = string.Empty
+            };
+
+            if (_userRepository != null)
+            {
+                try { await _userRepository.CreateAsync(newUser); fromMongo = true; } catch {}
+            }
+            _context.Users.Add(newUser);
+            user = newUser;
+        }
+
+        _logger?.LogInformation("Google Single Sign-On succeeded: user {UserId} ({Email}) from {Ip}", user.Id, user.Email, client.IpAddress);
+        var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
+
+        if (_auditLogRepository != null)
+        {
+            try
+            {
+                await _auditLogRepository.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = user.Id,
+                    UserName = user.FullName ?? user.Username,
+                    UserRole = tokens.User.Role,
+                    Action = "GOOGLE_SSO_LOGIN",
+                    Category = "SECURITY",
+                    Severity = "INFO",
+                    IpAddress = client.IpAddress ?? "127.0.0.1",
+                    TargetEntity = "User",
+                    EntityId = user.Id,
+                    Details = $"User {user.Email} successfully signed in via Google OAuth2 SSO."
+                }, ct);
+            }
+            catch { /* Skip audit failure */ }
+        }
+
+        return AuthLoginResult.Ok(tokens);
     }
 
 

@@ -88,6 +88,64 @@ public sealed class AuthController : ControllerBase
     }
 
     // =========================================================
+    // GOOGLE OAUTH 2.0 SINGLE SIGN-ON (LOGIN & REGISTRATION)
+    // =========================================================
+
+    /// <summary>Đăng nhập hoặc đăng ký tự động bằng Google OAuth 2.0 ID Token.</summary>
+    [HttpPost("google")]
+    [HttpPost("oauth/google")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GoogleLogin(
+        [FromBody] GoogleAuthRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.IdToken))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Vui lòng cung cấp mã xác thực Google hợp lệ (ID Token).",
+                    title = "Thiếu mã xác thực Google.",
+                    code = "VALIDATION_ERROR"
+                });
+            }
+
+            var result = await _authService.GoogleLoginAsync(
+                request,
+                GetClient(),
+                ct);
+
+            if (!result.Success)
+            {
+                return StatusCode(result.StatusCode, new
+                {
+                    success = false,
+                    message = result.ErrorMessage ?? "Xác thực Google thất bại. Vui lòng thử lại!",
+                    title = result.ErrorMessage ?? "Xác thực Google thất bại.",
+                    code = result.ErrorCode ?? "GOOGLE_AUTH_FAILED"
+                });
+            }
+
+            return Ok(result.Response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during Google login.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "Hệ thống gặp sự cố trong quá trình xác thực với Google. Vui lòng thử lại sau.",
+                title = "Lỗi xác thực Google.",
+                code = "INTERNAL_ERROR"
+            });
+        }
+    }
+
+    // =========================================================
     // REFRESH TOKEN
     // =========================================================
 
