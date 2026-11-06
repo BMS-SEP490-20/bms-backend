@@ -429,8 +429,12 @@ public class AuthService : IAuthService
                 }
                 catch (PatientDuplicateException ex)
                 {
-                    // Profile already exists in MongoDB (parallel insert or pre-existing matching profile) - treat as success
-                    _logger?.LogInformation(ex, "Patient profile already exists in MongoDB for Google SSO user {UserId}", user.Id);
+                    _logger?.LogInformation(ex, "Patient duplicate detected in MongoDB for Google SSO user {UserId}, attempting resolution", user.Id);
+                    var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
+                    if (!resolved && isNewGoogleUser)
+                    {
+                        return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống.", "PATIENT_IDENTITY_CONFLICT");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -443,6 +447,7 @@ public class AuthService : IAuthService
             }
         }
 
+        await TryEnsurePatientProfileAsync(user, ct);
         _logger?.LogInformation("Google Single Sign-On succeeded: user {UserId} ({Email}) from {Ip}", user.Id, user.Email, client.IpAddress);
         var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
 
@@ -912,7 +917,18 @@ public class AuthService : IAuthService
                 _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile during OTP verification for user {UserId}", user.Id);
             }
 
-            if (readSuccess && existingPat == null)
+            // Fail-closed: If reading existing patient profile failed, do not assume safe to proceed
+            if (!readSuccess)
+            {
+                return new AuthResponseDto
+                {
+                    Success = false,
+                    Message = "Không thể kiểm tra hồ sơ bệnh nhân do lỗi kết nối cơ sở dữ liệu. Vui lòng bấm xác thực lại.",
+                    ErrorCode = "PATIENT_PROFILE_CHECK_FAILED"
+                };
+            }
+
+            if (existingPat == null)
             {
                 var idNum = user.IdentityCardNumber?.Trim();
                 var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
@@ -937,8 +953,17 @@ public class AuthService : IAuthService
                 }
                 catch (PatientDuplicateException ex)
                 {
-                    // Profile already exists in MongoDB (parallel insert or duplicate CCCD) - treat as success
-                    _logger?.LogInformation(ex, "Patient profile already exists in MongoDB for verified OTP user {UserId}", user.Id);
+                    _logger?.LogInformation(ex, "Patient duplicate detected during OTP verification for user {UserId}, attempting resolution", user.Id);
+                    var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId);
+                    if (!resolved)
+                    {
+                        return new AuthResponseDto
+                        {
+                            Success = false,
+                            Message = "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống. Vui lòng kiểm tra lại hoặc liên hệ hỗ trợ.",
+                            ErrorCode = "PATIENT_IDENTITY_CONFLICT"
+                        };
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -947,7 +972,7 @@ public class AuthService : IAuthService
                     return new AuthResponseDto
                     {
                         Success = false,
-                        Message = "Xác thực OTP thành công nhưng không thể khởi tạo hồ sơ bệnh nhân. Vui lòng bấm xác thực lại hoặc liên hệ hỗ trợ.",
+                        Message = "Không thể khởi tạo hồ sơ bệnh nhân do lỗi hệ thống. Vui lòng bấm xác thực lại hoặc liên hệ hỗ trợ.",
                         ErrorCode = "PATIENT_PROFILE_CREATION_FAILED"
                     };
                 }
@@ -1235,11 +1260,99 @@ public class AuthService : IAuthService
         }
         catch (PatientDuplicateException)
         {
-            // Already exists in MongoDB - fine
+            var idNum = user.IdentityCardNumber?.Trim();
+            var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
+            await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Non-fatal: could not self-heal patient profile on login for user {UserId}", user.Id);
         }
+    }
+
+    /// <summary>
+    /// Resolves duplicate collisions during patient creation by verifying account ownership,
+    /// linking unassociated walk-in guest profiles, or identifying cross-account identity conflicts.
+    /// </summary>
+    private async Task<bool> ResolvePatientDuplicateAsync(User user, string? identityNumber, string? patId, CancellationToken ct = default)
+    {
+        if (_patientRepository == null) return false;
+
+        try
+        {
+            // 1. Check if user's account already has a patient record
+            var byAccount = await _patientRepository.GetByAccountIdAsync(user.Id, ct);
+            if (byAccount != null) return true;
+
+            // 2. Check if a patient record exists with this CCCD
+            Patient? existing = null;
+            if (!string.IsNullOrWhiteSpace(identityNumber))
+            {
+                try
+                {
+                    existing = await _patientRepository.FindByIdentityNumberAsync(identityNumber, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Transient warning querying patient by identity number {Cccd}", identityNumber);
+                }
+            }
+
+            // 3. Check by patient ID fallback
+            if (existing == null && !string.IsNullOrWhiteSpace(patId))
+            {
+                try
+                {
+                    existing = await _patientRepository.GetByIdOrCodeAsync(patId, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Transient warning querying patient by ID {PatientId}", patId);
+                }
+            }
+
+            if (existing != null)
+            {
+                if (existing.AccountId == user.Id)
+                    return true;
+
+                // Guest profile created previously without an online account -> link to this user
+                if (string.IsNullOrWhiteSpace(existing.AccountId))
+                {
+                    existing.AccountId = user.Id;
+                    if (string.IsNullOrWhiteSpace(existing.Email) && !string.IsNullOrWhiteSpace(user.Email))
+                    {
+                        existing.Email = user.Email;
+                    }
+                    if (string.IsNullOrWhiteSpace(existing.PhoneNumber) && !string.IsNullOrWhiteSpace(user.PhoneNumber))
+                    {
+                        existing.PhoneNumber = user.PhoneNumber;
+                    }
+                    existing.UpdatedAt = DateTime.UtcNow;
+                    try
+                    {
+                        await _patientRepository.UpdateAsync(existing, ct);
+                        _logger?.LogInformation("Linked unassociated guest patient profile {PatientId} to user account {UserId}", existing.Id, user.Id);
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Failed to link guest patient profile {PatientId} to user account {UserId}", existing.Id, user.Id);
+                        return false;
+                    }
+                }
+
+                // Conflict: CCCD already linked to a different account
+                _logger?.LogWarning("Patient identity conflict: CCCD {Cccd} belongs to patient {PatientId} linked to account {ExistingAccountId}, not user {UserId}",
+                    identityNumber, existing.Id, existing.AccountId, user.Id);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Transient error resolving duplicate patient for user {UserId}", user.Id);
+        }
+
+        return false;
     }
 }
