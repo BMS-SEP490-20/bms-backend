@@ -273,17 +273,20 @@ public class AuthService : IAuthService
         }
 
         var configuredClientId = _configuration?["Google:ClientId"]
-            ?? Environment.GetEnvironmentVariable("Google__ClientId")
-            ?? "622747466562-hfet3u28cr86125gtpaei8sj69meer4t.apps.googleusercontent.com";
+            ?? Environment.GetEnvironmentVariable("Google__ClientId");
+
+        if (string.IsNullOrWhiteSpace(configuredClientId) || configuredClientId.StartsWith("YOUR_"))
+        {
+            _logger?.LogError("Google OAuth Client ID is not configured on the server. Please set Google__ClientId in .env.");
+            return AuthLoginResult.Fail(500, "Dịch vụ đăng nhập Google chưa được cấu hình Client ID trên hệ thống máy chủ.", "GOOGLE_OAUTH_NOT_CONFIGURED");
+        }
 
         GoogleJsonWebSignature.Payload payload;
         try
         {
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
-                Audience = !string.IsNullOrWhiteSpace(configuredClientId) && !configuredClientId.StartsWith("YOUR_")
-                    ? new[] { configuredClientId }
-                    : null
+                Audience = new[] { configuredClientId.Trim() }
             };
 
             payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken.Trim(), settings);
@@ -297,6 +300,11 @@ public class AuthService : IAuthService
         if (string.IsNullOrWhiteSpace(payload?.Email))
         {
             return AuthLoginResult.Fail(400, "Không thể trích xuất địa chỉ email từ tài khoản Google của bạn.", "MISSING_GOOGLE_EMAIL");
+        }
+
+        if (!payload.EmailVerified)
+        {
+            return AuthLoginResult.Fail(400, "Địa chỉ email Google chưa được xác thực. Vui lòng xác thực email trên tài khoản Google trước.", "GOOGLE_EMAIL_NOT_VERIFIED");
         }
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -376,6 +384,39 @@ public class AuthService : IAuthService
             }
             _context.Users.Add(newUser);
             user = newUser;
+        }
+
+        // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection (BR-REC-01)
+        if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
+        {
+            try
+            {
+                var existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
+                if (existingPat == null)
+                {
+                    var idNum = user.IdentityCardNumber?.Trim();
+                    var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
+                    var newPat = new Patient
+                    {
+                        Id = patId,
+                        AccountId = user.Id,
+                        FullName = user.FullName,
+                        Email = user.Email,
+                        PhoneNumber = user.PhoneNumber ?? "",
+                        IdentityCardNumber = idNum,
+                        Address = user.Address ?? "",
+                        DateOfBirth = user.DateOfBirth ?? DateTime.UtcNow.AddYears(-20),
+                        GenderString = user.Gender ?? "Nam",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    await _patientRepository.InsertAsync(newPat);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Non-fatal: could not auto-create patient profile for Google SSO user {UserId}", user.Id);
+            }
         }
 
         _logger?.LogInformation("Google Single Sign-On succeeded: user {UserId} ({Email}) from {Ip}", user.Id, user.Email, client.IpAddress);

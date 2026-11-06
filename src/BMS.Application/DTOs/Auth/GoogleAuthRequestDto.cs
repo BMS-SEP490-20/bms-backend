@@ -13,3 +13,4 @@ public class GoogleAuthRequestDto
     [Required(ErrorMessage = "Google ID Token (credential) is required.")]
     public string IdToken { get; set; } = string.Empty;
 }
+
