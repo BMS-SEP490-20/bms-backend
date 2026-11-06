@@ -10,6 +10,11 @@ using BMS.Infrastructure.Data;
 using BMS.Infrastructure.Repositories;
 using Microsoft.AspNetCore.HttpOverrides;
 
+// -------------------------------------------------------------
+// SECURE CONFIGURATION: Load .env file into Environment variables
+// -------------------------------------------------------------
+LoadDotEnvFiles();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // =========================================================
@@ -210,3 +215,49 @@ app.MapGet("/", () => Results.Ok(new
 })).AllowAnonymous();
 
 app.Run();
+
+// -----------------------------------------------------------------------------
+// DotEnv Loader: reads key=value pairs into process environment variables
+// -----------------------------------------------------------------------------
+static void LoadDotEnvFiles()
+{
+    var currentDir = Directory.GetCurrentDirectory();
+    var baseDir = AppContext.BaseDirectory;
+    string[] candidatePaths = [
+        Path.Combine(currentDir, ".env"),
+        Path.Combine(currentDir, "src", "BMS.Api", ".env"),
+        Path.Combine(baseDir, ".env"),
+        Path.Combine(currentDir, "..", ".env"),
+        Path.Combine(currentDir, "..", "..", ".env")
+    ];
+
+    foreach (var path in candidatePaths)
+    {
+        if (File.Exists(path))
+        {
+            try
+            {
+                foreach (var line in File.ReadAllLines(path))
+                {
+                    var trimmed = line.Trim();
+                    if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
+                    var parts = trimmed.Split('=', 2);
+                    if (parts.Length == 2)
+                    {
+                        var key = parts[0].Trim();
+                        var val = parts[1].Trim();
+                        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+                        {
+                            Environment.SetEnvironmentVariable(key, val);
+                        }
+                    }
+                }
+                break;
+            }
+            catch
+            {
+                // Silently continue if file is locked
+            }
+        }
+    }
+}

@@ -156,9 +156,17 @@ public class User : ISupportInitialize
     [BsonElement("LockoutEnd")]
     public DateTime? LockoutEnd { get; set; }
 
-    // Thông tin bổ sung
+    // Thông tin bổ sung & OAuth Provider
     [BsonElement("avatarUrl")]
     public string? AvatarUrl { get; set; }
+
+    [BsonElement("googleId")]
+    [BsonIgnoreIfNull]
+    public string? GoogleId { get; set; }
+
+    [BsonElement("authProvider")]
+    [BsonIgnoreIfNull]
+    public string? AuthProvider { get; set; }
 
     [BsonElement("CreatedAt")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
