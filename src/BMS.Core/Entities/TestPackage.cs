@@ -44,6 +44,18 @@ public class TestPackage
     [BsonElement("sample_volume_ml")]
     public double SampleVolumeMl { get; set; }
 
+    /// <summary>Expected turnaround time (TAT).</summary>
+    [BsonElement("tat")]
+    public string? Tat { get; set; }
+
+    /// <summary>Fasting or preparation requirement.</summary>
+    [BsonElement("fasting_rule")]
+    public string? FastingRule { get; set; }
+
+    /// <summary>Intended target patient group.</summary>
+    [BsonElement("target_audience")]
+    public string? TargetAudience { get; set; }
+
     /// <summary>
     /// Whether the package is currently offered.
     /// Only packages with <c>true</c> are shown in the catalog.

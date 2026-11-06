@@ -220,8 +220,18 @@ public class TestPackageRepository : ITestPackageRepository
                 .Distinct()
                 .ToList();
 
+            var bsonIds = new List<BsonValue>();
+            foreach (var id in criterionIds)
+            {
+                bsonIds.Add(new BsonString(id));
+                if (ObjectId.TryParse(id, out var oid))
+                {
+                    bsonIds.Add(new BsonObjectId(oid));
+                }
+            }
+
             var criteriaDocs = await _criteriaCollection
-                .Find(Builders<BsonDocument>.Filter.In("_id", criterionIds.Select(id => (BsonValue)id)))
+                .Find(Builders<BsonDocument>.Filter.In("_id", bsonIds))
                 .ToListAsync(cancellationToken);
 
             var criteriaById = criteriaDocs.ToDictionary(
@@ -243,10 +253,30 @@ public class TestPackageRepository : ITestPackageRepository
                     if (criteriaById.TryGetValue(critId, out var crit))
                     {
                         var code = crit.Contains("code") ? crit["code"].AsString :
-                                   crit.Contains("criterionCode") ? crit["criterionCode"].AsString : string.Empty;
+                                   crit.Contains("criterionCode") ? crit["criterionCode"].AsString :
+                                   crit.Contains("criterion_code") ? crit["criterion_code"].AsString : string.Empty;
                         var name = crit.Contains("name") ? crit["name"].AsString :
-                                   crit.Contains("criterionName") ? crit["criterionName"].AsString : string.Empty;
+                                   crit.Contains("criterionName") ? crit["criterionName"].AsString :
+                                   crit.Contains("criterion_name") ? crit["criterion_name"].AsString : string.Empty;
                         var unit = crit.Contains("unit") && !crit["unit"].IsBsonNull ? crit["unit"].AsString : string.Empty;
+
+                        string? refRange = null;
+                        if (crit.Contains("reference_range") && !crit["reference_range"].IsBsonNull)
+                        {
+                            refRange = crit["reference_range"].AsString;
+                        }
+                        else if (crit.Contains("referenceRange") && !crit["referenceRange"].IsBsonNull)
+                        {
+                            refRange = crit["referenceRange"].AsString;
+                        }
+                        else if (crit.Contains("normalMin") || crit.Contains("normalMax"))
+                        {
+                            var min = crit.Contains("normalMin") && !crit["normalMin"].IsBsonNull ? crit["normalMin"].ToString() : null;
+                            var max = crit.Contains("normalMax") && !crit["normalMax"].IsBsonNull ? crit["normalMax"].ToString() : null;
+                            if (min != null && max != null) refRange = $"{min} – {max}";
+                            else if (min != null) refRange = $">= {min}";
+                            else if (max != null) refRange = $"<= {max}";
+                        }
 
                         list.Add(new TestPackageCriterionSummaryDto
                         {
@@ -254,6 +284,7 @@ public class TestPackageRepository : ITestPackageRepository
                             Code = code,
                             Name = name,
                             Unit = unit,
+                            ReferenceRange = refRange,
                             DisplayOrder = displayOrder
                         });
                     }

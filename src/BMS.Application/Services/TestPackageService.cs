@@ -128,6 +128,9 @@ public class TestPackageService : ITestPackageService
             Description = entity.Description,
             SampleTube = entity.SampleTube,
             SampleVolumeMl = entity.SampleVolumeMl,
+            Tat = entity.Tat,
+            FastingRule = entity.FastingRule,
+            TargetAudience = entity.TargetAudience,
             IsActive = entity.IsActive,
             Criteria = criteria ?? Array.Empty<TestPackageCriterionSummaryDto>()
         };

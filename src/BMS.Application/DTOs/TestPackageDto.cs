@@ -11,6 +11,7 @@ public class TestPackageCriterionSummaryDto
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Unit { get; set; } = string.Empty;
+    public string? ReferenceRange { get; set; }
     public int DisplayOrder { get; set; }
 }
 
@@ -41,6 +42,15 @@ public class TestPackageDto
 
     /// Minimum sample volume (ml).
     public double SampleVolumeMl { get; set; }
+
+    /// Turnaround time (e.g. 60 - 90 phút).
+    public string? Tat { get; set; }
+
+    /// Preparation notes or fasting instructions.
+    public string? FastingRule { get; set; }
+
+    /// Target clinical audience.
+    public string? TargetAudience { get; set; }
 
     /// Whether the package is currently offered.
     public bool IsActive { get; set; }
