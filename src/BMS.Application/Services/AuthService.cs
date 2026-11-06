@@ -405,8 +405,8 @@ public class AuthService : IAuthService
                         PhoneNumber = user.PhoneNumber ?? "",
                         IdentityCardNumber = idNum,
                         Address = user.Address ?? "",
-                        DateOfBirth = user.DateOfBirth ?? DateTime.UtcNow.AddYears(-20),
-                        GenderString = user.Gender ?? "Nam",
+                        DateOfBirth = user.DateOfBirth,
+                        GenderString = NormalizeGender(user.Gender),
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -415,7 +415,8 @@ public class AuthService : IAuthService
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Non-fatal: could not auto-create patient profile for Google SSO user {UserId}", user.Id);
+                _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for Google SSO user {UserId}", user.Id);
+                return AuthLoginResult.Fail(500, "Không thể khởi tạo hồ sơ bệnh nhân từ tài khoản Google. Vui lòng liên hệ quản trị viên hoặc thử lại sau.", "PATIENT_PROFILE_CREATION_FAILED");
             }
         }
 
@@ -902,8 +903,8 @@ public class AuthService : IAuthService
                         PhoneNumber = user.PhoneNumber ?? "",
                         IdentityCardNumber = idNum,
                         Address = user.Address ?? "",
-                        DateOfBirth = user.DateOfBirth ?? DateTime.UtcNow.AddYears(-20),
-                        GenderString = user.Gender ?? "Nam",
+                        DateOfBirth = user.DateOfBirth,
+                        GenderString = NormalizeGender(user.Gender),
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -1140,5 +1141,14 @@ public class AuthService : IAuthService
             EmailConfirmed = user.EmailConfirmed,
             MedicalProfileCompleted = user.MedicalProfileCompleted
         };
+    }
+
+    private static string NormalizeGender(string? g)
+    {
+        if (string.IsNullOrWhiteSpace(g)) return "Unspecified";
+        if (g.Equals("Nam", StringComparison.OrdinalIgnoreCase) || g.Equals("Male", StringComparison.OrdinalIgnoreCase)) return "Male";
+        if (g.Equals("Nữ", StringComparison.OrdinalIgnoreCase) || g.Equals("Nu", StringComparison.OrdinalIgnoreCase) || g.Equals("Female", StringComparison.OrdinalIgnoreCase)) return "Female";
+        if (g.Equals("Khác", StringComparison.OrdinalIgnoreCase) || g.Equals("Other", StringComparison.OrdinalIgnoreCase)) return "Other";
+        return "Unspecified";
     }
 }
