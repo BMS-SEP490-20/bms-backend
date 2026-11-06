@@ -437,10 +437,10 @@ public class AuthService : IAuthService
                 catch (PatientDuplicateException ex)
                 {
                     _logger?.LogInformation(ex, "Patient duplicate detected in MongoDB for Google SSO user {UserId}, attempting resolution", user.Id);
-                    var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
-                    if (!resolved)
+                    var (resolved, isConflict) = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
+                    if (!resolved && isConflict)
                     {
-                        return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống hoặc không khớp thông tin xác thực.", "PATIENT_IDENTITY_CONFLICT");
+                        return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống hoặc không khớp thông tin xác thực. Vui lòng liên hệ bộ phận tiếp đón để được hỗ trợ.", "PATIENT_IDENTITY_CONFLICT");
                     }
                 }
                 catch (Exception ex)
@@ -968,8 +968,8 @@ public class AuthService : IAuthService
                 catch (PatientDuplicateException ex)
                 {
                     _logger?.LogInformation(ex, "Patient duplicate detected during OTP verification for user {UserId}, attempting resolution", user.Id);
-                    var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId);
-                    if (!resolved)
+                    var (resolved, isConflict) = await ResolvePatientDuplicateAsync(user, idNum, patId);
+                    if (!resolved && isConflict)
                     {
                         return new AuthResponseDto
                         {
@@ -1297,8 +1297,8 @@ public class AuthService : IAuthService
         {
             var idNum = user.IdentityCardNumber?.Trim();
             var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
-            var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
-            if (!resolved)
+            var (resolved, isConflict) = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
+            if (!resolved && isConflict)
             {
                 throw new InvalidOperationException("PATIENT_IDENTITY_CONFLICT");
             }
@@ -1317,15 +1317,15 @@ public class AuthService : IAuthService
     /// Resolves duplicate collisions during patient creation by verifying account ownership,
     /// linking unassociated walk-in guest profiles, or identifying cross-account identity conflicts.
     /// </summary>
-    private async Task<bool> ResolvePatientDuplicateAsync(User user, string? identityNumber, string? patId, CancellationToken ct = default)
+    private async Task<(bool resolved, bool isConflict)> ResolvePatientDuplicateAsync(User user, string? identityNumber, string? patId, CancellationToken ct = default)
     {
-        if (_patientRepository == null) return false;
+        if (_patientRepository == null) return (false, false);
 
         try
         {
             // 1. Check if user's account already has a patient record
             var byAccount = await _patientRepository.GetByAccountIdAsync(user.Id, ct);
-            if (byAccount != null) return true;
+            if (byAccount != null) return (true, false);
 
             // 2. Check if a patient record exists with this CCCD
             Patient? existing = null;
@@ -1357,7 +1357,7 @@ public class AuthService : IAuthService
             if (existing != null)
             {
                 if (existing.AccountId == user.Id)
-                    return true;
+                    return (true, false);
 
                 // Guest profile created previously without an online account -> link to this user only if multi-factor identity matches
                 if (string.IsNullOrWhiteSpace(existing.AccountId))
@@ -1381,7 +1381,7 @@ public class AuthService : IAuthService
                     {
                         _logger?.LogWarning("Patient takeover prevention: Unassociated guest patient {PatientId} (CCCD {Cccd}) cannot be auto-linked to user account {UserId} because identity fields do not match (name: {NameMatches}, dob: {DobMatches}, phone: {PhoneMatches})",
                             existing.Id, identityNumber, user.Id, nameMatches, dobMatches, phoneMatches);
-                        return false;
+                        return (false, true);
                     }
 
                     existing.AccountId = user.Id;
@@ -1398,19 +1398,19 @@ public class AuthService : IAuthService
                     {
                         await _patientRepository.UpdateAsync(existing, ct);
                         _logger?.LogInformation("Linked unassociated guest patient profile {PatientId} to user account {UserId} with verified identity match", existing.Id, user.Id);
-                        return true;
+                        return (true, false);
                     }
                     catch (Exception ex)
                     {
                         _logger?.LogError(ex, "Failed to link guest patient profile {PatientId} to user account {UserId}", existing.Id, user.Id);
-                        return false;
+                        return (false, false);
                     }
                 }
 
                 // Conflict: CCCD already linked to a different account
                 _logger?.LogWarning("Patient identity conflict: CCCD {Cccd} belongs to patient {PatientId} linked to account {ExistingAccountId}, not user {UserId}",
                     identityNumber, existing.Id, existing.AccountId, user.Id);
-                return false;
+                return (false, true);
             }
         }
         catch (Exception ex)
@@ -1418,6 +1418,6 @@ public class AuthService : IAuthService
             _logger?.LogWarning(ex, "Transient error resolving duplicate patient for user {UserId}", user.Id);
         }
 
-        return false;
+        return (false, false);
     }
 }
