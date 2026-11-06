@@ -279,6 +279,10 @@ public sealed class AuthController : ControllerBase
 
         if (!result.Success)
         {
+            if (result.ErrorCode == "PATIENT_IDENTITY_CONFLICT")
+            {
+                return StatusCode(StatusCodes.Status409Conflict, result);
+            }
             return BadRequest(result);
         }
 

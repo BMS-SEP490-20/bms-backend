@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/v1/laboratory/rooms")]
 // WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Route("api/facilities/rooms")]
-[Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
+[Authorize(Roles = RoleSets.AllStaff)]
 public class LabRoomsController : ControllerBase
 {
     private readonly IMongoDatabase _database;

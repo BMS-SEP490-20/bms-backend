@@ -379,29 +379,76 @@ public class UsersController : ControllerBase
         return Ok(new { success = true, message = "Password updated successfully." });
     }
 
+    private static string GetStringSafe(BsonDocument doc, params string[] fieldNames)
+    {
+        foreach (var field in fieldNames)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsString) return val.AsString;
+                return val.ToString() ?? "";
+            }
+        }
+        return "";
+    }
+
+    private static int GetIntSafe(BsonDocument doc, int defaultVal, params string[] fieldNames)
+    {
+        foreach (var field in fieldNames)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsInt32) return val.AsInt32;
+                if (val.IsInt64) return (int)val.AsInt64;
+                if (int.TryParse(val.ToString(), out var parsed)) return parsed;
+            }
+        }
+        return defaultVal;
+    }
+
+    private static bool GetBoolSafe(BsonDocument doc, bool defaultVal, params string[] fieldNames)
+    {
+        foreach (var field in fieldNames)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsBoolean) return val.AsBoolean;
+                if (val.IsInt32) return val.AsInt32 == 1;
+                if (bool.TryParse(val.ToString(), out var parsed)) return parsed;
+            }
+        }
+        return defaultVal;
+    }
+
+    private static string GetDateSafe(BsonDocument doc, params string[] fieldNames)
+    {
+        foreach (var field in fieldNames)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsValidDateTime) return val.ToUniversalTime().ToString("o");
+                if (DateTime.TryParse(val.ToString(), out var dt)) return dt.ToUniversalTime().ToString("o");
+            }
+        }
+        return DateTime.UtcNow.ToString("o");
+    }
+
     private static object MapBsonToUserDto(BsonDocument doc)
     {
-        var id = doc["_id"].ToString() ?? "";
-        var username = doc.Contains("username") ? doc["username"].AsString : (doc.Contains("Username") ? doc["Username"].AsString : "");
-        var email = doc.Contains("email") ? doc["email"].AsString : (doc.Contains("Email") ? doc["Email"].AsString : "");
-        var fullName = doc.Contains("fullName") ? doc["fullName"].AsString : (doc.Contains("FullName") ? doc["FullName"].AsString : "");
-        var phone = doc.Contains("phoneNumber") ? doc["phoneNumber"].AsString : (doc.Contains("PhoneNumber") ? doc["PhoneNumber"].AsString : "");
+        var id = doc.Contains("_id") ? doc["_id"].ToString() ?? "" : "";
+        var username = GetStringSafe(doc, "username", "Username");
+        var email = GetStringSafe(doc, "email", "Email");
+        var fullName = GetStringSafe(doc, "fullName", "FullName");
+        var phone = GetStringSafe(doc, "phoneNumber", "PhoneNumber", "phone", "Phone");
         
-        int roleId = 1;
-        if (doc.Contains("roleId") && doc["roleId"].IsInt32) roleId = doc["roleId"].AsInt32;
-        else if (doc.Contains("RoleId") && doc["RoleId"].IsInt32) roleId = doc["RoleId"].AsInt32;
-
-        bool isActive = true;
-        if (doc.Contains("isActive") && doc["isActive"].IsBoolean) isActive = doc["isActive"].AsBoolean;
-        else if (doc.Contains("status") && doc["status"].IsInt32) isActive = doc["status"].AsInt32 == 1;
-        else if (doc.Contains("Status") && doc["Status"].IsInt32) isActive = doc["Status"].AsInt32 == 1;
+        int roleId = GetIntSafe(doc, 1, "roleId", "RoleId");
+        bool isActive = GetBoolSafe(doc, true, "isActive", "IsActive", "status", "Status");
 
         // 6-role seed (decision 30/10 point 1). Lower-case canonical names keep the existing web contract shape.
         // Legacy RoleId 9 (old self-registration) is a patient.
         string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? 6 : roleId) ?? "unknown").ToLowerInvariant();
 
-        var created = doc.Contains("CreatedAt") ? doc["CreatedAt"].ToUniversalTime().ToString("o")
-            : (doc.Contains("createdAt") ? doc["createdAt"].ToUniversalTime().ToString("o") : DateTime.UtcNow.ToString("o"));
+        var created = GetDateSafe(doc, "CreatedAt", "createdAt");
 
         return new
         {
