@@ -40,11 +40,7 @@ public sealed class PatientRepository : IPatientRepository
             {
                 Name = "ux_patients_account_id",
                 Unique = true,
-                PartialFilterExpression = Builders<Patient>.Filter.And(
-                    Builders<Patient>.Filter.Type(p => p.AccountId, MongoDB.Bson.BsonType.String),
-                    Builders<Patient>.Filter.Ne(p => p.AccountId, ""),
-                    Builders<Patient>.Filter.Ne(p => p.AccountId, null)
-                )
+                PartialFilterExpression = Builders<Patient>.Filter.Gt(p => p.AccountId, "")
             }),
         new(Builders<Patient>.IndexKeys.Ascending(p => p.PhoneNumber), new CreateIndexOptions { Name = "ix_patients_phone" }),
     ];
