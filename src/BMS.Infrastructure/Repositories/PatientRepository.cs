@@ -25,7 +25,7 @@ public sealed class PatientRepository : IPatientRepository
         _medicalRecords = db.GetCollection<BsonDocument>("medical_records");
     }
 
-    /// <summary>Indexes for reception lookups (INV-5): unique CCCD among string values, phone for duplicate checks.</summary>
+    /// <summary>Indexes for reception lookups (INV-5): unique CCCD among string values, unique AccountId among non-empty values, phone for duplicate checks.</summary>
     public static IEnumerable<CreateIndexModel<Patient>> Indexes() =>
     [
         new(Builders<Patient>.IndexKeys.Ascending(p => p.IdentityCardNumber),
@@ -34,6 +34,17 @@ public sealed class PatientRepository : IPatientRepository
                 Name = "ux_patients_cccd",
                 Unique = true,
                 PartialFilterExpression = Builders<Patient>.Filter.Type(p => p.IdentityCardNumber, MongoDB.Bson.BsonType.String)
+            }),
+        new(Builders<Patient>.IndexKeys.Ascending(p => p.AccountId),
+            new CreateIndexOptions<Patient>
+            {
+                Name = "ux_patients_account_id",
+                Unique = true,
+                PartialFilterExpression = Builders<Patient>.Filter.And(
+                    Builders<Patient>.Filter.Type(p => p.AccountId, MongoDB.Bson.BsonType.String),
+                    Builders<Patient>.Filter.Ne(p => p.AccountId, ""),
+                    Builders<Patient>.Filter.Ne(p => p.AccountId, null)
+                )
             }),
         new(Builders<Patient>.IndexKeys.Ascending(p => p.PhoneNumber), new CreateIndexOptions { Name = "ix_patients_phone" }),
     ];
@@ -198,7 +209,16 @@ public sealed class PatientRepository : IPatientRepository
     {
         patient.UpdatedAt = DateTime.UtcNow;
         var filter = Builders<Patient>.Filter.Eq(p => p.Id, patient.Id);
-        await _patients.ReplaceOneAsync(filter, patient, new ReplaceOptions { IsUpsert = false }, ct);
+        try
+        {
+            await _patients.ReplaceOneAsync(filter, patient, new ReplaceOptions { IsUpsert = false }, ct);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            throw new PatientDuplicateException(
+                "MSG-ERR-REC-01",
+                $"Thông tin định danh hoặc tài khoản đã tồn tại hồ sơ bệnh nhân khác.");
+        }
     }
 
     public async Task<IReadOnlyList<PatientAppointmentSummaryDto>> GetRecentAppointmentsAsync(

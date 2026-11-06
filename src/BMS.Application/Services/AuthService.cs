@@ -216,7 +216,14 @@ public class AuthService : IAuthService
         }
 
         _logger?.LogInformation("Login succeeded: user {UserId} ({Username}) from {Ip}", user.Id, user.Username, client.IpAddress);
-        await TryEnsurePatientProfileAsync(user, ct);
+        try
+        {
+            await TryEnsurePatientProfileAsync(user, ct);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "PATIENT_IDENTITY_CONFLICT")
+        {
+            return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống hoặc không khớp thông tin xác thực.", "PATIENT_IDENTITY_CONFLICT");
+        }
         var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
 
         if (_auditLogRepository != null)
@@ -431,9 +438,9 @@ public class AuthService : IAuthService
                 {
                     _logger?.LogInformation(ex, "Patient duplicate detected in MongoDB for Google SSO user {UserId}, attempting resolution", user.Id);
                     var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
-                    if (!resolved && isNewGoogleUser)
+                    if (!resolved)
                     {
-                        return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống.", "PATIENT_IDENTITY_CONFLICT");
+                        return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống hoặc không khớp thông tin xác thực.", "PATIENT_IDENTITY_CONFLICT");
                     }
                 }
                 catch (Exception ex)
@@ -447,7 +454,14 @@ public class AuthService : IAuthService
             }
         }
 
-        await TryEnsurePatientProfileAsync(user, ct);
+        try
+        {
+            await TryEnsurePatientProfileAsync(user, ct);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "PATIENT_IDENTITY_CONFLICT")
+        {
+            return AuthLoginResult.Fail(409, "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống hoặc không khớp thông tin xác thực.", "PATIENT_IDENTITY_CONFLICT");
+        }
         _logger?.LogInformation("Google Single Sign-On succeeded: user {UserId} ({Email}) from {Ip}", user.Id, user.Email, client.IpAddress);
         var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
 
@@ -1022,7 +1036,19 @@ public class AuthService : IAuthService
             ? _tokenService.CreateAccessToken(user, roleEntity).Token
             : $"BMS_TOKEN_{user.Id}_{user.Role}_{Guid.NewGuid():N}";
 
-        await TryEnsurePatientProfileAsync(user);
+        try
+        {
+            await TryEnsurePatientProfileAsync(user);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "PATIENT_IDENTITY_CONFLICT")
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                Message = "Số CCCD/Định danh này đã được liên kết với một tài khoản khác trong hệ thống hoặc không khớp thông tin xác thực.",
+                ErrorCode = "PATIENT_IDENTITY_CONFLICT"
+            };
+        }
 
         return new AuthResponseDto
         {
@@ -1227,6 +1253,15 @@ public class AuthService : IAuthService
         return "Unspecified";
     }
 
+    private static string NormalizePhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return "";
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("84") && digits.Length > 2)
+            digits = "0" + digits[2..];
+        return digits;
+    }
+
     private async Task TryEnsurePatientProfileAsync(User user, CancellationToken ct = default)
     {
         if (_patientRepository == null || user.RoleId != (int)UserRole.Patient || string.IsNullOrWhiteSpace(user.Id))
@@ -1262,7 +1297,15 @@ public class AuthService : IAuthService
         {
             var idNum = user.IdentityCardNumber?.Trim();
             var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
-            await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
+            var resolved = await ResolvePatientDuplicateAsync(user, idNum, patId, ct);
+            if (!resolved)
+            {
+                throw new InvalidOperationException("PATIENT_IDENTITY_CONFLICT");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1316,9 +1359,31 @@ public class AuthService : IAuthService
                 if (existing.AccountId == user.Id)
                     return true;
 
-                // Guest profile created previously without an online account -> link to this user
+                // Guest profile created previously without an online account -> link to this user only if multi-factor identity matches
                 if (string.IsNullOrWhiteSpace(existing.AccountId))
                 {
+                    var nameMatches = !string.IsNullOrWhiteSpace(existing.FullName) &&
+                                      !string.IsNullOrWhiteSpace(user.FullName) &&
+                                      string.Equals(existing.FullName.Trim(), user.FullName.Trim(), StringComparison.OrdinalIgnoreCase);
+
+                    var dobMatches = existing.DateOfBirth.HasValue &&
+                                     user.DateOfBirth.HasValue &&
+                                     existing.DateOfBirth.Value.Date == user.DateOfBirth.Value.Date;
+
+                    var normExistingPhone = NormalizePhone(existing.PhoneNumber);
+                    var normUserPhone = NormalizePhone(user.PhoneNumber);
+                    var phoneMatches = !string.IsNullOrEmpty(normExistingPhone) && normExistingPhone == normUserPhone;
+
+                    // Multi-field verification (>= 2 identity attributes: FullName + DateOfBirth or PhoneNumber): prevent unauthorized account takeover
+                    bool canLinkGuest = nameMatches && (dobMatches || phoneMatches);
+
+                    if (!canLinkGuest)
+                    {
+                        _logger?.LogWarning("Patient takeover prevention: Unassociated guest patient {PatientId} (CCCD {Cccd}) cannot be auto-linked to user account {UserId} because identity fields do not match (name: {NameMatches}, dob: {DobMatches}, phone: {PhoneMatches})",
+                            existing.Id, identityNumber, user.Id, nameMatches, dobMatches, phoneMatches);
+                        return false;
+                    }
+
                     existing.AccountId = user.Id;
                     if (string.IsNullOrWhiteSpace(existing.Email) && !string.IsNullOrWhiteSpace(user.Email))
                     {
@@ -1332,7 +1397,7 @@ public class AuthService : IAuthService
                     try
                     {
                         await _patientRepository.UpdateAsync(existing, ct);
-                        _logger?.LogInformation("Linked unassociated guest patient profile {PatientId} to user account {UserId}", existing.Id, user.Id);
+                        _logger?.LogInformation("Linked unassociated guest patient profile {PatientId} to user account {UserId} with verified identity match", existing.Id, user.Id);
                         return true;
                     }
                     catch (Exception ex)
