@@ -216,6 +216,7 @@ public class AuthService : IAuthService
         }
 
         _logger?.LogInformation("Login succeeded: user {UserId} ({Username}) from {Ip}", user.Id, user.Username, client.IpAddress);
+        await TryEnsurePatientProfileAsync(user, ct);
         var tokens = await IssueTokensAsync(user, familyId: Guid.NewGuid().ToString("N"), now, client, ct);
 
         if (_auditLogRepository != null)
@@ -320,6 +321,7 @@ public class AuthService : IAuthService
         }
 
         user ??= _context.Users.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
+        bool isNewGoogleUser = (user == null);
 
         if (user != null)
         {
@@ -390,16 +392,19 @@ public class AuthService : IAuthService
         if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
         {
             Patient? existingPat = null;
+            bool readSuccess = false;
             try
             {
-                existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
+                existingPat = await _patientRepository.GetByAccountIdAsync(user.Id, ct);
+                readSuccess = true;
             }
             catch (Exception ex)
             {
                 _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile for Google SSO user {UserId}", user.Id);
             }
 
-            if (existingPat == null)
+            // Insert only when confirmed missing by successful read OR when newly auto-registered user
+            if ((readSuccess && existingPat == null) || (isNewGoogleUser && existingPat == null))
             {
                 var idNum = user.IdentityCardNumber?.Trim();
                 var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
@@ -420,12 +425,20 @@ public class AuthService : IAuthService
 
                 try
                 {
-                    await _patientRepository.InsertAsync(newPat);
+                    await _patientRepository.InsertAsync(newPat, ct);
+                }
+                catch (PatientDuplicateException ex)
+                {
+                    // Profile already exists in MongoDB (parallel insert or pre-existing matching profile) - treat as success
+                    _logger?.LogInformation(ex, "Patient profile already exists in MongoDB for Google SSO user {UserId}", user.Id);
                 }
                 catch (Exception ex)
                 {
                     _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for Google SSO user {UserId}", user.Id);
-                    return AuthLoginResult.Fail(500, "Không thể khởi tạo hồ sơ bệnh nhân từ tài khoản Google. Vui lòng liên hệ quản trị viên hoặc thử lại sau.", "PATIENT_PROFILE_CREATION_FAILED");
+                    if (isNewGoogleUser)
+                    {
+                        return AuthLoginResult.Fail(500, "Không thể khởi tạo hồ sơ bệnh nhân từ tài khoản Google. Vui lòng liên hệ quản trị viên hoặc thử lại sau.", "PATIENT_PROFILE_CREATION_FAILED");
+                    }
                 }
             }
         }
@@ -884,30 +897,22 @@ public class AuthService : IAuthService
             return new AuthResponseDto { Success = false, Message = "Mã OTP không đúng hoặc đã hết hạn (15 phút)." };
         }
 
-        user.EmailConfirmed = true;
-        user.VerificationOtp = null;
-        user.OtpExpiresAt = null;
-        user.UpdatedAt = DateTime.UtcNow;
-
-        if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
-        {
-            try { await _userRepository.UpdateAsync(user); } catch {}
-        }
-
-        // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection (BR-REC-01)
+        // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection trước khi confirm email (BR-REC-01)
         if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
         {
             Patient? existingPat = null;
+            bool readSuccess = false;
             try
             {
                 existingPat = await _patientRepository.GetByAccountIdAsync(user.Id);
+                readSuccess = true;
             }
             catch (Exception ex)
             {
                 _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile during OTP verification for user {UserId}", user.Id);
             }
 
-            if (existingPat == null)
+            if (readSuccess && existingPat == null)
             {
                 var idNum = user.IdentityCardNumber?.Trim();
                 var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
@@ -930,17 +935,34 @@ public class AuthService : IAuthService
                 {
                     await _patientRepository.InsertAsync(newPat);
                 }
+                catch (PatientDuplicateException ex)
+                {
+                    // Profile already exists in MongoDB (parallel insert or duplicate CCCD) - treat as success
+                    _logger?.LogInformation(ex, "Patient profile already exists in MongoDB for verified OTP user {UserId}", user.Id);
+                }
                 catch (Exception ex)
                 {
                     _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for verified OTP user {UserId}", user.Id);
+                    // Do NOT confirm email, PRESERVE OTP so user can retry without getting stuck
                     return new AuthResponseDto
                     {
                         Success = false,
-                        Message = "Xác thực OTP thành công nhưng không thể khởi tạo hồ sơ bệnh nhân. Vui lòng liên hệ hỗ trợ kỹ thuật hoặc thử lại.",
+                        Message = "Xác thực OTP thành công nhưng không thể khởi tạo hồ sơ bệnh nhân. Vui lòng bấm xác thực lại hoặc liên hệ hỗ trợ.",
                         ErrorCode = "PATIENT_PROFILE_CREATION_FAILED"
                     };
                 }
             }
+        }
+
+        // Confirm email and clear OTP only AFTER patient profile is ensured
+        user.EmailConfirmed = true;
+        user.VerificationOtp = null;
+        user.OtpExpiresAt = null;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+        {
+            try { await _userRepository.UpdateAsync(user); } catch {}
         }
 
         return new AuthResponseDto
@@ -974,6 +996,8 @@ public class AuthService : IAuthService
         var token = _tokenService != null
             ? _tokenService.CreateAccessToken(user, roleEntity).Token
             : $"BMS_TOKEN_{user.Id}_{user.Role}_{Guid.NewGuid():N}";
+
+        await TryEnsurePatientProfileAsync(user);
 
         return new AuthResponseDto
         {
@@ -1176,5 +1200,46 @@ public class AuthService : IAuthService
         if (g.Equals("Nữ", StringComparison.OrdinalIgnoreCase) || g.Equals("Nu", StringComparison.OrdinalIgnoreCase) || g.Equals("Female", StringComparison.OrdinalIgnoreCase)) return "Female";
         if (g.Equals("Khác", StringComparison.OrdinalIgnoreCase) || g.Equals("Other", StringComparison.OrdinalIgnoreCase)) return "Other";
         return "Unspecified";
+    }
+
+    private async Task TryEnsurePatientProfileAsync(User user, CancellationToken ct = default)
+    {
+        if (_patientRepository == null || user.RoleId != (int)UserRole.Patient || string.IsNullOrWhiteSpace(user.Id))
+            return;
+
+        try
+        {
+            var existingPat = await _patientRepository.GetByAccountIdAsync(user.Id, ct);
+            if (existingPat != null)
+                return;
+
+            var idNum = user.IdentityCardNumber?.Trim();
+            var patId = !string.IsNullOrWhiteSpace(idNum) ? $"PAT-{idNum}" : $"PAT-{DateTime.UtcNow.Ticks.ToString()[^10..]}";
+            var newPat = new Patient
+            {
+                Id = patId,
+                AccountId = user.Id,
+                FullName = user.FullName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber ?? "",
+                IdentityCardNumber = idNum,
+                Address = user.Address ?? "",
+                DateOfBirth = user.DateOfBirth,
+                GenderString = NormalizeGender(user.Gender),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _patientRepository.InsertAsync(newPat, ct);
+            _logger?.LogInformation("Self-healed missing patient profile {PatientId} on login for user {UserId}", patId, user.Id);
+        }
+        catch (PatientDuplicateException)
+        {
+            // Already exists in MongoDB - fine
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Non-fatal: could not self-heal patient profile on login for user {UserId}", user.Id);
+        }
     }
 }
