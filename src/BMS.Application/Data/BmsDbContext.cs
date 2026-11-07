@@ -16,6 +16,8 @@ public class BmsDbContext
     public List<Invoice> Invoices { get; } = new();
     public List<IotDeviceThreshold> IotThresholds { get; } = new();
     public List<IotAlertRecipient> IotAlertRecipients { get; } = new();
+    public List<IotSensorLog> IotSensorLogs { get; } = new();
+    public List<IotConnectionOutage> IotConnectionOutages { get; } = new();
     public List<TestResultVerification> TestVerifications { get; } = new();
     public List<SampleOriginTrace> SampleOriginTraces { get; } = new();
     public List<MedicalAssessment> MedicalAssessments { get; } = new();
@@ -257,6 +259,8 @@ public class BmsDbContext
         // Seed default IoT thresholds (UC67)
         IotThresholds.AddRange(new[]
         {
+            new IotDeviceThreshold { DeviceId = "BMS-IOT-001", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Nhiệt độ)", Location = "Blood Storage Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 5, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "BMS-IOT-001-HUM", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Độ ẩm)", Location = "Blood Storage Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 45.0, HighAlert = 75.0, IntervalSeconds = 5, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-001", DeviceName = "Fridge Temperature Sensor 1", Location = "Fridge R-01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-002", DeviceName = "Fridge Temperature Sensor 2", Location = "Fridge R-02", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-003", DeviceName = "Freezer Temperature Sensor", Location = "Freezer F-01", SensorType = "Temperature", Unit = "°C", LowAlert = -25.0, HighAlert = -15.0, IntervalSeconds = 60, Status = "Active" },

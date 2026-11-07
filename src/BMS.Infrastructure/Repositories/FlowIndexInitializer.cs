@@ -25,6 +25,8 @@ public sealed class FlowIndexInitializer(IMongoDatabase database, ILogger<FlowIn
             .Indexes.CreateManyAsync(SpecimenRepository.Indexes(), ct));
         await TryAsync(RefundRepository.CollectionName, () => database.GetCollection<Refund>(RefundRepository.CollectionName)
             .Indexes.CreateManyAsync(RefundRepository.Indexes(), ct));
+        await TryAsync(IotSensorLogRepository.LogsCollectionName, () => database.GetCollection<IotSensorLog>(IotSensorLogRepository.LogsCollectionName)
+            .Indexes.CreateManyAsync(IotSensorLogRepository.LogIndexes(), ct));
         // Reference data the fee formula needs (Quy trình Đợt 3A Q1): insert-if-missing, so codes an Admin/Manager
         // deactivated stay deactivated after a restart.
         var inserted = await new BillingSettingsRepository(database)
