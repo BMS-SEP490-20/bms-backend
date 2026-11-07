@@ -221,43 +221,69 @@ app.Run();
 // -----------------------------------------------------------------------------
 static void LoadDotEnvFiles()
 {
-    var currentDir = Directory.GetCurrentDirectory();
-    var baseDir = AppContext.BaseDirectory;
-    string[] candidatePaths = [
-        Path.Combine(currentDir, ".env"),
-        Path.Combine(currentDir, "src", "BMS.Api", ".env"),
-        Path.Combine(baseDir, ".env"),
-        Path.Combine(currentDir, "..", ".env"),
-        Path.Combine(currentDir, "..", "..", ".env")
-    ];
+    var roots = new List<string>();
 
-    foreach (var path in candidatePaths)
+    void AddRoot(string? dir)
     {
-        if (File.Exists(path))
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        string full;
+        try
         {
-            try
-            {
-                foreach (var line in File.ReadAllLines(path))
-                {
-                    var trimmed = line.Trim();
-                    if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
-                    var parts = trimmed.Split('=', 2);
-                    if (parts.Length == 2)
-                    {
-                        var key = parts[0].Trim();
-                        var val = parts[1].Trim();
-                        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
-                        {
-                            Environment.SetEnvironmentVariable(key, val);
-                        }
-                    }
-                }
-                break;
-            }
-            catch
-            {
-                // Silently continue if file is locked
-            }
+            full = Path.GetFullPath(dir);
         }
+        catch
+        {
+            return;
+        }
+
+        if (!roots.Contains(full, StringComparer.OrdinalIgnoreCase))
+            roots.Add(full);
+    }
+
+    AddRoot(Directory.GetCurrentDirectory());
+    AddRoot(AppContext.BaseDirectory);
+
+    foreach (var seed in roots.ToList())
+    {
+        var dir = new DirectoryInfo(seed);
+        for (var depth = 0; depth < 8 && dir.Parent != null; depth++)
+        {
+            dir = dir.Parent;
+            AddRoot(dir.FullName);
+        }
+    }
+
+    foreach (var root in roots)
+    {
+        if (TryLoadDotEnv(Path.Combine(root, ".env"))) return;
+        if (TryLoadDotEnv(Path.Combine(root, "src", "BMS.Api", ".env"))) return;
+    }
+}
+
+static bool TryLoadDotEnv(string path)
+{
+    if (!File.Exists(path)) return false;
+
+    try
+    {
+        foreach (var line in File.ReadAllLines(path))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#')) continue;
+            var parts = trimmed.Split('=', 2);
+            if (parts.Length != 2) continue;
+
+            var key = parts[0].Trim();
+            var val = parts[1].Trim().Trim('"');
+            if (string.IsNullOrEmpty(key)) continue;
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+                Environment.SetEnvironmentVariable(key, val);
+        }
+
+        return true;
+    }
+    catch
+    {
+        return false;
     }
 }
