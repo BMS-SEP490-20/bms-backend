@@ -978,6 +978,16 @@ public class AuthService : IAuthService
                             ErrorCode = "PATIENT_IDENTITY_CONFLICT"
                         };
                     }
+
+                    if (!resolved)
+                    {
+                        return new AuthResponseDto
+                        {
+                            Success = false,
+                            Message = "Không thể khởi tạo hồ sơ bệnh nhân do lỗi hệ thống. Vui lòng bấm xác thực lại hoặc liên hệ hỗ trợ.",
+                            ErrorCode = "PATIENT_PROFILE_CREATION_FAILED"
+                        };
+                    }
                 }
                 catch (Exception ex)
                 {
