@@ -54,14 +54,7 @@ namespace BMS.Application.Services
 
             var shifts = await _repository.GetDoctorShiftsAsync(request.DoctorId, request.AppointmentDate, ct);
             if (shifts.Count == 0)
-            {
-                shifts = new List<DoctorShift>
-                {
-                    new DoctorShift { DoctorId = request.DoctorId, ShiftDate = request.AppointmentDate.Date, ShiftType = "Morning", ShiftStart = "07:00", ShiftEnd = "11:30", MaxPatients = 50 },
-                    new DoctorShift { DoctorId = request.DoctorId, ShiftDate = request.AppointmentDate.Date, ShiftType = "Afternoon", ShiftStart = "13:00", ShiftEnd = "17:00", MaxPatients = 50 },
-                    new DoctorShift { DoctorId = request.DoctorId, ShiftDate = request.AppointmentDate.Date, ShiftType = "Evening", ShiftStart = "17:30", ShiftEnd = "20:30", MaxPatients = 50 }
-                };
-            }
+                throw new InvalidOperationException("MSG-ERR-APPT-04: Bác sĩ không có ca trực vào ngày đã chọn.");
 
             var windows = BuildTimeWindowsFromShifts(shifts);
             if (!IsSlotInsideWindows(request.SlotTime, windows, DefaultSlotDurationMinutes))
@@ -122,11 +115,12 @@ namespace BMS.Application.Services
 
             if (shifts.Count == 0)
             {
-                shifts = new List<DoctorShift>
+                return new AvailableSlotsResponse
                 {
-                    new DoctorShift { DoctorId = doctorId, ShiftType = "Morning", ShiftStart = "07:00", ShiftEnd = "11:30", MaxPatients = 20, RoomName = "Phòng Khám 101" },
-                    new DoctorShift { DoctorId = doctorId, ShiftType = "Afternoon", ShiftStart = "13:00", ShiftEnd = "17:00", MaxPatients = 20, RoomName = "Phòng Lấy Mẫu 102" },
-                    new DoctorShift { DoctorId = doctorId, ShiftType = "Evening", ShiftStart = "17:30", ShiftEnd = "20:30", MaxPatients = 15, RoomName = "Phòng Tư Vấn 103" }
+                    DoctorId = doctorId,
+                    DoctorName = doctor?.FullName ?? string.Empty,
+                    Date = date.Date,
+                    Slots = new List<AvailableSlotDto>()
                 };
             }
 
@@ -181,74 +175,53 @@ namespace BMS.Application.Services
                     if (!string.IsNullOrWhiteSpace(specialty) && doc != null && !doc.Specialty.Contains(specialty, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    list.Add(new DoctorOptionDto
-                    {
-                        DoctorId = s.DoctorId,
-                        DoctorName = doc?.FullName ?? s.EmployeeName ?? "BS. CKI Nguyễn Văn Minh",
-                        Specialty = doc?.Specialty ?? s.Department ?? "Huyết học & Miễn dịch học lâm sàng",
-                        ShiftType = s.ShiftType ?? "Morning",
-                        ShiftStart = s.ShiftStart ?? (s.ShiftType == "Afternoon" ? "13:00" : s.ShiftType == "Evening" ? "17:30" : "07:00"),
-                        ShiftEnd = s.ShiftEnd ?? (s.ShiftType == "Afternoon" ? "17:00" : s.ShiftType == "Evening" ? "20:30" : "11:30"),
-                        RoomId = s.RoomId ?? "ROOM-101",
-                        RoomName = s.RoomName ?? "Phòng khám Huyết học Tổng quát 1",
-                        RoomNumber = "101",
-                        Floor = "Tầng 1 - Khu A"
-                    });
+                    list.Add(MapShiftOption(s, doc));
                 }
-                if (list.Count > 0) return list;
+                return list;
             }
 
-            // Return full day shifts with doctor and room info
-            var allDoctors = await _repository.GetDoctorsByIdsAsync(new List<string> { "670560000000000000000002" }, ct);
-            var defaultDoc = allDoctors.FirstOrDefault() ?? new Doctor
+            return new List<DoctorOptionDto>();
+        }
+
+        private static DoctorOptionDto MapShiftOption(DoctorShift shift, Doctor? doctor)
+        {
+            var shiftType = string.IsNullOrWhiteSpace(shift.ShiftType) ? "Morning" : shift.ShiftType;
+            var (defaultStart, defaultEnd) = shiftType.Trim().ToLowerInvariant() switch
             {
-                Id = "670560000000000000000002",
-                FullName = "BS. CKI Nguyễn Văn Minh",
-                Specialty = "Huyết học & Miễn dịch học lâm sàng"
+                "afternoon" => ("13:00", "17:00"),
+                "evening" => ("17:30", "20:30"),
+                _ => ("07:00", "11:30")
             };
 
-            return new List<DoctorOptionDto>
+            return new DoctorOptionDto
             {
-                new DoctorOptionDto
-                {
-                    DoctorId = defaultDoc.Id,
-                    DoctorName = defaultDoc.FullName,
-                    Specialty = defaultDoc.Specialty,
-                    ShiftType = "Morning",
-                    ShiftStart = "07:00",
-                    ShiftEnd = "11:30",
-                    RoomId = "ROOM-101",
-                    RoomName = "Phòng khám Huyết học Tổng quát 1",
-                    RoomNumber = "101",
-                    Floor = "Tầng 1 - Khu A"
-                },
-                new DoctorOptionDto
-                {
-                    DoctorId = defaultDoc.Id,
-                    DoctorName = defaultDoc.FullName,
-                    Specialty = defaultDoc.Specialty,
-                    ShiftType = "Afternoon",
-                    ShiftStart = "13:00",
-                    ShiftEnd = "17:00",
-                    RoomId = "ROOM-102",
-                    RoomName = "Phòng Lấy Mẫu & Khám Chuyên Sâu 102",
-                    RoomNumber = "102",
-                    Floor = "Tầng 1 - Khu A"
-                },
-                new DoctorOptionDto
-                {
-                    DoctorId = defaultDoc.Id,
-                    DoctorName = defaultDoc.FullName,
-                    Specialty = defaultDoc.Specialty,
-                    ShiftType = "Evening",
-                    ShiftStart = "17:30",
-                    ShiftEnd = "20:30",
-                    RoomId = "ROOM-103",
-                    RoomName = "Phòng Tư Vấn Kết Quả & Xét Nghiệm Nhanh",
-                    RoomNumber = "103",
-                    Floor = "Tầng 1 - Khu A"
-                }
+                DoctorId = shift.DoctorId ?? string.Empty,
+                DoctorName = FirstText(doctor?.FullName, shift.EmployeeName),
+                Specialty = FirstText(doctor?.Specialty, shift.Department),
+                ShiftType = shiftType,
+                ShiftStart = FirstText(shift.ShiftStart, defaultStart),
+                ShiftEnd = FirstText(shift.ShiftEnd, defaultEnd),
+                RoomId = shift.RoomId ?? string.Empty,
+                RoomName = shift.RoomName ?? string.Empty,
+                RoomNumber = RoomNumberFromId(shift.RoomId),
+                Floor = string.Empty
             };
+        }
+
+        private static string FirstText(params string?[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+            }
+            return string.Empty;
+        }
+
+        private static string RoomNumberFromId(string? roomId)
+        {
+            if (string.IsNullOrWhiteSpace(roomId)) return string.Empty;
+            var parts = roomId.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return parts.Length > 1 ? parts[^1] : string.Empty;
         }
 
         public async Task<BookAppointmentResponse?> GetByIdAsync(string appointmentId, CancellationToken ct = default)
