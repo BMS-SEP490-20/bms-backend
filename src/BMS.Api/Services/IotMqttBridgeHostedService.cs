@@ -32,6 +32,10 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
     private readonly int _brokerPort;
     private readonly string _topicPrefix;
 
+    private static NetworkStream? _activeStream;
+    private static SemaphoreSlim? _activeWriteLock;
+    private static string _activeTopicPrefix = "bms/sep490/iot";
+
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -107,6 +111,9 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
             _brokerHost, _brokerPort, clientId, telemetryFilter, statusFilter);
 
         // Publish initial threshold config for BMS-IOT-001 so ESP32 gets it immediately upon subscribing
+        _activeStream = stream;
+        _activeWriteLock = writeLock;
+        _activeTopicPrefix = _topicPrefix;
         await PublishDeviceConfigAsync(stream, writeLock, "BMS-IOT-001", ct);
 
         var lastPingAt = DateTime.UtcNow;
@@ -307,6 +314,39 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         catch
         {
             // Non-fatal during startup
+        }
+    }
+
+    public static async Task PublishConfigImmediatelyAsync(IotTelemetryIngestResponseDto result, CancellationToken ct = default)
+    {
+        var stream = _activeStream;
+        var writeLock = _activeWriteLock;
+        if (stream == null || writeLock == null || !stream.CanWrite) return;
+
+        try
+        {
+            var configJson = JsonSerializer.Serialize(new
+            {
+                deviceId = result.DeviceId,
+                minTemp = result.MinTemp,
+                maxTemp = result.MaxTemp,
+                minHumidity = result.MinHumidity,
+                maxHumidity = result.MaxHumidity,
+                intervalSeconds = result.IntervalSeconds,
+                status = result.Status
+            });
+
+            await SendPublishPacketAsync(
+                stream,
+                writeLock,
+                $"{_activeTopicPrefix}/{result.DeviceId}/config",
+                configJson,
+                retain: true,
+                ct);
+        }
+        catch
+        {
+            // Non-fatal: will retry on next telemetry tick
         }
     }
 

@@ -593,6 +593,67 @@ public class IotTelemetryService : IIotTelemetryService
         }, ct);
     }
 
+    public async Task<IotTelemetryIngestResponseDto> ReevaluateThresholdsAsync(string deviceId = "BMS-IOT-001", CancellationToken ct = default)
+    {
+        var targetDevice = string.IsNullOrWhiteSpace(deviceId) ? "BMS-IOT-001" : deviceId.Trim();
+        var (minTemp, maxTemp, minHum, maxHum, intervalSec, deviceName, location) = await GetEffectiveThresholdsAsync(targetDevice);
+
+        var latestLog = await _logRepository.GetLatestLogByDeviceAsync(targetDevice, ct);
+        string status = "Normal";
+        double temp = 4.5;
+        double hum = 55.0;
+
+        if (latestLog != null)
+        {
+            temp = latestLog.TemperatureC;
+            hum = latestLog.HumidityPercent;
+            status = EvaluateStatus(temp, hum, minTemp, maxTemp, minHum, maxHum);
+
+            latestLog.MinTempAllowed = minTemp;
+            latestLog.MaxTempAllowed = maxTemp;
+            latestLog.MinHumidityAllowed = minHum;
+            latestLog.MaxHumidityAllowed = maxHum;
+            latestLog.Status = status;
+
+            await _logRepository.InsertLogAsync(latestLog, ct);
+
+            await _alertService.EvaluateTelemetryAsync(new TelemetryReadingDto
+            {
+                DeviceId = targetDevice,
+                SensorType = "Temperature",
+                Value = temp,
+                Timestamp = DateTime.UtcNow
+            }, ct);
+
+            await _alertService.EvaluateTelemetryAsync(new TelemetryReadingDto
+            {
+                DeviceId = targetDevice,
+                SensorType = "Humidity",
+                Value = hum,
+                Timestamp = DateTime.UtcNow
+            }, ct);
+        }
+
+        if (_heartbeats.TryGetValue(targetDevice, out var hb))
+        {
+            hb.LastStatus = status;
+        }
+
+        return new IotTelemetryIngestResponseDto
+        {
+            DeviceId = targetDevice,
+            Temperature = temp,
+            Humidity = hum,
+            Status = status,
+            IsViolation = !status.Equals("Normal", StringComparison.OrdinalIgnoreCase),
+            MinTemp = minTemp,
+            MaxTemp = maxTemp,
+            MinHumidity = minHum,
+            MaxHumidity = maxHum,
+            IntervalSeconds = intervalSec
+        };
+    }
+
     #region Helpers
 
     private async Task EnsureSeedHistoryIfEmptyAsync(CancellationToken ct)
