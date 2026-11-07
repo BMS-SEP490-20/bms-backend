@@ -64,6 +64,7 @@ public class TestPackageRepository : ITestPackageRepository
             .ThenBy(p => p.PackageName)
             .ToListAsync(cancellationToken);
 
+        await ApplyListedPricesAsync(result, cancellationToken);
         return result;
     }
 
@@ -93,7 +94,10 @@ public class TestPackageRepository : ITestPackageRepository
 
         var found = await _collection.Find(filter).FirstOrDefaultAsync(cancellationToken);
         if (found is not null)
+        {
+            await ApplyListedPricesAsync([found], cancellationToken);
             return found;
+        }
 
         try
         {
@@ -192,7 +196,39 @@ public class TestPackageRepository : ITestPackageRepository
             .Limit(q.PageSize)
             .ToListAsync(cancellationToken);
 
+        await ApplyListedPricesAsync(items, cancellationToken);
         return new PagedResult<TestPackage>(items, q.Page, q.PageSize, total);
+    }
+
+    /// <summary>
+    /// Admin edits prices on service_packages. The public catalog and checkout read test_packages,
+    /// so the listed price must win whenever a matching service package exists.
+    /// </summary>
+    private async Task ApplyListedPricesAsync(IList<TestPackage> packages, CancellationToken cancellationToken)
+    {
+        if (packages.Count == 0) return;
+
+        var listed = await _servicePackagesCollection
+            .Find(Builders<ServicePackage>.Filter.Eq(p => p.IsDeleted, false))
+            .ToListAsync(cancellationToken);
+        var byCode = new Dictionary<string, ServicePackage>(StringComparer.OrdinalIgnoreCase);
+        var byName = new Dictionary<string, ServicePackage>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in listed)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Code)) byCode[item.Code.Trim()] = item;
+            if (!string.IsNullOrWhiteSpace(item.Name)) byName[item.Name.Trim()] = item;
+        }
+
+        foreach (var package in packages)
+        {
+            ServicePackage? match = null;
+            if (!string.IsNullOrWhiteSpace(package.PackageCode))
+                byCode.TryGetValue(package.PackageCode.Trim(), out match);
+            if (match == null && !string.IsNullOrWhiteSpace(package.PackageName))
+                byName.TryGetValue(package.PackageName.Trim(), out match);
+            if (match != null)
+                package.Price = match.DiscountPrice ?? match.Price;
+        }
     }
 
     /// <inheritdoc />

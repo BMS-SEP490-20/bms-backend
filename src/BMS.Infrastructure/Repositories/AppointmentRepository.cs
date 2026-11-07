@@ -131,6 +131,21 @@ namespace BMS.Infrastructure.Repositories
             await _collection.UpdateOneAsync(x => x.Id == id, update, cancellationToken: ct);
         }
 
+        public async Task<bool> TryConfirmPaymentAsync(string id, string transactionId, decimal amount, CancellationToken ct = default)
+        {
+            var update = Builders<Appointment>.Update
+                .Set(x => x.Status, AppointmentStatus.Confirmed)
+                .Set(x => x.SepayTransactionId, transactionId)
+                .Set(x => x.PaidAmount, amount)
+                .Set(x => x.PaidAt, DateTime.UtcNow)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow);
+            var result = await _collection.UpdateOneAsync(
+                x => x.Id == id && x.Status == AppointmentStatus.Pending,
+                update,
+                cancellationToken: ct);
+            return result.ModifiedCount > 0;
+        }
+
         public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
         {
             var result = await _collection.DeleteOneAsync(x => x.Id == id, ct);
