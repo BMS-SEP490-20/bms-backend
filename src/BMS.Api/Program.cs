@@ -96,6 +96,8 @@ builder.Services.AddScoped<BMS.Core.Interfaces.ITestReportRepository, BMS.Infras
 builder.Services.AddScoped<ITestReportService, TestReportService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestNoteRepository, BMS.Infrastructure.Repositories.TestNoteRepository>();
 builder.Services.AddScoped<ITestNoteService, TestNoteService>();
+builder.Services.Configure<BMS.Application.Options.SePayOptions>(builder.Configuration.GetSection(BMS.Application.Options.SePayOptions.SectionName));
+builder.Services.AddScoped<BMS.Application.Services.SePayPaymentService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IPatientResultExportService, PatientResultExportService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.IIotThresholdRepository, BMS.Infrastructure.Repositories.IotThresholdRepository>();

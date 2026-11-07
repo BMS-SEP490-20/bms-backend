@@ -96,13 +96,11 @@ public class PaymentService(IInvoiceRepository invoiceRepo, ITestOrderRepository
                 invoice.PaymentMethod = PaymentMethod.Reception;
                 message = "Thanh toán tại quầy khi đến phòng khám.";
                 break;
-            case "VNPAY":
-            case "MOMO":
+            case "SEPAY":
             case "BANKINGQR":
             case "BANKING QR":
-                // WHY still Unpaid: only a verified gateway callback may mark Paid (GAP C3.3). TODO(phat, Đợt 4): IPN.
-                invoice.PaymentMethod = method == "MOMO" ? PaymentMethod.MoMo : method == "VNPAY" ? PaymentMethod.VNPay : PaymentMethod.BankingQR;
-                message = "Đang chờ xác nhận từ cổng thanh toán.";
+                invoice.PaymentMethod = PaymentMethod.BankingQR;
+                message = "Đang chờ xác nhận chuyển khoản SePay.";
                 break;
             default:
                 throw new DomainValidationException("PAYMENT_METHOD_INVALID", "Phương thức thanh toán không hợp lệ.");

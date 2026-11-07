@@ -19,6 +19,7 @@ namespace BMS.Core.Interfaces
         Task InsertAsync(Appointment appointment, CancellationToken ct = default);
         Task UpdateAsync(Appointment appointment, CancellationToken ct = default);
         Task UpdateStatusAsync(string id, AppointmentStatus newStatus, CancellationToken ct = default);
+        Task<bool> TryConfirmPaymentAsync(string id, string transactionId, decimal amount, CancellationToken ct = default);
         Task<bool> DeleteAsync(string id, CancellationToken ct = default);
 
         Task<List<DoctorShift>> GetDoctorShiftsAsync(string doctorId, DateTime date, CancellationToken ct = default);
