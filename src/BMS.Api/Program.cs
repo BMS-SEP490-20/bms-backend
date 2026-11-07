@@ -102,6 +102,8 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IPatientResultExportService, PatientResultExportService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.IIotThresholdRepository, BMS.Infrastructure.Repositories.IotThresholdRepository>();
 builder.Services.AddScoped<IIotThresholdService, IotThresholdService>();
+builder.Services.AddScoped<BMS.Core.Interfaces.IIotSensorLogRepository, BMS.Infrastructure.Repositories.IotSensorLogRepository>();
+builder.Services.AddScoped<IIotTelemetryService, IotTelemetryService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultVerificationRepository, BMS.Infrastructure.Repositories.TestResultVerificationRepository>();
 builder.Services.AddScoped<ITestResultVerificationService, TestResultVerificationService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ISampleOriginTraceRepository, BMS.Infrastructure.Repositories.SampleOriginTraceRepository>();
@@ -187,7 +189,11 @@ else
 }
 
 // HTTP pipeline
-app.UseHttpsRedirection();
+// Only enforce HTTPS redirect in non-development so local ESP32 hardware can POST over plain HTTP on port 5000
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseRouting();
 
