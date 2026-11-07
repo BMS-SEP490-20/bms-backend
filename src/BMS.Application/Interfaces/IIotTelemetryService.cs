@@ -17,4 +17,5 @@ public interface IIotTelemetryService
     Task<List<IotConnectionOutageDto>> GetOutagesAsync(string? deviceId = null, CancellationToken ct = default);
     Task<IotConnectionStatusDto> ForceDisconnectStateAsync(string deviceId, string? reason = null, CancellationToken ct = default);
     Task<IotTelemetryIngestResponseDto> SimulateReconnectWithBufferedDataAsync(SimulateReconnectRequestDto request, CancellationToken ct = default);
+    Task<IotTelemetryIngestResponseDto> ReevaluateThresholdsAsync(string deviceId = "BMS-IOT-001", CancellationToken ct = default);
 }

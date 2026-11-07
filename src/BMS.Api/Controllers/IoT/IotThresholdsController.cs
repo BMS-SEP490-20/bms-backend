@@ -19,10 +19,26 @@ namespace BMS.Api.Controllers.IoT;
 public class IotThresholdsController : ControllerBase
 {
     private readonly IIotThresholdService _thresholdService;
+    private readonly IIotTelemetryService? _telemetryService;
 
-    public IotThresholdsController(IIotThresholdService thresholdService)
+    public IotThresholdsController(IIotThresholdService thresholdService, IIotTelemetryService? telemetryService = null)
     {
         _thresholdService = thresholdService;
+        _telemetryService = telemetryService;
+    }
+
+    private async Task SyncAndPushHardwareConfigAsync()
+    {
+        if (_telemetryService == null) return;
+        try
+        {
+            var evalResult = await _telemetryService.ReevaluateThresholdsAsync("BMS-IOT-001");
+            await BMS.Api.Services.IotMqttBridgeHostedService.PublishConfigImmediatelyAsync(evalResult);
+        }
+        catch
+        {
+            // Non-fatal
+        }
     }
 
     /// <summary>
@@ -82,6 +98,7 @@ public class IotThresholdsController : ControllerBase
 
         var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? "Manager";
         var updated = await _thresholdService.UpdateThresholdAsync(deviceId, request, userName);
+        await SyncAndPushHardwareConfigAsync();
         if (updated == null)
         {
             return NotFound(new
@@ -108,6 +125,7 @@ public class IotThresholdsController : ControllerBase
     {
         var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? "Manager";
         var success = await _thresholdService.BatchUpdateThresholdsAsync(request, userName);
+        await SyncAndPushHardwareConfigAsync();
         if (!success)
         {
             return BadRequest(new
@@ -135,6 +153,7 @@ public class IotThresholdsController : ControllerBase
     {
         var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? "Manager";
         await _thresholdService.ResetDefaultsAsync(userName);
+        await SyncAndPushHardwareConfigAsync();
         var summary = await _thresholdService.GetConfigSummaryAsync();
 
         return Ok(new

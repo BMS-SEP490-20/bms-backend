@@ -71,6 +71,24 @@ public class IotAlertService : IIotAlertService
         {
             _continuousViolationStart.TryRemove(violationKey, out _);
 
+            if (reading.DeviceId.StartsWith("BMS-IOT", StringComparison.OrdinalIgnoreCase))
+            {
+                var activeToResolve = _alerts.Values
+                    .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
+                             && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
+                             && a.Status != IotAlertStatus.Resolved)
+                    .ToList();
+
+                foreach (var resolvedAlert in activeToResolve)
+                {
+                    resolvedAlert.Status = IotAlertStatus.Resolved;
+                    resolvedAlert.ResolvedAt = DateTime.UtcNow;
+                    resolvedAlert.ResolvedBy = "Hệ Thống IoT Tự Động";
+                    resolvedAlert.ResolutionNotes = $"Chỉ số {reading.SensorType} ({reading.Value:F1}{unit}) đã nằm trong ngưỡng an toàn ({low:F1} - {high:F1}{unit}).";
+                    await PersistAlertToMongoAsync(resolvedAlert, ct);
+                }
+            }
+
             return new ThresholdEvaluationResultDto
             {
                 IsViolation = false,
