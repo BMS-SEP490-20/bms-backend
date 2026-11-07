@@ -1,3 +1,4 @@
+using BMS.Core;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using MongoDB.Driver;
@@ -72,8 +73,7 @@ namespace BMS.Infrastructure.Repositories
         public async Task<int> CountByDoctorDateStartAsync(
             string doctorId, DateTime date, TimeSpan startTime, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return (int)await _collection.CountDocumentsAsync(
                 x => x.DoctorId == doctorId
                      && x.AppointmentDate >= start
@@ -85,8 +85,7 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<int> CountByDoctorAndDateAsync(string doctorId, DateTime date, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return (int)await _collection.CountDocumentsAsync(
                 x => x.DoctorId == doctorId
                      && x.AppointmentDate >= start
@@ -155,8 +154,7 @@ namespace BMS.Infrastructure.Repositories
         public async Task<List<DoctorShift>> GetDoctorShiftsAsync(
             string doctorId, DateTime date, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return await _shiftCollection
                 .Find(x => x.DoctorId == doctorId
                            && x.ShiftDate >= start
@@ -168,8 +166,7 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<List<DoctorShift>> GetShiftsByDateAsync(DateTime date, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return await _shiftCollection
                 .Find(x => x.ShiftDate >= start
                            && x.ShiftDate < end

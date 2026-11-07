@@ -28,6 +28,7 @@ namespace BMS.Application.DTOs.Appointment
         public string? GuestName { get; set; }
         public string? GuestPhone { get; set; }
         public string? CollectionAddress { get; set; }
+        public string? RoomName { get; set; }
         public int? QueueNumber { get; set; }
     }
 }

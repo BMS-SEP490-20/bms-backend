@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using BMS.Application.DTOs.Billing;
 using BMS.Application.Interfaces;
 using BMS.Application.Options;
+using BMS.Core;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -59,6 +60,7 @@ public sealed class SePayPaymentService(
         var doctor = string.IsNullOrWhiteSpace(appointment.DoctorId)
             ? null
             : await appointments.GetDoctorAsync(appointment.DoctorId, ct);
+        var duty = await FindDutyShiftAsync(appointment, ct);
         var qr = string.Empty;
         if (IsConfigured && amount > 0)
         {
@@ -73,10 +75,10 @@ public sealed class SePayPaymentService(
             AppointmentId = appointment.Id,
             AppointmentCode = appointment.AppointmentCode,
             PackageName = package?.PackageName ?? string.Empty,
-            VisitDate = appointment.AppointmentDate.ToString("dd/MM/yyyy"),
+            VisitDate = ClinicClock.CalendarDate(appointment.AppointmentDate).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
             SlotTime = appointment.StartTime.ToString(@"hh\:mm"),
-            DoctorName = doctor?.FullName ?? string.Empty,
-            RoomName = appointment.RoomId ?? string.Empty,
+            DoctorName = FirstText(doctor?.FullName, duty?.EmployeeName),
+            RoomName = FirstText(duty?.RoomName, appointment.RoomId),
             TransactionId = appointment.SepayTransactionId,
             PaidAt = appointment.PaidAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
             Status = appointment.Status.ToString(),
@@ -180,6 +182,29 @@ public sealed class SePayPaymentService(
             if (byId != null) return byId;
             return await appointments.GetByCodeAsync(value, token);
         }
+    }
+
+    private async Task<DoctorShift?> FindDutyShiftAsync(Appointment appointment, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(appointment.DoctorId)) return null;
+        var shifts = await appointments.GetDoctorShiftsAsync(appointment.DoctorId, appointment.AppointmentDate, ct);
+        return shifts.FirstOrDefault(shift => ShiftCovers(appointment.StartTime, shift)) ?? shifts.FirstOrDefault();
+    }
+
+    private static bool ShiftCovers(TimeSpan time, DoctorShift shift)
+    {
+        if (!TimeSpan.TryParse(shift.ShiftStart, out var start) || !TimeSpan.TryParse(shift.ShiftEnd, out var end))
+            return false;
+        return time >= start && time < end;
+    }
+
+    private static string FirstText(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+        }
+        return string.Empty;
     }
 
     private async Task<decimal> ResolveAmountAsync(Appointment appointment, CancellationToken ct)
