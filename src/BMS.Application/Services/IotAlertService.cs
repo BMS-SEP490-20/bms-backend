@@ -7,18 +7,21 @@ using System.Threading.Tasks;
 using BMS.Application.DTOs.IoT;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
+using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
 /// <summary>
-/// Production Implementation of IoT Environmental Threshold Violation & Incident Escalation Service (UC68).
-/// Enforces cold-chain safety boundaries, multi-channel alerting, and corrective action workflows.
+/// Production Implementation of IoT Environmental Threshold Violation &amp; Incident Escalation Service (UC68).
+/// Enforces cold-chain safety boundaries, multi-channel alerting, and corrective action workflows (BR-IOT-01, BR-IOT-02).
 /// </summary>
 public class IotAlertService : IIotAlertService
 {
     private readonly IMongoDatabase? _database;
+    private readonly IMongoCollection<IotThresholdAlert>? _alertsCollection;
+    private readonly IIotThresholdRepository? _thresholdRepository;
     private readonly ILogger<IotAlertService> _logger;
 
     // Concurrent in-memory storage for high-frequency sensor readings & zero-downtime offline tests
@@ -26,10 +29,29 @@ public class IotAlertService : IIotAlertService
         InitializeSeedAlerts().ToDictionary(a => a.Id, a => a)
     );
 
-    public IotAlertService(ILogger<IotAlertService> logger, IMongoDatabase? database = null)
+    // Tracks start of continuous threshold violation per (DeviceId:SensorType) for BR-IOT-02 5-minute escalation
+    private static readonly ConcurrentDictionary<string, DateTime> _continuousViolationStart = new(StringComparer.OrdinalIgnoreCase);
+
+    public IotAlertService(
+        ILogger<IotAlertService> logger,
+        IMongoDatabase? database = null,
+        IIotThresholdRepository? thresholdRepository = null)
     {
         _logger = logger;
         _database = database;
+        _thresholdRepository = thresholdRepository;
+
+        if (_database != null)
+        {
+            try
+            {
+                _alertsCollection = _database.GetCollection<IotThresholdAlert>("iot_alerts");
+            }
+            catch
+            {
+                // Fallback to in-memory dictionary if MongoDB is unavailable
+            }
+        }
     }
 
     public async Task<ThresholdEvaluationResultDto> EvaluateTelemetryAsync(TelemetryReadingDto reading, CancellationToken ct = default)
@@ -39,27 +61,40 @@ public class IotAlertService : IIotAlertService
             throw new ArgumentException("Thông tin telemetry không hợp lệ hoặc thiếu mã thiết bị.", nameof(reading));
         }
 
-        // Determine configured thresholds for device
-        var (low, high, deviceName, location, unit) = GetDeviceThresholds(reading.DeviceId, reading.SensorType);
+        var (low, high, deviceName, location, unit) = await ResolveDeviceThresholdsAsync(reading.DeviceId, reading.SensorType);
+        var violationKey = $"{reading.DeviceId}:{reading.SensorType}";
+        var now = reading.Timestamp ?? DateTime.UtcNow;
 
         bool isViolation = reading.Value < low || reading.Value > high;
 
         if (!isViolation)
         {
-            return await Task.FromResult(new ThresholdEvaluationResultDto
+            _continuousViolationStart.TryRemove(violationKey, out _);
+
+            return new ThresholdEvaluationResultDto
             {
                 IsViolation = false,
                 ExcursionAmount = 0,
                 Severity = null,
                 Message = $"Chỉ số cảm biến {reading.SensorType} của {reading.DeviceId} đạt chuẩn an toàn ({reading.Value:F1}{unit}).",
                 Alert = null
-            });
+            };
         }
+
+        var firstViolationAt = _continuousViolationStart.GetOrAdd(violationKey, now);
+        double continuousMinutes = Math.Max(0, Math.Round((now - firstViolationAt).TotalMinutes, 1));
 
         double excursion = reading.Value > high ? reading.Value - high : low - reading.Value;
         excursion = Math.Round(excursion, 2);
 
         var severity = DetermineSeverity(reading.SensorType, excursion);
+
+        // BR-IOT-02: Escalate to Danger_Emergency if violation persists continuously for >= 5 minutes
+        if (continuousMinutes >= 5.0 && severity < IotAlertSeverity.Danger_Emergency)
+        {
+            severity = IotAlertSeverity.Danger_Emergency;
+        }
+
         var channels = new List<string> { "InApp", "Push" };
         if (severity >= IotAlertSeverity.Critical)
         {
@@ -67,42 +102,77 @@ public class IotAlertService : IIotAlertService
             channels.Add("Email");
         }
 
-        var alert = new IotThresholdAlert
+        // For real-time hardware devices (e.g. BMS-IOT-001 sending every 5s), update existing active alert within 60s window
+        // to avoid flooding thousands of duplicate rows while preserving instant escalation.
+        IotThresholdAlert? existingActive = null;
+        if (reading.DeviceId.StartsWith("BMS-IOT", StringComparison.OrdinalIgnoreCase))
         {
-            Id = $"ALERT-{DateTime.UtcNow:yyyyMMddHHmmss}-{Random.Shared.Next(100, 999)}",
-            DeviceId = reading.DeviceId,
-            DeviceName = deviceName,
-            Location = location,
-            SensorType = reading.SensorType,
-            Unit = unit,
-            ObservedValue = reading.Value,
-            LowAlert = low,
-            HighAlert = high,
-            ExcursionAmount = excursion,
-            Severity = severity,
-            Status = IotAlertStatus.Active,
-            TriggeredAt = reading.Timestamp ?? DateTime.UtcNow,
-            NotificationChannelsDispatched = channels,
-            DurationMinutes = 0
-        };
+            existingActive = _alerts.Values
+                .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
+                         && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
+                         && a.Status == IotAlertStatus.Active
+                         && (now - a.TriggeredAt).TotalMinutes < 30)
+                .OrderByDescending(a => a.TriggeredAt)
+                .FirstOrDefault();
+        }
+
+        IotThresholdAlert alert;
+        if (existingActive != null)
+        {
+            existingActive.ObservedValue = reading.Value;
+            existingActive.LowAlert = low;
+            existingActive.HighAlert = high;
+            existingActive.ExcursionAmount = excursion;
+            if (severity > existingActive.Severity)
+            {
+                existingActive.Severity = severity;
+            }
+            existingActive.NotificationChannelsDispatched = channels;
+            existingActive.DurationMinutes = Math.Max(continuousMinutes, Math.Round((now - existingActive.TriggeredAt).TotalMinutes, 1));
+            alert = existingActive;
+        }
+        else
+        {
+            alert = new IotThresholdAlert
+            {
+                Id = $"ALERT-{DateTime.UtcNow:yyyyMMddHHmmss}-{Random.Shared.Next(100, 999)}",
+                DeviceId = reading.DeviceId,
+                DeviceName = deviceName,
+                Location = location,
+                SensorType = reading.SensorType,
+                Unit = unit,
+                ObservedValue = reading.Value,
+                LowAlert = low,
+                HighAlert = high,
+                ExcursionAmount = excursion,
+                Severity = severity,
+                Status = IotAlertStatus.Active,
+                TriggeredAt = now,
+                NotificationChannelsDispatched = channels,
+                DurationMinutes = continuousMinutes
+            };
+        }
 
         _alerts[alert.Id] = alert;
+        await PersistAlertToMongoAsync(alert, ct);
 
         _logger.LogWarning("BÁO ĐỘNG VƯỢT NGƯỠNG IOT [{Severity}]: Thiết bị {DeviceId} ({DeviceName}) ghi nhận {Value}{Unit} (Ngưỡng an toàn: {Low} - {High}{Unit}).",
             severity, alert.DeviceId, alert.DeviceName, alert.ObservedValue, alert.Unit, alert.LowAlert, alert.HighAlert, alert.Unit);
 
-        return await Task.FromResult(new ThresholdEvaluationResultDto
+        return new ThresholdEvaluationResultDto
         {
             IsViolation = true,
             ExcursionAmount = excursion,
             Severity = alert.SeverityString,
             Message = $"Phát hiện vượt ngưỡng {alert.SeverityString}: {reading.Value:F1}{unit} vượt mức an toàn ({low:F1} - {high:F1}{unit})!",
             Alert = MapToDto(alert)
-        });
+        };
     }
 
     public async Task<List<IotAlertDto>> GetAlertsAsync(IotAlertQueryParameters parameters, CancellationToken ct = default)
     {
+        await SyncFromMongoIfAvailableAsync(ct);
+
         var query = _alerts.Values.AsEnumerable();
 
         if (!string.IsNullOrWhiteSpace(parameters.Status) && !parameters.Status.Equals("All", StringComparison.OrdinalIgnoreCase))
@@ -142,20 +212,22 @@ public class IotAlertService : IIotAlertService
             .Select(MapToDto)
             .ToList();
 
-        return await Task.FromResult(results);
+        return results;
     }
 
     public async Task<IotAlertDto?> GetAlertByIdAsync(string alertId, CancellationToken ct = default)
     {
         if (_alerts.TryGetValue(alertId, out var alert))
         {
-            return await Task.FromResult(MapToDto(alert));
+            return MapToDto(alert);
         }
         return await Task.FromResult<IotAlertDto?>(null);
     }
 
     public async Task<IotAlertSummaryDto> GetAlertSummaryAsync(CancellationToken ct = default)
     {
+        await SyncFromMongoIfAvailableAsync(ct);
+
         var all = _alerts.Values.ToList();
         var active = all.Where(a => a.Status == IotAlertStatus.Active).ToList();
         var critical = active.Count(a => a.Severity >= IotAlertSeverity.Critical);
@@ -170,7 +242,7 @@ public class IotAlertService : IIotAlertService
         if (critical > 0) healthStatus = "CRITICAL";
         else if (active.Count > 0) healthStatus = "WARNING";
 
-        return await Task.FromResult(new IotAlertSummaryDto
+        return new IotAlertSummaryDto
         {
             ActiveAlertsCount = active.Count,
             CriticalEmergencyCount = critical,
@@ -178,7 +250,7 @@ public class IotAlertService : IIotAlertService
             ResolvedTodayCount = resolvedToday.Count,
             AverageResolutionMinutes = Math.Round(avgResolution, 1),
             SystemHealthStatus = healthStatus
-        });
+        };
     }
 
     public async Task<IotAlertDto> AcknowledgeAlertAsync(string alertId, AcknowledgeAlertRequestDto request, CancellationToken ct = default)
@@ -201,10 +273,12 @@ public class IotAlertService : IIotAlertService
             alert.ResolutionNotes = $"[Tiếp nhận]: {request.Notes}";
         }
 
+        await PersistAlertToMongoAsync(alert, ct);
+
         _logger.LogInformation("Nhân viên {Operator} đã tiếp nhận cảnh báo IoT {AlertId} ({DeviceId}).",
             request.OperatorName, alert.Id, alert.DeviceId);
 
-        return await Task.FromResult(MapToDto(alert));
+        return MapToDto(alert);
     }
 
     public async Task<IotAlertDto> ResolveAlertAsync(string alertId, ResolveAlertRequestDto request, CancellationToken ct = default)
@@ -231,10 +305,13 @@ public class IotAlertService : IIotAlertService
         alert.ResolutionNotes = request.ResolutionNotes;
         alert.DurationMinutes = Math.Max(1.0, Math.Round((now - alert.TriggeredAt).TotalMinutes, 1));
 
+        _continuousViolationStart.TryRemove($"{alert.DeviceId}:{alert.SensorType}", out _);
+        await PersistAlertToMongoAsync(alert, ct);
+
         _logger.LogInformation("Cảnh báo IoT {AlertId} ({DeviceId}) đã được xử lý xong bởi {Operator}. Ghi chú: {Notes}.",
             alert.Id, alert.DeviceId, request.OperatorName, request.ResolutionNotes);
 
-        return await Task.FromResult(MapToDto(alert));
+        return MapToDto(alert);
     }
 
     public async Task<IotAlertDto> TriggerSimulatedAlertAsync(SimulateAlertRequestDto request, CancellationToken ct = default)
@@ -269,11 +346,67 @@ public class IotAlertService : IIotAlertService
         };
 
         _alerts[alert.Id] = alert;
+        await PersistAlertToMongoAsync(alert, ct);
 
-        return await Task.FromResult(MapToDto(alert));
+        return MapToDto(alert);
     }
 
     #region Helpers
+
+    private async Task PersistAlertToMongoAsync(IotThresholdAlert alert, CancellationToken ct)
+    {
+        if (_alertsCollection == null) return;
+        try
+        {
+            await _alertsCollection.ReplaceOneAsync(
+                a => a.Id == alert.Id,
+                alert,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+        }
+        catch
+        {
+            // Keep in-memory state if Mongo write fails
+        }
+    }
+
+    private async Task SyncFromMongoIfAvailableAsync(CancellationToken ct)
+    {
+        if (_alertsCollection == null) return;
+        try
+        {
+            var list = await _alertsCollection.Find(_ => true).Limit(200).ToListAsync(ct);
+            if (list != null)
+            {
+                foreach (var item in list)
+                {
+                    _alerts[item.Id] = item;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore Mongo read error and use in-memory cache
+        }
+    }
+
+    private async Task<(double Low, double High, string Name, string Location, string Unit)> ResolveDeviceThresholdsAsync(string deviceId, string sensorType)
+    {
+        if (_thresholdRepository != null)
+        {
+            var lookupId = sensorType.Equals("Humidity", StringComparison.OrdinalIgnoreCase) && deviceId.Equals("BMS-IOT-001", StringComparison.OrdinalIgnoreCase)
+                ? "BMS-IOT-001-HUM"
+                : deviceId;
+
+            var configured = await _thresholdRepository.GetThresholdByDeviceIdAsync(lookupId);
+            if (configured != null && configured.SensorType.Equals(sensorType, StringComparison.OrdinalIgnoreCase))
+            {
+                return (configured.LowAlert, configured.HighAlert, configured.DeviceName, configured.Location, configured.Unit);
+            }
+        }
+
+        return GetDeviceThresholds(deviceId, sensorType);
+    }
 
     private static IotAlertDto MapToDto(IotThresholdAlert alert)
     {
@@ -321,9 +454,18 @@ public class IotAlertService : IIotAlertService
 
     private static (double Low, double High, string Name, string Location, string Unit) GetDeviceThresholds(string deviceId, string sensorType)
     {
-        if (deviceId.StartsWith("HUM", StringComparison.OrdinalIgnoreCase))
+        if (sensorType.Equals("Humidity", StringComparison.OrdinalIgnoreCase) || deviceId.StartsWith("HUM", StringComparison.OrdinalIgnoreCase))
         {
+            if (deviceId.StartsWith("BMS-IOT", StringComparison.OrdinalIgnoreCase))
+            {
+                return (45.0, 75.0, $"ESP32 DHT22 Tủ Bảo Quản Máu ({deviceId})", "Blood Storage Room 01", "%");
+            }
             return (30.0, 60.0, $"Cảm biến độ ẩm {deviceId}", "Phòng Lab Trung Tâm", "%");
+        }
+
+        if (deviceId.StartsWith("BMS-IOT", StringComparison.OrdinalIgnoreCase))
+        {
+            return (2.0, 8.0, $"ESP32 DHT22 Tủ Bảo Quản Máu ({deviceId})", "Blood Storage Room 01", "°C");
         }
 
         if (deviceId.Contains("FREEZER", StringComparison.OrdinalIgnoreCase))
