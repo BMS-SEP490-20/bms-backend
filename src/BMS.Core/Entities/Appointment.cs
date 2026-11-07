@@ -87,4 +87,16 @@ public class Appointment
 
     [BsonElement("updatedAt")]
     public DateTime? UpdatedAt { get; set; }
+
+    [BsonElement("sepayTransactionId")]
+    [BsonIgnoreIfNull]
+    public string? SepayTransactionId { get; set; }
+
+    [BsonElement("paidAmount")]
+    [BsonIgnoreIfNull]
+    public decimal? PaidAmount { get; set; }
+
+    [BsonElement("paidAt")]
+    [BsonIgnoreIfNull]
+    public DateTime? PaidAt { get; set; }
 }

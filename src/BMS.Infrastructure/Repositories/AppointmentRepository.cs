@@ -1,3 +1,4 @@
+using BMS.Core;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using MongoDB.Driver;
@@ -72,8 +73,7 @@ namespace BMS.Infrastructure.Repositories
         public async Task<int> CountByDoctorDateStartAsync(
             string doctorId, DateTime date, TimeSpan startTime, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return (int)await _collection.CountDocumentsAsync(
                 x => x.DoctorId == doctorId
                      && x.AppointmentDate >= start
@@ -85,8 +85,7 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<int> CountByDoctorAndDateAsync(string doctorId, DateTime date, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return (int)await _collection.CountDocumentsAsync(
                 x => x.DoctorId == doctorId
                      && x.AppointmentDate >= start
@@ -131,6 +130,21 @@ namespace BMS.Infrastructure.Repositories
             await _collection.UpdateOneAsync(x => x.Id == id, update, cancellationToken: ct);
         }
 
+        public async Task<bool> TryConfirmPaymentAsync(string id, string transactionId, decimal amount, CancellationToken ct = default)
+        {
+            var update = Builders<Appointment>.Update
+                .Set(x => x.Status, AppointmentStatus.Confirmed)
+                .Set(x => x.SepayTransactionId, transactionId)
+                .Set(x => x.PaidAmount, amount)
+                .Set(x => x.PaidAt, DateTime.UtcNow)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow);
+            var result = await _collection.UpdateOneAsync(
+                x => x.Id == id && x.Status == AppointmentStatus.Pending,
+                update,
+                cancellationToken: ct);
+            return result.ModifiedCount > 0;
+        }
+
         public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
         {
             var result = await _collection.DeleteOneAsync(x => x.Id == id, ct);
@@ -140,8 +154,7 @@ namespace BMS.Infrastructure.Repositories
         public async Task<List<DoctorShift>> GetDoctorShiftsAsync(
             string doctorId, DateTime date, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return await _shiftCollection
                 .Find(x => x.DoctorId == doctorId
                            && x.ShiftDate >= start
@@ -153,8 +166,7 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<List<DoctorShift>> GetShiftsByDateAsync(DateTime date, CancellationToken ct = default)
         {
-            var start = date.Date;
-            var end = start.AddDays(1);
+            var (start, end) = ClinicClock.DayWindow(date);
             return await _shiftCollection
                 .Find(x => x.ShiftDate >= start
                            && x.ShiftDate < end

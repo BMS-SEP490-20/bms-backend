@@ -1,6 +1,7 @@
 using BMS.Application.DTOs.Appointment;
 using BMS.Application.DTOs.Common;
 using BMS.Application.Interfaces;
+using BMS.Core;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -70,8 +71,10 @@ namespace BMS.Application.Services
             if (dayCount >= dayMax)
                 throw new InvalidOperationException("MSG-ERR-APPT-05: Ca làm việc của bác sĩ đã đầy. Vui lòng chọn ngày khác.");
 
+            var duty = shifts.FirstOrDefault(s => ShiftCovers(startTime, s)) ?? shifts[0];
+            var clinicDate = ClinicClock.CalendarDate(request.AppointmentDate);
             var doctor = await _repository.GetDoctorAsync(request.DoctorId, ct);
-            var code = await _repository.GenerateNextCodeAsync(request.AppointmentDate, ct);
+            var code = await _repository.GenerateNextCodeAsync(clinicDate, ct);
 
             var type = ParseType(request.Type);
 
@@ -91,7 +94,8 @@ namespace BMS.Application.Services
                 PatientId = !string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : request.PatientId,
                 DoctorId = request.DoctorId,
                 PackageId = primaryPackage,
-                AppointmentDate = request.AppointmentDate.Date,
+                AppointmentDate = clinicDate,
+                RoomId = string.IsNullOrWhiteSpace(duty.RoomId) ? null : duty.RoomId,
                 StartTime = startTime,
                 EndTime = endTime,
                 Type = type,
@@ -267,11 +271,14 @@ namespace BMS.Application.Services
             var doctorIds = items.Where(a => !string.IsNullOrEmpty(a.DoctorId)).Select(a => a.DoctorId!).Distinct();
             var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
 
-            var dtos = items.Select(a =>
+            var dtos = new List<AppointmentReadDto>();
+            foreach (var a in items)
             {
                 doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
-                return MapToReadDto(a, doc);
-            }).ToList();
+                var dto = MapToReadDto(a, doc);
+                await FillDutyFromShiftAsync(a, dto, ct);
+                dtos.Add(dto);
+            }
 
             return new PagedResult<AppointmentReadDto>(dtos, filter.Page, filter.PageSize, total);
         }
@@ -297,7 +304,9 @@ namespace BMS.Application.Services
             Doctor? doctor = null;
             if (!string.IsNullOrEmpty(a.DoctorId))
                 doctor = await _repository.GetDoctorAsync(a.DoctorId, ct);
-            return MapToReadDto(a, doctor);
+            var dto = MapToReadDto(a, doctor);
+            await FillDutyFromShiftAsync(a, dto, ct);
+            return dto;
         }
 
         public async Task<AppointmentReadDto> CreateAsync(AppointmentCreateDto dto, CancellationToken ct = default)
@@ -576,7 +585,27 @@ namespace BMS.Application.Services
             EndTime = FormatTime(a.EndTime),
             AppointmentType = a.Type.ToString(),
             Notes = a.Notes,
-            CollectionAddress = a.CollectionAddress
+            CollectionAddress = a.CollectionAddress,
+            RoomName = a.RoomId
         };
+
+        private async Task FillDutyFromShiftAsync(Appointment appointment, AppointmentReadDto dto, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(appointment.DoctorId)) return;
+            var shifts = await _repository.GetDoctorShiftsAsync(appointment.DoctorId, appointment.AppointmentDate, ct);
+            var shift = shifts.FirstOrDefault(s => ShiftCovers(appointment.StartTime, s)) ?? shifts.FirstOrDefault();
+            if (shift == null) return;
+            if (string.IsNullOrWhiteSpace(dto.DoctorName)) dto.DoctorName = shift.EmployeeName;
+            if (string.IsNullOrWhiteSpace(dto.Specialty)) dto.Specialty = shift.Department;
+            if (!string.IsNullOrWhiteSpace(shift.RoomName)) dto.RoomName = shift.RoomName;
+            else if (string.IsNullOrWhiteSpace(dto.RoomName)) dto.RoomName = shift.RoomId;
+        }
+
+        private static bool ShiftCovers(TimeSpan time, DoctorShift shift)
+        {
+            if (!TimeSpan.TryParse(shift.ShiftStart, out var start) || !TimeSpan.TryParse(shift.ShiftEnd, out var end))
+                return false;
+            return time >= start && time < end;
+        }
     }
 }
