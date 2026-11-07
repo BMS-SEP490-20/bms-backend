@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,7 +10,7 @@ using MongoDB.Driver;
 namespace BMS.Infrastructure.Repositories;
 
 /// <summary>
-/// MongoDB & BmsDbContext implementation of IIotThresholdRepository (UC67 / Configure IoT Thresholds).
+/// MongoDB &amp; BmsDbContext implementation of IIotThresholdRepository (UC67 / Configure IoT Thresholds).
 /// </summary>
 public class IotThresholdRepository : IIotThresholdRepository
 {
@@ -52,8 +52,8 @@ public class IotThresholdRepository : IIotThresholdRepository
                             if (idx >= 0) _dbContext.IotThresholds[idx] = item;
                             else _dbContext.IotThresholds.Add(item);
                         }
+                        return _dbContext.IotThresholds.ToList();
                     }
-                    return list;
                 }
             }
             catch
@@ -75,7 +75,7 @@ public class IotThresholdRepository : IIotThresholdRepository
             try
             {
                 var item = await _thresholdsCollection
-                    .Find(t => t.DeviceId.Equals(deviceId, StringComparison.OrdinalIgnoreCase))
+                    .Find(t => t.DeviceId == deviceId)
                     .FirstOrDefaultAsync();
                 if (item != null) return item;
             }
@@ -217,11 +217,13 @@ public class IotThresholdRepository : IIotThresholdRepository
     {
         var defaultThresholds = new[]
         {
+            new IotDeviceThreshold { DeviceId = "BMS-IOT-001", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Nhiệt độ)", Location = "Blood Storage Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 5, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "BMS-IOT-001-HUM", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Độ ẩm)", Location = "Blood Storage Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 45.0, HighAlert = 75.0, IntervalSeconds = 5, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-001", DeviceName = "Fridge Temperature Sensor 1", Location = "Fridge R-01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-002", DeviceName = "Fridge Temperature Sensor 2", Location = "Fridge R-02", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-003", DeviceName = "Freezer Temperature Sensor", Location = "Freezer F-01", SensorType = "Temperature", Unit = "°C", LowAlert = -25.0, HighAlert = -15.0, IntervalSeconds = 60, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "TEMP-004", DeviceName = "Ambient Lab Temperature", Location = "Lab Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 18.0, HighAlert = 26.0, IntervalSeconds = 120, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "HUM-001", DeviceName = "Cold Storage Humidity", Location = "Cold Storage", SensorType = "Humidity", Unit = "%", LowAlert = 30.0, HighAlert = 60.0, IntervalSeconds = 60, Status = "Active" },
+            new IotDeviceThreshold { DeviceId = "HUM-001", DeviceName = "Cold Storage Humidity", Location = "Cold Storage", SensorType = "Humidity", Unit = "%", LowAlert = 45.0, HighAlert = 75.0, IntervalSeconds = 60, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "HUM-002", DeviceName = "Lab Room Humidity", Location = "Lab Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 30.0, HighAlert = 60.0, IntervalSeconds = 120, Status = "Active" }
         };
 
