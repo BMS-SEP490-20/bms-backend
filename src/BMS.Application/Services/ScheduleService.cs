@@ -2,6 +2,7 @@ using BMS.Core.Entities;
 using BMS.Schedule.DTOs;
 using BMS.Schedule.Repositories;
 using BMS.Application.Interfaces;
+using System.Globalization;
 
 namespace BMS.Application.Services;
 
@@ -37,6 +38,7 @@ public class ScheduleService : IScheduleService
 
         // Default window from shift type when start/end omitted.
         var (start, end) = ResolveWindow(request.ShiftType, request.ShiftStart, request.ShiftEnd);
+        await ValidateWindowAsync(request.DoctorId, request.ShiftDate, start, end, null, ct);
 
         var shift = new DoctorShift
         {
@@ -71,6 +73,10 @@ public class ScheduleService : IScheduleService
         if (request.MaxPatients.HasValue) shift.MaxPatients = request.MaxPatients.Value;
         if (request.Notes != null) shift.Notes = request.Notes;
         if (request.Status != null) shift.Status = request.Status;
+        var (start, end) = ResolveWindow(shift.ShiftType, shift.ShiftStart, shift.ShiftEnd);
+        await ValidateWindowAsync(shift.DoctorId, shift.ShiftDate, start, end, shift.Id, ct);
+        shift.ShiftStart = start;
+        shift.ShiftEnd = end;
         shift.UpdatedAt = DateTime.UtcNow;
 
         await _repository.ReplaceAsync(shift, ct);
@@ -89,8 +95,28 @@ public class ScheduleService : IScheduleService
         await _repository.DeleteAsync(id, ct);
     }
 
+    /// <summary>Rejects malformed, reversed and overlapping windows before persisting a personal shift.</summary>
+    private async Task ValidateWindowAsync(string employee, DateTime day, string start, string end,
+        string? excludeId, CancellationToken ct)
+    {
+        if (!TimeOnly.TryParseExact(start, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from)
+            || !TimeOnly.TryParseExact(end, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var to)
+            || from >= to)
+            throw new InvalidOperationException("MSG-ERR-SCHED-05: Giờ bắt đầu phải trước giờ kết thúc trong cùng ngày.");
+        var existing = await _repository.GetByDoctorAsync(employee, day.Date, day.Date, ct);
+        foreach (var item in existing.Where(x => x.Id != excludeId && x.Status is not ("Cancelled" or "Rejected")))
+        {
+            var window = ResolveWindow(item.ShiftType, item.ShiftStart, item.ShiftEnd);
+            if (TimeOnly.TryParse(window.start, out var otherStart) && TimeOnly.TryParse(window.end, out var otherEnd)
+                && from < otherEnd && to > otherStart)
+                throw new InvalidOperationException("MSG-ERR-SCHED-02: Khoảng giờ trùng ca làm việc hiện có.");
+        }
+    }
+
     private static (string start, string end) ResolveWindow(string shiftType, string? start, string? end)
     {
+        if (string.IsNullOrWhiteSpace(start) != string.IsNullOrWhiteSpace(end))
+            throw new InvalidOperationException("MSG-ERR-SCHED-05: Cần cung cấp cả giờ bắt đầu và kết thúc.");
         if (!string.IsNullOrWhiteSpace(start) && !string.IsNullOrWhiteSpace(end))
             return (start, end);
 
