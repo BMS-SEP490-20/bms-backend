@@ -30,8 +30,8 @@ namespace BMS.Infrastructure.Repositories
             F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null),
                 F.Regex(x => x.Status, new BsonRegularExpression("^APPROVED$", "i")),
                 new BsonDocument("approved_at", new BsonDocument("$type", "date")),
-                new BsonDocument("digital_signature", new BsonDocument { { "$type", "string" }, { "$ne", "" } }),
-                new BsonDocument("digitalSignature", new BsonDocument { { "$type", "string" }, { "$ne", "" } }));
+                new BsonDocument("digital_signature", new BsonDocument { { "$type", "string" }, { "$regex", @"\S" } }),
+                new BsonDocument("digitalSignature", new BsonDocument { { "$type", "string" }, { "$regex", @"\S" } }));
         private static FilterDefinition<TestResult> ById(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.TestResultId, id)) & Active;
 
         /// <inheritdoc />
@@ -55,23 +55,34 @@ namespace BMS.Infrastructure.Repositories
         /// <summary>Reads legacy measurements from their original collection without rewriting patient records.</summary>
         private async Task HydrateLegacyParametersAsync(IEnumerable<TestResult> results, CancellationToken ct)
         {
-            foreach (var result in results.Where(x => x.Items.Count == 0))
+            var missing = results.Where(x => x.Items.Count == 0).ToList();
+            if (missing.Count == 0) return;
+            // Batch all measurements without a global row limit that could truncate later results.
+            var ids = new BsonArray(missing.Select(x => x.Id).Distinct());
+            var parameters = await _parameters.Find(new BsonDocument("result_id",
+                new BsonDocument("$in", ids))).ToListAsync(ct);
+            static string Text(BsonDocument doc, string key) => doc.TryGetValue(key, out var v) && !v.IsBsonNull ? v.ToString() ?? "" : "";
+            var byResult = parameters.ToLookup(p => Text(p, "result_id"));
+            foreach (var result in missing)
             {
-                var parameters = await _parameters.Find(new BsonDocument("result_id", result.Id)).Limit(500).ToListAsync(ct);
-                string Text(BsonDocument doc, string key) => doc.TryGetValue(key, out var v) && !v.IsBsonNull ? v.ToString() ?? "" : "";
-                result.Items = parameters.Select(p => new TestResultItem
+                result.Items = byResult[result.Id].Select(p => new TestResultItem
                 {
                     CriterionId = Text(p, "criterion_id"), CriterionCode = Text(p, "code"), CriterionName = Text(p, "name"),
                     MeasuredValue = Text(p, "value_numeric") is { Length: > 0 } number ? number : Text(p, "value_text"),
                     Unit = Text(p, "unit"), ReferenceInterval = Text(p, "reference_display"),
-                    Flag = Text(p, "flag").ToUpperInvariant() switch
+                    OriginalFlag = Text(p, "flag"),
+                    Flag = Text(p, "flag").Trim().ToUpperInvariant().Replace("_", "").Replace("-", "").Replace(" ", "") switch
                     {
-                        "H" or "HIGH" => ResultFlag.High,
-                        "L" or "LOW" => ResultFlag.Low,
-                        "C" or "CRITICAL" or "CRITICALPANIC" => ResultFlag.CriticalPanic,
-                        _ => ResultFlag.Normal
+                        "N" or "NORMAL" or "0" => ResultFlag.Normal,
+                        "H" or "HIGH" or "2" => ResultFlag.High,
+                        "L" or "LOW" or "1" => ResultFlag.Low,
+                        "HH" or "LL" or "C" or "CRITICAL" or "CRITICALPANIC" or "CRITICALHIGH" or "CRITICALLOW"
+                            or "PANIC" or "PANICHIGH" or "PANICLOW" or "3" => ResultFlag.CriticalPanic,
+                        // Unknown and missing codes require review; neither implies normality.
+                        _ => ResultFlag.Unknown
                     }
                 }).ToList();
+                result.IsPanic |= result.Items.Any(x => x.Flag == ResultFlag.CriticalPanic);
             }
         }
 
@@ -119,7 +130,12 @@ namespace BMS.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
-        public async Task<IReadOnlyList<TestResult>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default) =>
-            await _results.Find(F.Eq(x => x.AppointmentId, appointmentId) & Active).SortBy(x => x.CreatedAt).Limit(200).ToListAsync(ct);
+        public async Task<IReadOnlyList<TestResult>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default)
+        {
+            var link = F.Or(F.Eq(x => x.AppointmentId, appointmentId), new BsonDocument("appointment_id", appointmentId));
+            var results = await _results.Find(link & Active).SortBy(x => x.CreatedAt).Limit(200).ToListAsync(ct);
+            await HydrateLegacyParametersAsync(results, ct);
+            return results;
+        }
     }
 }
