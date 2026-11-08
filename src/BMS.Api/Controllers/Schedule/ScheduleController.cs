@@ -3,6 +3,7 @@ using BMS.Schedule.DTOs;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace BMS.Schedule.Controllers;
 
@@ -17,6 +18,10 @@ public class ScheduleController : ControllerBase
 
     public ScheduleController(IScheduleService service) => _service = service;
 
+    private string? EmployeeId => User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+    private bool Owns(string employeeId) => !string.IsNullOrWhiteSpace(EmployeeId)
+        && string.Equals(EmployeeId, employeeId, StringComparison.Ordinal);
+
     [HttpGet]
     public async Task<IActionResult> List(
         [FromQuery] string doctorId,
@@ -26,6 +31,7 @@ public class ScheduleController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(doctorId))
             return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "doctorId is required." });
+        if (!Owns(doctorId)) return Forbid();
         var list = await _service.ListAsync(doctorId, from, to, ct);
         return Ok(list);
     }
@@ -34,6 +40,7 @@ public class ScheduleController : ControllerBase
     public async Task<IActionResult> Get(string id, CancellationToken ct)
     {
         var item = await _service.GetByIdAsync(id, ct);
+        if (item is not null && !Owns(item.DoctorId)) return Forbid();
         return item == null
             ? NotFound(new ApiErrorResponse { Code = "MSG-ERR-SCHED-03", Message = "Không tìm thấy ca." })
             : Ok(item);
@@ -42,6 +49,8 @@ public class ScheduleController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateShiftRequest request, CancellationToken ct)
     {
+        // Personal schedules are scoped to the authenticated employee; managers use the shifts API.
+        if (!Owns(request.DoctorId)) return Forbid();
         if (!ModelState.IsValid)
             return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "Invalid data." });
         try
@@ -58,6 +67,8 @@ public class ScheduleController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateShiftRequest request, CancellationToken ct)
     {
+        var existing = await _service.GetByIdAsync(id, ct);
+        if (existing is not null && !Owns(existing.DoctorId)) return Forbid();
         try
         {
             var updated = await _service.UpdateAsync(id, request, ct);
@@ -72,6 +83,8 @@ public class ScheduleController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
+        var existing = await _service.GetByIdAsync(id, ct);
+        if (existing is not null && !Owns(existing.DoctorId)) return Forbid();
         try
         {
             await _service.DeleteAsync(id, ct);
