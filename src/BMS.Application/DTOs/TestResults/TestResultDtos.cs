@@ -16,6 +16,10 @@ public class TestParameterDto
     public string? Abbreviation { get; set; }
     /// <summary>Measured value as entered.</summary>
     public string? Value { get; set; }
+    /// <summary>Server-derived interpretation; Unknown never implies Normal.</summary>
+    public string? Flag { get; set; }
+    /// <summary>Unmodified interpretation code from a legacy parameter.</summary>
+    public string? OriginalFlag { get; set; }
 }
 
 /// <summary>Test result read model for <c>TestOrder/TestResult</c>.</summary>

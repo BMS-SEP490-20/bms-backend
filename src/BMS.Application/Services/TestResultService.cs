@@ -303,7 +303,9 @@ namespace BMS.Application.Services
                 CriteriaId = i.CriterionId,
                 ParamName = i.CriterionName,
                 Abbreviation = i.CriterionCode,
-                Value = i.MeasuredValue
+                Value = i.MeasuredValue,
+                Flag = i.Flag.ToString(),
+                OriginalFlag = i.OriginalFlag
             }).ToList()
         };
     }

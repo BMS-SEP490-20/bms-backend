@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -34,7 +35,8 @@ public enum ResultFlag
     Normal = 0,
     Low = 1,
     High = 2,
-    CriticalPanic = 3
+    CriticalPanic = 3,
+    Unknown = 4
 }
 
 /// <summary>
@@ -63,6 +65,11 @@ public class TestResultItem
     [BsonElement("flag")]
     public ResultFlag Flag { get; set; } = ResultFlag.Normal;
 
+    /// <summary>Original legacy flag, including codes requiring manual interpretation.</summary>
+    [BsonElement("originalFlag")]
+    [BsonIgnoreIfNull]
+    public string? OriginalFlag { get; set; }
+
     [BsonElement("notes")]
     public string? Notes { get; set; }
 }
@@ -74,6 +81,7 @@ public class TestResult : ISupportInitialize
 {
     /// <summary>Preserves original backup fields while resolving legacy snake_case links and signatures.</summary>
     [BsonExtraElements]
+    [JsonIgnore]
     public BsonDocument LegacyFields { get; set; } = new();
 
     [BsonElement("digitalSignature")]
@@ -96,9 +104,9 @@ public class TestResult : ISupportInitialize
         if (string.IsNullOrEmpty(EnteredByUserId)) EnteredByUserId = Text("technician_id");
         if (string.IsNullOrEmpty(ReviewedBy)) ReviewedBy = Text("reviewed_by");
         if (string.IsNullOrEmpty(ClinicalComment)) ClinicalComment = Text("conclusion_notes");
-        if (string.IsNullOrEmpty(DigitalSignature)) DigitalSignature = Text("digital_signature");
+        if (string.IsNullOrWhiteSpace(DigitalSignature)) DigitalSignature = Text("digital_signature");
         ApprovedAt ??= Date("approved_at");
-        CreatedAt = Date("created_at") ?? CreatedAt;
+        if (CreatedAt == default) CreatedAt = Date("created_at") ?? default;
         UpdatedAt ??= Date("updated_at");
     }
     [BsonId]
@@ -165,7 +173,8 @@ public class TestResult : ISupportInitialize
     public string? DeviceId { get; set; }
 
     [BsonElement("createdAt")]
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // Writers supply the timestamp explicitly; an absent historical date must remain detectable.
+    public DateTime CreatedAt { get; set; }
 
     [BsonElement("updatedAt")]
     public DateTime? UpdatedAt { get; set; }
