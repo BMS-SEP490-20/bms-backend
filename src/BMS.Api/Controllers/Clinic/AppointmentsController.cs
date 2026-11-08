@@ -158,6 +158,8 @@ public class AppointmentsController : ControllerBase
         [FromQuery] DateTime date,
         CancellationToken ct)
     {
+        if (date.Date <= DateTime.MinValue.Date || date.Date >= DateTime.MaxValue.Date)
+            return BadRequest(new { code = "INVALID_APPOINTMENT_DATE", message = "Ngày khám không hợp lệ." });
         if (string.IsNullOrWhiteSpace(doctorId))
             return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "doctorId is required." });
 
@@ -176,6 +178,8 @@ public class AppointmentsController : ControllerBase
         [FromQuery] string? specialty,
         CancellationToken ct)
     {
+        if (date.Date <= DateTime.MinValue.Date || date.Date >= DateTime.MaxValue.Date)
+            return BadRequest(new { code = "INVALID_APPOINTMENT_DATE", message = "Ngày khám không hợp lệ." });
         var result = await _service.GetAvailableDoctorsAsync(date, specialty, ct);
         return Ok(result);
     }
