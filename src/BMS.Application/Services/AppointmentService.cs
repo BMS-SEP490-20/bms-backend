@@ -91,7 +91,7 @@ namespace BMS.Application.Services
             var appointment = new Appointment
             {
                 AppointmentCode = code,
-                PatientId = !string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : request.PatientId,
+                PatientId = request.PatientId,
                 DoctorId = request.DoctorId,
                 PackageId = primaryPackage,
                 AppointmentDate = clinicDate,
