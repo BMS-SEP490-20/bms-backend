@@ -20,11 +20,16 @@ public class AppointmentsController : ControllerBase
 {
     private readonly IAppointmentService _service;
     private readonly ILogger<AppointmentsController> _logger;
+    private readonly IPatientRepository _patients;
+    private readonly IPatientOwnership _ownership;
 
-    public AppointmentsController(IAppointmentService service, ILogger<AppointmentsController> logger)
+    public AppointmentsController(IAppointmentService service, ILogger<AppointmentsController> logger,
+        IPatientRepository patients, IPatientOwnership ownership)
     {
         _service = service;
         _logger = logger;
+        _patients = patients;
+        _ownership = ownership;
     }
 
     /// <summary>
@@ -105,6 +110,13 @@ public class AppointmentsController : ControllerBase
                                 ?? User.FindFirstValue("sub")
                                 ?? "system";
 
+            // The appointment belongs to the selected patient, never to the receptionist creating it.
+            var patient = await _patients.GetByIdOrCodeAsync(request.PatientId, ct);
+            if (patient is null) patient = await _patients.GetByAccountIdAsync(request.PatientId, ct);
+            if (patient is null) return NotFound(new { code = "PATIENT_NOT_FOUND", message = "Không tìm thấy bệnh nhân." });
+            if (User.IsInRole(RoleNames.Patient) && !await _ownership.IsOwnPatientAsync(currentUserId, patient.Id, ct))
+                return Forbid();
+            request.PatientId = patient.Id;
             var result = await _service.BookAsync(request, currentUserId, ct);
 
             _logger.LogInformation(
