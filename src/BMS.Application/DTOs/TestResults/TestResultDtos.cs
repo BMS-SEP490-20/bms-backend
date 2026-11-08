@@ -21,6 +21,8 @@ public class TestParameterDto
 /// <summary>Test result read model for <c>TestOrder/TestResult</c>.</summary>
 public class TestResultDto
 {
+    /// <summary>Server-derived critical flag from criterion master data.</summary>
+    public bool IsPanic { get; set; }
     /// <summary>Result identifier.</summary>
     public string TestResultId { get; set; } = string.Empty;
     /// <summary>Appointment / test order id.</summary>
@@ -51,8 +53,14 @@ public class TestResultDto
 public class CreateFullTestResultDto
 {
     /// <summary>Appointment / test order id.</summary>
-    [Required]
     public string AppointmentId { get; set; } = string.Empty;
+    /// <summary>Actor supplied by the controller, never accepted from request JSON.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ActorId { get; set; } = string.Empty;
+    /// <summary>Required confirmation when server master-data thresholds classify a result as panic.</summary>
+    public bool ConfirmRerunChecked { get; set; }
+    public bool CriticalNotified { get; set; }
+    public string? DoctorNotifiedName { get; set; }
     /// <summary>Sample id.</summary>
     [Required]
     public string SampleId { get; set; } = string.Empty;
@@ -74,6 +82,9 @@ public class CreateFullTestResultDto
 /// <summary>Partial update; null fields (and Quantity 0) are left unchanged.</summary>
 public class UpdateTestResultDto
 {
+    public bool ConfirmRerunChecked { get; set; }
+    public bool CriticalNotified { get; set; }
+    public string? DoctorNotifiedName { get; set; }
     /// <summary>Reagent code used.</summary>
     public string? ReagentCode { get; set; }
     /// <summary>Reagent quantity; 0 keeps the current value.</summary>

@@ -85,7 +85,7 @@ public class TestResult : ISupportInitialize
     public void EndInit()
     {
         string Text(string key) => LegacyFields.TryGetValue(key, out var v) && !v.IsBsonNull
-            ? v.IsString ? v.AsString : v.ToString() : string.Empty;
+            ? v.IsString ? v.AsString : v.ToString() ?? string.Empty : string.Empty;
         DateTime? Date(string key) => LegacyFields.TryGetValue(key, out var v) && v.IsBsonDateTime ? v.ToUniversalTime() : null;
         if (string.IsNullOrEmpty(SampleId)) SampleId = Text("sample_id");
         if (string.IsNullOrEmpty(PatientId)) PatientId = Text("patient_id");
