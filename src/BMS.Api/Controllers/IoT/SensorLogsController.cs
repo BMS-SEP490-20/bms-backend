@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BMS.Application.DTOs.IoT;
 using BMS.Application.Interfaces;
 using BMS.Core.Constants;
+using BMS.Api.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -32,8 +33,9 @@ public class SensorLogsController : ControllerBase
     /// Ingests temperature and humidity telemetry from ESP32 IoT gateway (UC65 &amp; UC66),
     /// flushes offline buffered readings after reconnection, and returns active threshold bounds for 2-way sync.
     /// </summary>
-    // WHY AllowAnonymous: ESP32 hardware on local clinic WiFi posts directly to http://<ip>:5000/api/iot/temperature.
+    // Hardware uses X-Device-Key; staff simulation requires an authorized JWT role.
     [AllowAnonymous]
+    [RequireDeviceKey]
     [HttpPost("temperature")]
     [HttpPost("humidity")]
     [HttpPost("telemetry")]
