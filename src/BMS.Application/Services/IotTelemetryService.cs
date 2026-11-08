@@ -9,6 +9,7 @@ using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using BMS.Core.Exceptions;
 
 namespace BMS.Application.Services;
 
@@ -66,6 +67,20 @@ public class IotTelemetryService : IIotTelemetryService
         {
             throw new ArgumentNullException(nameof(request));
         }
+
+        // Reject invalid packets before writing logs, heartbeat state or incident alerts.
+        static bool ValidHumidity(double value) => double.IsFinite(value) && value is >= 0 and <= 100;
+        var nowUtc = DateTime.UtcNow;
+        if (request.Humidity.HasValue && !ValidHumidity(request.Humidity.Value)
+            || request.Temperature.HasValue && !double.IsFinite(request.Temperature.Value)
+            || request.AgeSeconds is < 0 or > 86400
+            || request.Timestamp.HasValue && (request.Timestamp.Value.ToUniversalTime() > nowUtc.AddMinutes(2)
+                || request.Timestamp.Value.ToUniversalTime() < nowUtc.AddDays(-1))
+            || request.BufferedReadings is { Count: > 1000 }
+            || request.BufferedReadings?.Any(x => !ValidHumidity(x.Humidity) || !double.IsFinite(x.Temperature)
+                || x.AgeSeconds is < 0 or > 86400 || x.RecordedAt.HasValue &&
+                    (x.RecordedAt.Value.ToUniversalTime() > nowUtc.AddMinutes(2) || x.RecordedAt.Value.ToUniversalTime() < nowUtc.AddDays(-1))) == true)
+            throw new DomainValidationException("INVALID_IOT_READING", "Độ ẩm phải trong 0–100%, giá trị hữu hạn và thời gian/bộ đệm hợp lệ.");
 
         var deviceId = string.IsNullOrWhiteSpace(request.DeviceId) ? "BMS-IOT-001" : request.DeviceId.Trim();
         var now = DateTime.UtcNow;
