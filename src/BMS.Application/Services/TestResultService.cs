@@ -23,18 +23,22 @@ namespace BMS.Application.Services
         private readonly IAppointmentRepository _appointmentRepo;
         private readonly INotificationRepository _notificationRepo;
         private readonly ILogger<TestResultService> _logger;
+        private readonly ISampleRepository? _samples;
+        private readonly BMS.Core.Interfaces.ITestCriterionRepository? _criteria;
 
         /// <summary>Creates the service.</summary>
         public TestResultService(
             ITestResultRepository repo,
             IAppointmentRepository appointmentRepo,
             INotificationRepository notificationRepo,
-            ILogger<TestResultService> logger)
+            ILogger<TestResultService> logger, ISampleRepository? samples = null, BMS.Core.Interfaces.ITestCriterionRepository? criteria = null)
         {
             _repo = repo;
             _appointmentRepo = appointmentRepo;
             _notificationRepo = notificationRepo;
             _logger = logger;
+            _samples = samples;
+            _criteria = criteria;
         }
 
         /// <inheritdoc />
@@ -54,6 +58,24 @@ namespace BMS.Application.Services
         /// <inheritdoc />
         public async Task<TestResultDto> CreateAsync(CreateFullTestResultDto dto, CancellationToken ct = default)
         {
+            if (_samples is null || _criteria is null || string.IsNullOrWhiteSpace(dto.ActorId))
+                throw new DomainValidationException("INVALID_RESULT_ACTOR", "Không thể xác thực người nhập kết quả.");
+            var sample = await _samples.FindByCodeAsync(dto.SampleId.Trim(), ct)
+                ?? throw new ResourceNotFoundException("SAMPLE_NOT_FOUND", "Không tìm thấy mẫu xét nghiệm.");
+            if (sample.IsDeleted || sample.Status is not (SampleStatus.Received or SampleStatus.Processing or SampleStatus.Testing))
+                throw new ConflictStateException("SAMPLE_NOT_READY", "Mẫu chưa được tiếp nhận hoặc không còn cho phép nhập kết quả.");
+            var order = await _appointmentRepo.GetByIdAsync(sample.AppointmentId, ct)
+                ?? await _appointmentRepo.GetByCodeAsync(sample.AppointmentId, ct)
+                ?? throw new ResourceNotFoundException("APPOINTMENT_NOT_FOUND", "Không tìm thấy lịch hẹn liên kết với mẫu.");
+            if (order.Status == AppointmentStatus.Cancelled || (!string.IsNullOrWhiteSpace(dto.AppointmentId)
+                && dto.AppointmentId != order.Id && dto.AppointmentId != order.AppointmentCode))
+                throw new DomainValidationException("INVALID_RESULT_ORDER", "Lịch hẹn không khớp với mẫu xét nghiệm.");
+            if (await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], [order.Id, order.AppointmentCode], ct))
+                throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả đã ký không được nhập lại.");
+            var items = await ValidatedItemsAsync(dto.Parameters, ct);
+            var panic = items.Any(x => x.Flag == ResultFlag.CriticalPanic);
+            if (panic && (!dto.ConfirmRerunChecked || !dto.CriticalNotified || string.IsNullOrWhiteSpace(dto.DoctorNotifiedName)))
+                throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", "Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic.");
             var now = DateTime.UtcNow;
             // Server-generated, collision-resistant id (was "TRE" + Random 6 digits).
             var resultId = $"TRE-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
@@ -61,14 +83,20 @@ namespace BMS.Application.Services
             {
                 Id = resultId,
                 TestResultId = resultId,
-                AppointmentId = dto.AppointmentId,
-                SampleId = dto.SampleId,
+                AppointmentId = order.Id,
+                SampleId = sample.Id,
+                PatientId = sample.PatientId,
+                PackageId = order.PackageId,
                 ReagentCode = dto.ReagentCode,
                 Quantity = dto.Quantity,
                 DeviceId = dto.DeviceId,
-                ReviewedBy = dto.ReviewedBy,
-                Status = dto.Status,
-                Items = ToItems(dto.Parameters),
+                ReviewedBy = dto.ActorId,
+                EnteredByUserId = dto.ActorId,
+                EnteredAt = now,
+                Status = WaitingReviewStatus,
+                ValidationStatus = ResultValidationStatus.Entered,
+                IsPanic = panic,
+                Items = items,
                 CreatedAt = now,
                 ReviewedAt = now
             };
@@ -84,7 +112,14 @@ namespace BMS.Application.Services
                 ?? throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để cập nhật.");
             ThrowIfSigned(entity);
 
+            if (!string.IsNullOrEmpty(dto.Status) && dto.Status != WaitingReviewStatus)
+                throw new DomainValidationException("INVALID_RESULT_STATUS", "Trạng thái phê duyệt chỉ được đổi qua luồng ký duyệt.");
+
             var oldStatus = entity.Status;
+            var measurements = dto.Parameters is { Count: > 0 } ? await ValidatedItemsAsync(dto.Parameters, ct) : null;
+            var panic = measurements?.Any(x => x.Flag == ResultFlag.CriticalPanic);
+            if (panic == true && (!dto.ConfirmRerunChecked || !dto.CriticalNotified || string.IsNullOrWhiteSpace(dto.DoctorNotifiedName)))
+                throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", "Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic.");
             var changes = new TestResultFieldChanges(
                 ReagentCode: dto.ReagentCode,
                 Quantity: dto.Quantity != 0 ? dto.Quantity : null,
@@ -93,7 +128,7 @@ namespace BMS.Application.Services
                 ReviewedAt: dto.ReviewedAt ?? DateTime.UtcNow,
                 Status: dto.Status,
                 // Parameters replace the previous set in the same atomic write (was delete + re-insert rows).
-                Items: dto.Parameters is { Count: > 0 } ? ToItems(dto.Parameters) : null);
+                Items: measurements, IsPanic: panic);
 
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
                 throw await NotUpdatedAsync(entity.Id, "Không tìm thấy kết quả xét nghiệm để cập nhật.", ct);
@@ -221,8 +256,37 @@ namespace BMS.Application.Services
                 MeasuredValue = p.Value ?? string.Empty
             }).ToList();
 
+        /// <summary>Evaluates measurements against trusted, unit-specific criterion master data, not client flags.</summary>
+        private async Task<List<TestResultItem>> ValidatedItemsAsync(List<TestParameterDto> parameters, CancellationToken ct)
+        {
+            if (_criteria is null || parameters.Count is < 1 or > 200)
+                throw new DomainValidationException("INVALID_RESULT_PARAMETERS", "Cần cung cấp từ 1 đến 200 chỉ số hợp lệ.");
+            var items = new List<TestResultItem>();
+            foreach (var p in parameters)
+            {
+                var criterion = await _criteria.GetByCodeAsync(p.Abbreviation ?? p.CriteriaId, ct)
+                    ?? await _criteria.GetByIdAsync(p.CriteriaId, ct);
+                if (criterion is null || !criterion.IsActive || criterion.IsDeleted || string.IsNullOrWhiteSpace(p.Value))
+                    throw new DomainValidationException("INVALID_RESULT_CRITERION", "Chỉ tiêu không tồn tại, đã ngừng dùng hoặc thiếu giá trị.");
+                var flag = ResultFlag.Normal;
+                if (!string.Equals(criterion.ValueType, "Qualitative", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!double.TryParse(p.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
+                        throw new DomainValidationException("INVALID_MEASURED_VALUE", "Chỉ số định lượng phải là số hữu hạn.");
+                    flag = criterion.PanicLow.HasValue && value < criterion.PanicLow || criterion.PanicHigh.HasValue && value > criterion.PanicHigh ? ResultFlag.CriticalPanic
+                        : criterion.NormalMin.HasValue && value < criterion.NormalMin ? ResultFlag.Low
+                        : criterion.NormalMax.HasValue && value > criterion.NormalMax ? ResultFlag.High : ResultFlag.Normal;
+                }
+                items.Add(new TestResultItem { CriterionId = criterion.Id, CriterionCode = criterion.CriterionCode,
+                    CriterionName = criterion.CriterionName, MeasuredValue = p.Value.Trim(), Unit = criterion.Unit,
+                    ReferenceInterval = criterion.NormalText ?? $"{criterion.NormalMin}-{criterion.NormalMax}", Flag = flag });
+            }
+            return items;
+        }
+
         private static TestResultDto ToDto(TestResult x) => new()
         {
+            IsPanic = x.IsPanic,
             TestResultId = string.IsNullOrWhiteSpace(x.TestResultId) ? x.Id : x.TestResultId,
             AppointmentId = x.AppointmentId,
             SampleId = x.SampleId,

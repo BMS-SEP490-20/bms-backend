@@ -58,7 +58,7 @@ namespace BMS.Infrastructure.Repositories
             foreach (var result in results.Where(x => x.Items.Count == 0))
             {
                 var parameters = await _parameters.Find(new BsonDocument("result_id", result.Id)).Limit(500).ToListAsync(ct);
-                string Text(BsonDocument doc, string key) => doc.TryGetValue(key, out var v) && !v.IsBsonNull ? v.ToString() : "";
+                string Text(BsonDocument doc, string key) => doc.TryGetValue(key, out var v) && !v.IsBsonNull ? v.ToString() ?? "" : "";
                 result.Items = parameters.Select(p => new TestResultItem
                 {
                     CriterionId = Text(p, "criterion_id"), CriterionCode = Text(p, "code"), CriterionName = Text(p, "name"),
@@ -94,6 +94,7 @@ namespace BMS.Infrastructure.Repositories
             if (c.ValidationStatus is not null) updates.Add(u.Set(x => x.ValidationStatus, c.ValidationStatus.Value));
             if (c.ApprovedByDoctorId is not null) updates.Add(u.Set(x => x.ApprovedByDoctorId, c.ApprovedByDoctorId));
             if (c.ApprovedAt is not null) updates.Add(u.Set(x => x.ApprovedAt, c.ApprovedAt));
+            if (c.IsPanic.HasValue) updates.Add(u.Set(x => x.IsPanic, c.IsPanic.Value));
 
             var result = await _results.UpdateOneAsync(ById(id) & NotSigned, u.Combine(updates), cancellationToken: ct);
             return result.MatchedCount > 0;

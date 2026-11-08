@@ -48,5 +48,6 @@ namespace BMS.Core.Interfaces
         List<TestResultItem>? Items = null,
         ResultValidationStatus? ValidationStatus = null,
         string? ApprovedByDoctorId = null,
-        DateTime? ApprovedAt = null);
+        DateTime? ApprovedAt = null,
+        bool? IsPanic = null);
 }
