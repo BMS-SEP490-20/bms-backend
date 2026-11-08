@@ -1,6 +1,7 @@
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using MongoDB.Driver;
+using MongoDB.Bson;
 
 namespace BMS.Infrastructure.Repositories
 {
@@ -12,20 +13,25 @@ namespace BMS.Infrastructure.Repositories
     public sealed class TestResultRepository : ITestResultRepository
     {
         private readonly IMongoCollection<TestResult> _results;
+        private readonly IMongoCollection<BsonDocument> _parameters;
 
         /// <summary>Creates the repository bound to <c>test_results</c>.</summary>
         public TestResultRepository(IMongoDatabase database)
         {
             _results = database.GetCollection<TestResult>("test_results");
+            _parameters = database.GetCollection<BsonDocument>("test_parameters");
         }
 
         private static FilterDefinitionBuilder<TestResult> F => Builders<TestResult>.Filter;
         private static FilterDefinition<TestResult> Active => F.Ne(x => x.IsDeleted, true);
         // WHY in the filter: makes "signed = read-only" atomic; an edit racing an approval cannot land after the signature.
-        private static FilterDefinition<TestResult> NotSigned =>
-            F.Ne(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved) & F.Eq(x => x.ApprovedAt, null);
+        private static FilterDefinition<TestResult> NotSigned => F.Not(Signed);
         private static FilterDefinition<TestResult> Signed =>
-            F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null));
+            F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null),
+                F.Regex(x => x.Status, new BsonRegularExpression("^APPROVED$", "i")),
+                new BsonDocument("approved_at", new BsonDocument("$type", "date")),
+                new BsonDocument("digital_signature", new BsonDocument { { "$type", "string" }, { "$ne", "" } }),
+                new BsonDocument("digitalSignature", new BsonDocument { { "$type", "string" }, { "$ne", "" } }));
         private static FilterDefinition<TestResult> ById(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.TestResultId, id)) & Active;
 
         /// <inheritdoc />
@@ -34,12 +40,40 @@ namespace BMS.Infrastructure.Repositories
             var total = await _results.CountDocumentsAsync(Active, cancellationToken: ct);
             var items = await _results.Find(Active).SortByDescending(x => x.CreatedAt)
                 .Skip((page - 1) * pageSize).Limit(pageSize).ToListAsync(ct);
+            await HydrateLegacyParametersAsync(items, ct);
             return (items, total);
         }
 
         /// <inheritdoc />
-        public async Task<TestResult?> GetByIdAsync(string id, CancellationToken ct = default) =>
-            await _results.Find(ById(id)).FirstOrDefaultAsync(ct);
+        public async Task<TestResult?> GetByIdAsync(string id, CancellationToken ct = default)
+        {
+            var result = await _results.Find(ById(id)).FirstOrDefaultAsync(ct);
+            if (result is not null) await HydrateLegacyParametersAsync([result], ct);
+            return result;
+        }
+
+        /// <summary>Reads legacy measurements from their original collection without rewriting patient records.</summary>
+        private async Task HydrateLegacyParametersAsync(IEnumerable<TestResult> results, CancellationToken ct)
+        {
+            foreach (var result in results.Where(x => x.Items.Count == 0))
+            {
+                var parameters = await _parameters.Find(new BsonDocument("result_id", result.Id)).Limit(500).ToListAsync(ct);
+                string Text(BsonDocument doc, string key) => doc.TryGetValue(key, out var v) && !v.IsBsonNull ? v.ToString() : "";
+                result.Items = parameters.Select(p => new TestResultItem
+                {
+                    CriterionId = Text(p, "criterion_id"), CriterionCode = Text(p, "code"), CriterionName = Text(p, "name"),
+                    MeasuredValue = Text(p, "value_numeric") is { Length: > 0 } number ? number : Text(p, "value_text"),
+                    Unit = Text(p, "unit"), ReferenceInterval = Text(p, "reference_display"),
+                    Flag = Text(p, "flag").ToUpperInvariant() switch
+                    {
+                        "H" or "HIGH" => ResultFlag.High,
+                        "L" or "LOW" => ResultFlag.Low,
+                        "C" or "CRITICAL" or "CRITICALPANIC" => ResultFlag.CriticalPanic,
+                        _ => ResultFlag.Normal
+                    }
+                }).ToList();
+            }
+        }
 
         /// <inheritdoc />
         public Task AddAsync(TestResult entity, CancellationToken ct = default) =>
@@ -77,7 +111,9 @@ namespace BMS.Infrastructure.Repositories
         public async Task<bool> AnySignedForOrderAsync(IReadOnlyCollection<string> sampleKeys, IReadOnlyCollection<string> orderKeys,
             CancellationToken ct = default)
         {
-            var link = F.Or(F.In(x => x.SampleId, sampleKeys), F.In(x => x.AppointmentId, orderKeys));
+            var link = F.Or(F.In(x => x.SampleId, sampleKeys), F.In(x => x.AppointmentId, orderKeys),
+                new BsonDocument("sample_id", new BsonDocument("$in", new BsonArray(sampleKeys))),
+                new BsonDocument("appointment_id", new BsonDocument("$in", new BsonArray(orderKeys))));
             return await _results.Find(link & Active & Signed).Limit(1).AnyAsync(ct);
         }
 

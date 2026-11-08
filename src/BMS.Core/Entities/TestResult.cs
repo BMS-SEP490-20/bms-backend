@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -21,7 +22,8 @@ public enum ResultValidationStatus
 public static class TestResultRules
 {
     /// <summary>A result is signed once approved: it is then read-only and its order can no longer be cancelled.</summary>
-    public static bool IsSigned(TestResult r) => r.ValidationStatus == ResultValidationStatus.DoctorApproved || r.ApprovedAt != null;
+    public static bool IsSigned(TestResult r) => r.ValidationStatus == ResultValidationStatus.DoctorApproved || r.ApprovedAt != null
+        || !string.IsNullOrWhiteSpace(r.DigitalSignature) || string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -68,8 +70,37 @@ public class TestResultItem
 /// <summary>
 /// Represents a laboratory test result report sheet (UC24).
 /// </summary>
-public class TestResult
+public class TestResult : ISupportInitialize
 {
+    /// <summary>Preserves original backup fields while resolving legacy snake_case links and signatures.</summary>
+    [BsonExtraElements]
+    public BsonDocument LegacyFields { get; set; } = new();
+
+    [BsonElement("digitalSignature")]
+    public string? DigitalSignature { get; set; }
+
+    public void BeginInit() { }
+
+    /// <summary>Normalizes legacy fields only when the canonical value was not present.</summary>
+    public void EndInit()
+    {
+        string Text(string key) => LegacyFields.TryGetValue(key, out var v) && !v.IsBsonNull
+            ? v.IsString ? v.AsString : v.ToString() : string.Empty;
+        DateTime? Date(string key) => LegacyFields.TryGetValue(key, out var v) && v.IsBsonDateTime ? v.ToUniversalTime() : null;
+        if (string.IsNullOrEmpty(SampleId)) SampleId = Text("sample_id");
+        if (string.IsNullOrEmpty(PatientId)) PatientId = Text("patient_id");
+        if (string.IsNullOrEmpty(AppointmentId)) AppointmentId = Text("appointment_id");
+        if (string.IsNullOrEmpty(ResultCode)) ResultCode = Text("result_code");
+        if (string.IsNullOrEmpty(PackageId)) PackageId = Text("package_id");
+        if (string.IsNullOrEmpty(DeviceId)) DeviceId = Text("equipment_code");
+        if (string.IsNullOrEmpty(EnteredByUserId)) EnteredByUserId = Text("technician_id");
+        if (string.IsNullOrEmpty(ReviewedBy)) ReviewedBy = Text("reviewed_by");
+        if (string.IsNullOrEmpty(ClinicalComment)) ClinicalComment = Text("conclusion_notes");
+        if (string.IsNullOrEmpty(DigitalSignature)) DigitalSignature = Text("digital_signature");
+        ApprovedAt ??= Date("approved_at");
+        CreatedAt = Date("created_at") ?? CreatedAt;
+        UpdatedAt ??= Date("updated_at");
+    }
     [BsonId]
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
