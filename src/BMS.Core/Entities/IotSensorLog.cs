@@ -118,3 +118,93 @@ public class IotConnectionOutage
     [BsonIgnoreIfNull]
     public string? Notes { get; set; }
 }
+
+
+/// <summary>
+/// Daily rolled-up environmental summary for long-term multi-year storage (ISO 15189 Cold-Chain).
+/// Maps to MongoDB collection <c>iot_daily_summaries</c>.
+/// </summary>
+[BsonIgnoreExtraElements]
+public class IotDailySummary
+{
+    [BsonId]
+    [BsonSerializer(typeof(FlexibleNullableStringObjectIdSerializer))]
+    public string Id { get; set; } = string.Empty;
+
+    [BsonElement("device_id")]
+    public string DeviceId { get; set; } = "BMS-IOT-001";
+
+    [BsonElement("device_name")]
+    public string DeviceName { get; set; } = string.Empty;
+
+    [BsonElement("location")]
+    public string Location { get; set; } = string.Empty;
+
+    [BsonElement("summary_date")]
+    public DateTime SummaryDate { get; set; }
+
+    [BsonElement("min_temp")]
+    public double MinTemp { get; set; }
+
+    [BsonElement("max_temp")]
+    public double MaxTemp { get; set; }
+
+    [BsonElement("avg_temp")]
+    public double AvgTemp { get; set; }
+
+    [BsonElement("mkt_temp")]
+    public double MktTemp { get; set; }
+
+    [BsonElement("min_humidity")]
+    public double MinHumidity { get; set; }
+
+    [BsonElement("max_humidity")]
+    public double MaxHumidity { get; set; }
+
+    [BsonElement("avg_humidity")]
+    public double AvgHumidity { get; set; }
+
+    [BsonElement("sample_count")]
+    public int SampleCount { get; set; }
+
+    [BsonElement("violation_count")]
+    public int ViolationCount { get; set; }
+
+    [BsonElement("outage_count")]
+    public int OutageCount { get; set; }
+
+    [BsonElement("updated_at")]
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+
+/// <summary>
+/// Persisted MQTT Broker and channel configuration editable from the Web UI.
+/// Maps to MongoDB collection <c>iot_mqtt_settings</c>.
+/// </summary>
+[BsonIgnoreExtraElements]
+public class IotMqttConfig
+{
+    [BsonId]
+    [BsonSerializer(typeof(FlexibleNullableStringObjectIdSerializer))]
+    public string Id { get; set; } = "default";
+
+    [BsonElement("broker_host")]
+    public string BrokerHost { get; set; } = "broker.emqx.io";
+
+    [BsonElement("broker_port")]
+    public int BrokerPort { get; set; } = 1883;
+
+    [BsonElement("topic_prefix")]
+    public string TopicPrefix { get; set; } = "bms/sep490/iot/hkd-lab01";
+
+    [BsonElement("default_device_id")]
+    public string DefaultDeviceId { get; set; } = "BMS-IOT-001";
+
+    [BsonElement("updated_at")]
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [BsonElement("updated_by")]
+    [BsonIgnoreIfNull]
+    public string? UpdatedBy { get; set; }
+}

@@ -1,8 +1,11 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BMS.Application.DTOs.IoT;
 using BMS.Application.Interfaces;
+using BMS.Core.Interfaces;
+using Microsoft.Extensions.Configuration;
 using BMS.Core.Constants;
 using BMS.Api.Authorization;
 using Microsoft.AspNetCore.Authorization;
@@ -23,10 +26,185 @@ namespace BMS.Api.Controllers.IoT;
 public class SensorLogsController : ControllerBase
 {
     private readonly IIotTelemetryService _telemetryService;
+    private readonly IIotThresholdService? _thresholdService;
+    private readonly IIotSensorLogRepository? _logRepository;
+    private readonly IIotThresholdRepository? _thresholdRepository;
+    private readonly IConfiguration? _configuration;
 
-    public SensorLogsController(IIotTelemetryService telemetryService)
+    public SensorLogsController(
+        IIotTelemetryService telemetryService,
+        IIotThresholdService? thresholdService = null,
+        IIotSensorLogRepository? logRepository = null,
+        IIotThresholdRepository? thresholdRepository = null,
+        IConfiguration? configuration = null)
     {
         _telemetryService = telemetryService;
+        _thresholdService = thresholdService;
+        _logRepository = logRepository;
+        _thresholdRepository = thresholdRepository;
+        _configuration = configuration;
+    }
+
+    public sealed class CreateIotDeviceRequest
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string? DeviceName { get; set; }
+        public string? Location { get; set; }
+        public double MinTemp { get; set; } = 2.0;
+        public double MaxTemp { get; set; } = 8.0;
+        public double MinHumidity { get; set; } = 45.0;
+        public double MaxHumidity { get; set; } = 75.0;
+        public int IntervalSeconds { get; set; } = 5;
+    }
+
+    public sealed class UpdateMqttConfigRequest
+    {
+        public string BrokerHost { get; set; } = "broker.emqx.io";
+        public int BrokerPort { get; set; } = 1883;
+        public string TopicPrefix { get; set; } = "bms/sep490/iot/hkd-lab01";
+        public string DefaultDeviceId { get; set; } = "BMS-IOT-001";
+    }
+
+    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [HttpPost("devices")]
+    public async Task<IActionResult> CreateDevice([FromBody] CreateIotDeviceRequest request)
+    {
+        if (_thresholdRepository == null || request == null || string.IsNullOrWhiteSpace(request.DeviceId))
+        {
+            return BadRequest(new { success = false, message = "Mã thiết bị IoT không được để trống." });
+        }
+
+        var deviceId = request.DeviceId.Trim();
+        var location = string.IsNullOrWhiteSpace(request.Location) ? "Blood Storage Room 01" : request.Location.Trim();
+        var deviceName = string.IsNullOrWhiteSpace(request.DeviceName) ? $"ESP32 DHT22 ({deviceId})" : request.DeviceName.Trim();
+
+        await _thresholdRepository.UpsertThresholdAsync(new BMS.Core.Entities.IotDeviceThreshold
+        {
+            DeviceId = deviceId,
+            DeviceName = $"{deviceName} (Nhiệt độ)",
+            Location = location,
+            SensorType = "Temperature",
+            Unit = "°C",
+            LowAlert = request.MinTemp,
+            HighAlert = request.MaxTemp,
+            IntervalSeconds = Math.Clamp(request.IntervalSeconds, 3, 300),
+            Status = "Active"
+        });
+
+        await _thresholdRepository.UpsertThresholdAsync(new BMS.Core.Entities.IotDeviceThreshold
+        {
+            DeviceId = $"{deviceId}-HUM",
+            DeviceName = $"{deviceName} (Độ ẩm)",
+            Location = location,
+            SensorType = "Humidity",
+            Unit = "%",
+            LowAlert = request.MinHumidity,
+            HighAlert = request.MaxHumidity,
+            IntervalSeconds = Math.Clamp(request.IntervalSeconds, 3, 300),
+            Status = "Active"
+        });
+
+        return Ok(new
+        {
+            success = true,
+            message = $"Đã thêm thiết bị '{deviceId}' vào hệ thống giám sát.",
+            data = new { id = deviceId, deviceId, deviceName, location, label = $"{deviceId} — {location}" }
+        });
+    }
+
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
+    [HttpGet("mqtt-config")]
+    public async Task<IActionResult> GetMqttConfig(CancellationToken ct)
+    {
+        var dbConfig = _logRepository != null ? await _logRepository.GetMqttConfigAsync(ct) : null;
+        var brokerHost = dbConfig?.BrokerHost ?? _configuration?["IoT:MqttBrokerHost"] ?? "broker.emqx.io";
+        var brokerPort = dbConfig?.BrokerPort > 0 ? dbConfig.BrokerPort : (int.TryParse(_configuration?["IoT:MqttBrokerPort"], out var p) ? p : 1883);
+        var topicPrefix = (dbConfig?.TopicPrefix ?? _configuration?["IoT:MqttTopicPrefix"] ?? "bms/sep490/iot/hkd-lab01").TrimEnd('/');
+        var defaultDeviceId = dbConfig?.DefaultDeviceId ?? _configuration?["IoT:DefaultDeviceId"] ?? "BMS-IOT-001";
+
+        return Ok(new
+        {
+            success = true,
+            data = new
+            {
+                brokerHost,
+                brokerPort,
+                topicPrefix,
+                defaultDeviceId,
+                isBridgeConnected = BMS.Api.Services.IotMqttBridgeHostedService.IsConnected,
+                updatedAt = dbConfig?.UpdatedAt
+            }
+        });
+    }
+
+    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [HttpPut("mqtt-config")]
+    public async Task<IActionResult> UpdateMqttConfig([FromBody] UpdateMqttConfigRequest request, CancellationToken ct)
+    {
+        if (_logRepository == null || request == null || string.IsNullOrWhiteSpace(request.BrokerHost) || string.IsNullOrWhiteSpace(request.TopicPrefix))
+        {
+            return BadRequest(new { success = false, message = "Thông tin Broker Host và Kênh MQTT không được để trống." });
+        }
+
+        var config = new BMS.Core.Entities.IotMqttConfig
+        {
+            Id = "default",
+            BrokerHost = request.BrokerHost.Trim(),
+            BrokerPort = request.BrokerPort > 0 ? request.BrokerPort : 1883,
+            TopicPrefix = request.TopicPrefix.Trim().TrimEnd('/'),
+            DefaultDeviceId = string.IsNullOrWhiteSpace(request.DefaultDeviceId) ? "BMS-IOT-001" : request.DefaultDeviceId.Trim(),
+            UpdatedBy = User?.Identity?.Name ?? "Manager"
+        };
+
+        await _logRepository.UpsertMqttConfigAsync(config, ct);
+        BMS.Api.Services.IotMqttBridgeHostedService.RequestReconnect();
+
+        return Ok(new
+        {
+            success = true,
+            message = "Đã lưu cấu hình kênh MQTT và yêu cầu kết nối lại ngay lập tức.",
+            data = config
+        });
+    }
+
+    /// <summary>
+    /// Lists all configured IoT monitoring devices from the database without hardcoded lists.
+    /// </summary>
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
+    [HttpGet("devices")]
+    public async Task<IActionResult> GetDevices()
+    {
+        if (_thresholdService == null)
+        {
+            return Ok(new { success = true, data = Array.Empty<object>() });
+        }
+
+        var thresholds = await _thresholdService.GetAllThresholdsAsync();
+        var devices = thresholds
+            .Where(t => !string.IsNullOrWhiteSpace(t.DeviceId) && !t.DeviceId.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(t => t.DeviceId, StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var first = g.First();
+                return new
+                {
+                    id = first.DeviceId,
+                    deviceId = first.DeviceId,
+                    deviceName = first.DeviceName,
+                    location = first.Location,
+                    sensorType = first.SensorType,
+                    status = first.Status,
+                    label = $"{first.DeviceId} — {first.Location}"
+                };
+            })
+            .ToList();
+
+        return Ok(new
+        {
+            success = true,
+            data = devices,
+            total = devices.Count
+        });
     }
 
     /// <summary>
@@ -115,6 +293,25 @@ public class SensorLogsController : ControllerBase
     /// Retrieves history of connection loss periods and buffered data recovery.
     /// </summary>
     [Authorize(Roles = RoleSets.AdminManagerLab)]
+    [HttpGet("summaries")]
+    [HttpGet("daily-summaries")]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
+    public async Task<IActionResult> GetDailySummaries(
+        [FromQuery] string? deviceId,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] int maxLimit = 365,
+        CancellationToken ct = default)
+    {
+        var summaries = await _telemetryService.GetDailySummariesAsync(deviceId, fromDate, toDate, maxLimit, ct);
+        return Ok(new
+        {
+            success = true,
+            data = summaries,
+            total = summaries.Count
+        });
+    }
+
     [HttpGet("outages")]
     public async Task<IActionResult> GetOutages([FromQuery] string? deviceId, CancellationToken ct)
     {

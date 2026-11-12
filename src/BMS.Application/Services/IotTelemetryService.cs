@@ -31,6 +31,10 @@ public class IotTelemetryService : IIotTelemetryService
         public string DeviceName { get; set; } = "ESP32 DHT22 Tủ Bảo Quản Máu 01";
         public string Location { get; set; } = "Blood Storage Room 01";
         public DateTime? LastSeenAt { get; set; }
+        public DateTime? LastPersistedAt { get; set; }
+        public double? LastPersistedTemperature { get; set; }
+        public double? LastPersistedHumidity { get; set; }
+        public string? LastPersistedStatus { get; set; }
         public double? LastTemperature { get; set; }
         public double? LastHumidity { get; set; }
         public string LastStatus { get; set; } = "Normal";
@@ -48,6 +52,9 @@ public class IotTelemetryService : IIotTelemetryService
     // Synchronized timing constants across IoT (5s send) -> Backend (30s grace timeout) -> Web Frontend (5s poll)
     private const int DefaultHardwareIntervalSeconds = 5;
     private const int MinHeartbeatTimeoutSeconds = 30;
+    private const int PersistenceIntervalSeconds = 60;
+    private const double TempDeadbandDelta = 0.5;
+    private const double HumidityDeadbandDelta = 2.0;
 
     public IotTelemetryService(
         IIotSensorLogRepository logRepository,
@@ -202,26 +209,43 @@ public class IotTelemetryService : IIotTelemetryService
                 ?? (request.AgeSeconds.HasValue && request.AgeSeconds.Value > 0 ? now.AddSeconds(-request.AgeSeconds.Value) : now);
 
             string status = EvaluateStatus(currentTemp, currentHum, minTemp, maxTemp, minHum, maxHum);
+            bool shouldPersist = !hb.LastPersistedAt.HasValue
+                || (now - hb.LastPersistedAt.Value).TotalSeconds >= PersistenceIntervalSeconds
+                || reconnectedFromOutage
+                || request.IsBuffered
+                || hasBufferedItems
+                || !status.Equals("Normal", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(hb.LastPersistedStatus, status, StringComparison.OrdinalIgnoreCase)
+                || Math.Abs(currentTemp - (hb.LastPersistedTemperature ?? currentTemp)) >= TempDeadbandDelta
+                || Math.Abs(currentHum - (hb.LastPersistedHumidity ?? currentHum)) >= HumidityDeadbandDelta;
 
-            var logEntry = new IotSensorLog
+            if (shouldPersist)
             {
-                DeviceId = deviceId,
-                DeviceName = deviceName,
-                Location = location,
-                TemperatureC = currentTemp,
-                HumidityPercent = currentHum,
-                MinTempAllowed = minTemp,
-                MaxTempAllowed = maxTemp,
-                MinHumidityAllowed = minHum,
-                MaxHumidityAllowed = maxHum,
-                Status = status,
-                IsBuffered = request.IsBuffered,
-                OutageId = request.IsBuffered ? resolvedOutageId : null,
-                RecordedAt = recordedAt,
-                ReceivedAt = now
-            };
+                var logEntry = new IotSensorLog
+                {
+                    DeviceId = deviceId,
+                    DeviceName = deviceName,
+                    Location = location,
+                    TemperatureC = currentTemp,
+                    HumidityPercent = currentHum,
+                    MinTempAllowed = minTemp,
+                    MaxTempAllowed = maxTemp,
+                    MinHumidityAllowed = minHum,
+                    MaxHumidityAllowed = maxHum,
+                    Status = status,
+                    IsBuffered = request.IsBuffered,
+                    OutageId = request.IsBuffered ? resolvedOutageId : null,
+                    RecordedAt = recordedAt,
+                    ReceivedAt = now
+                };
 
-            await _logRepository.InsertLogAsync(logEntry, ct);
+                await _logRepository.InsertLogAsync(logEntry, ct);
+
+                hb.LastPersistedAt = now;
+                hb.LastPersistedTemperature = currentTemp;
+                hb.LastPersistedHumidity = currentHum;
+                hb.LastPersistedStatus = status;
+            }
 
             // Update live heartbeat state inside lock
             hb.DeviceName = deviceName;
@@ -667,6 +691,92 @@ public class IotTelemetryService : IIotTelemetryService
             MaxHumidity = maxHum,
             IntervalSeconds = intervalSec
         };
+    }
+
+    public async Task<int> RunDailyRollupAsync(DateTime? targetUtcDate = null, CancellationToken ct = default)
+    {
+        var dayStart = (targetUtcDate ?? DateTime.UtcNow).Date;
+        var dayEnd = dayStart.AddDays(1).AddTicks(-1);
+
+        var dayLogs = await _logRepository.GetLogsAsync(
+            deviceId: null,
+            fromDate: dayStart,
+            toDate: dayEnd,
+            maxLimit: 5000,
+            ct: ct);
+
+        if (dayLogs.Count == 0) return 0;
+
+        var dayOutages = await _logRepository.GetOutagesAsync(deviceId: null, maxLimit: 500, ct: ct);
+        var groupedByDevice = dayLogs.GroupBy(x => x.DeviceId, StringComparer.OrdinalIgnoreCase);
+
+        int upsertedCount = 0;
+        foreach (var group in groupedByDevice)
+        {
+            var items = group.ToList();
+            if (items.Count == 0) continue;
+
+            var first = items[0];
+            var temps = items.Select(x => x.TemperatureC).ToList();
+            int outageCount = dayOutages.Count(o =>
+                o.DeviceId.Equals(first.DeviceId, StringComparison.OrdinalIgnoreCase) &&
+                o.DisconnectedAt >= dayStart &&
+                o.DisconnectedAt <= dayEnd);
+
+            var summary = new IotDailySummary
+            {
+                Id = $"{first.DeviceId}_{dayStart:yyyy-MM-dd}",
+                DeviceId = first.DeviceId,
+                DeviceName = first.DeviceName,
+                Location = first.Location,
+                SummaryDate = dayStart,
+                MinTemp = Math.Round(temps.Min(), 2),
+                MaxTemp = Math.Round(temps.Max(), 2),
+                AvgTemp = Math.Round(temps.Average(), 2),
+                MktTemp = CalculateMeanKineticTemperature(temps),
+                MinHumidity = Math.Round(items.Min(x => x.HumidityPercent), 2),
+                MaxHumidity = Math.Round(items.Max(x => x.HumidityPercent), 2),
+                AvgHumidity = Math.Round(items.Average(x => x.HumidityPercent), 2),
+                SampleCount = items.Count,
+                ViolationCount = items.Count(x => !x.Status.Equals("Normal", StringComparison.OrdinalIgnoreCase)),
+                OutageCount = outageCount,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _logRepository.UpsertDailySummaryAsync(summary, ct);
+            upsertedCount++;
+        }
+
+        return upsertedCount;
+    }
+
+    public async Task<List<IotDailySummaryDto>> GetDailySummariesAsync(
+        string? deviceId = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        int maxLimit = 365,
+        CancellationToken ct = default)
+    {
+        var items = await _logRepository.GetDailySummariesAsync(deviceId, fromDate, toDate, maxLimit, ct);
+        return items.Select(x => new IotDailySummaryDto
+        {
+            Id = x.Id,
+            DeviceId = x.DeviceId,
+            DeviceName = x.DeviceName,
+            Location = x.Location,
+            SummaryDate = x.SummaryDate,
+            MinTemp = x.MinTemp,
+            MaxTemp = x.MaxTemp,
+            AvgTemp = x.AvgTemp,
+            MktTemp = x.MktTemp,
+            MinHumidity = x.MinHumidity,
+            MaxHumidity = x.MaxHumidity,
+            AvgHumidity = x.AvgHumidity,
+            SampleCount = x.SampleCount,
+            ViolationCount = x.ViolationCount,
+            OutageCount = x.OutageCount,
+            UpdatedAt = x.UpdatedAt
+        }).ToList();
     }
 
     #region Helpers

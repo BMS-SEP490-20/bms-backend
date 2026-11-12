@@ -28,13 +28,22 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly ILogger<IotMqttBridgeHostedService> _logger;
 
-    private readonly string _brokerHost;
-    private readonly int _brokerPort;
-    private readonly string _topicPrefix;
+    private string _brokerHost;
+    private int _brokerPort;
+    private string _topicPrefix;
+    private string _defaultDeviceId;
 
     private static NetworkStream? _activeStream;
     private static SemaphoreSlim? _activeWriteLock;
-    private static string _activeTopicPrefix = "bms/sep490/iot";
+    private static string _activeTopicPrefix = "bms/sep490/iot/hkd-lab01";
+    private static CancellationTokenSource? _sessionCts;
+
+    public static bool IsConnected => _activeStream?.CanWrite == true;
+
+    public static void RequestReconnect()
+    {
+        try { _sessionCts?.Cancel(); } catch { }
+    }
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -53,7 +62,8 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
 
         _brokerHost = _configuration["IoT:MqttBrokerHost"] ?? "broker.emqx.io";
         _brokerPort = int.TryParse(_configuration["IoT:MqttBrokerPort"], out var port) ? port : 1883;
-        _topicPrefix = _configuration["IoT:MqttTopicPrefix"] ?? "bms/sep490/iot";
+        _topicPrefix = (_configuration["IoT:MqttTopicPrefix"] ?? "bms/sep490/iot/hkd-lab01").TrimEnd('/');
+        _defaultDeviceId = _configuration["IoT:DefaultDeviceId"] ?? "BMS-IOT-001";
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -64,20 +74,53 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            _sessionCts = linkedCts;
             try
             {
-                await RunMqttSessionAsync(stoppingToken);
+                await RefreshConfigFromDatabaseAsync(stoppingToken);
+                await RunMqttSessionAsync(linkedCts.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("[MQTT Bridge] Configuration updated. Reconnecting to {Broker}:{Port} ({Prefix})...",
+                    _brokerHost, _brokerPort, _topicPrefix);
+                await Task.Delay(TimeSpan.FromMilliseconds(300), stoppingToken);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning("[MQTT Bridge] Connection interrupted ({Message}). Reconnecting in 3s...", ex.Message);
                 await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
             }
+            finally
+            {
+                _activeStream = null;
+                _activeWriteLock = null;
+                if (ReferenceEquals(_sessionCts, linkedCts)) _sessionCts = null;
+            }
         }
+    }
+
+    private async Task RefreshConfigFromDatabaseAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<BMS.Core.Interfaces.IIotSensorLogRepository>();
+            var dbConfig = await repo.GetMqttConfigAsync(ct);
+            if (dbConfig != null)
+            {
+                if (!string.IsNullOrWhiteSpace(dbConfig.BrokerHost)) _brokerHost = dbConfig.BrokerHost.Trim();
+                if (dbConfig.BrokerPort > 0) _brokerPort = dbConfig.BrokerPort;
+                if (!string.IsNullOrWhiteSpace(dbConfig.TopicPrefix)) _topicPrefix = dbConfig.TopicPrefix.Trim().TrimEnd('/');
+                if (!string.IsNullOrWhiteSpace(dbConfig.DefaultDeviceId)) _defaultDeviceId = dbConfig.DefaultDeviceId.Trim();
+            }
+        }
+        catch { }
     }
 
     private async Task RunMqttSessionAsync(CancellationToken ct)
@@ -114,7 +157,7 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         _activeStream = stream;
         _activeWriteLock = writeLock;
         _activeTopicPrefix = _topicPrefix;
-        await PublishDeviceConfigAsync(stream, writeLock, "BMS-IOT-001", ct);
+        await PublishDeviceConfigAsync(stream, writeLock, _defaultDeviceId, ct);
 
         var lastPingAt = DateTime.UtcNow;
 
@@ -210,8 +253,11 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         try
         {
             // Extract deviceId from topic: bms/sep490/iot/{deviceId}/telemetry or /status
-            var segments = topic.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string topicDeviceId = segments.Length >= 4 ? segments[3] : "BMS-IOT-001";
+            string relative = topic.StartsWith(_topicPrefix + "/", StringComparison.OrdinalIgnoreCase)
+                ? topic[(_topicPrefix.Length + 1)..]
+                : topic;
+            var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            string topicDeviceId = segments.Length >= 2 ? segments[0] : _defaultDeviceId;
 
             if (topic.EndsWith("/telemetry", StringComparison.OrdinalIgnoreCase))
             {
@@ -227,7 +273,7 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
                 var telemetryService = scope.ServiceProvider.GetRequiredService<IIotTelemetryService>();
                 var result = await telemetryService.IngestTelemetryAsync(dto, ct);
 
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "[MQTT Telemetry] Received from {DeviceId}: {Temp:F1}°C, {Hum:F1}% (Buffered synced: {Buf})",
                     result.DeviceId, result.Temperature, result.Humidity, result.BufferedSyncedCount);
 
