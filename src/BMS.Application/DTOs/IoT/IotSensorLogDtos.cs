@@ -191,3 +191,27 @@ public class SimulateReconnectRequestDto
     public double BaseTemperature { get; set; } = 4.6;
     public double BaseHumidity { get; set; } = 56.0;
 }
+
+
+/// <summary>
+/// Daily rolled-up environmental summary DTO for multi-year cold-chain reporting.
+/// </summary>
+public class IotDailySummaryDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string DeviceId { get; set; } = string.Empty;
+    public string DeviceName { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public DateTime SummaryDate { get; set; }
+    public double MinTemp { get; set; }
+    public double MaxTemp { get; set; }
+    public double AvgTemp { get; set; }
+    public double MktTemp { get; set; }
+    public double MinHumidity { get; set; }
+    public double MaxHumidity { get; set; }
+    public double AvgHumidity { get; set; }
+    public int SampleCount { get; set; }
+    public int ViolationCount { get; set; }
+    public int OutageCount { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}

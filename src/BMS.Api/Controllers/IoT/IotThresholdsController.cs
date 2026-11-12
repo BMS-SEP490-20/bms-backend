@@ -27,13 +27,26 @@ public class IotThresholdsController : ControllerBase
         _telemetryService = telemetryService;
     }
 
-    private async Task SyncAndPushHardwareConfigAsync()
+    private async Task SyncAndPushHardwareConfigAsync(params string[] deviceIds)
     {
         if (_telemetryService == null) return;
         try
         {
-            var evalResult = await _telemetryService.ReevaluateThresholdsAsync("BMS-IOT-001");
-            await BMS.Api.Services.IotMqttBridgeHostedService.PublishConfigImmediatelyAsync(evalResult);
+            var targets = (deviceIds != null && deviceIds.Length > 0)
+                ? deviceIds.Select(id => id.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase) ? id[..^4] : id)
+                           .Where(id => !string.IsNullOrWhiteSpace(id))
+                           .Distinct(StringComparer.OrdinalIgnoreCase)
+                           .ToList()
+                : (await _thresholdService.GetAllThresholdsAsync())
+                    .Select(t => t.DeviceId.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase) ? t.DeviceId[..^4] : t.DeviceId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+            foreach (var targetId in targets)
+            {
+                var evalResult = await _telemetryService.ReevaluateThresholdsAsync(targetId);
+                await BMS.Api.Services.IotMqttBridgeHostedService.PublishConfigImmediatelyAsync(evalResult);
+            }
         }
         catch
         {
@@ -98,7 +111,7 @@ public class IotThresholdsController : ControllerBase
 
         var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? "Manager";
         var updated = await _thresholdService.UpdateThresholdAsync(deviceId, request, userName);
-        await SyncAndPushHardwareConfigAsync();
+        await SyncAndPushHardwareConfigAsync(deviceId);
         if (updated == null)
         {
             return NotFound(new
@@ -125,7 +138,10 @@ public class IotThresholdsController : ControllerBase
     {
         var userName = User.FindFirst(ClaimTypes.Name)?.Value ?? "Manager";
         var success = await _thresholdService.BatchUpdateThresholdsAsync(request, userName);
-        await SyncAndPushHardwareConfigAsync();
+        if (success && request?.Devices != null)
+        {
+            await SyncAndPushHardwareConfigAsync(request.Devices.Select(d => d.DeviceId).ToArray());
+        }
         if (!success)
         {
             return BadRequest(new

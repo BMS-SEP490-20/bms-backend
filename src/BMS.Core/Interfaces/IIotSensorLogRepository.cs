@@ -27,4 +27,13 @@ public interface IIotSensorLogRepository
     Task<List<IotConnectionOutage>> GetOutagesAsync(string? deviceId = null, int maxLimit = 100, CancellationToken ct = default);
     Task<IotConnectionOutage?> GetActiveOutageAsync(string deviceId, CancellationToken ct = default);
     Task UpsertOutageAsync(IotConnectionOutage outage, CancellationToken ct = default);
+    Task UpsertDailySummaryAsync(IotDailySummary summary, CancellationToken ct = default);
+    Task<List<IotDailySummary>> GetDailySummariesAsync(
+        string? deviceId = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        int maxLimit = 365,
+        CancellationToken ct = default);
+    Task<IotMqttConfig?> GetMqttConfigAsync(CancellationToken ct = default);
+    Task UpsertMqttConfigAsync(IotMqttConfig config, CancellationToken ct = default);
 }
