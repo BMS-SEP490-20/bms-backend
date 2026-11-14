@@ -78,6 +78,7 @@ namespace BMS.Api.Controllers.Laboratory
                 });
             }
 
+            dto.ActorId = User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
             var created = await _service.CreateAsync(dto, ct);
             return Ok(new { message = "Tạo kết quả xét nghiệm thành công.", data = created });
         }

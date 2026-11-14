@@ -105,6 +105,7 @@ builder.Services.AddScoped<IIotThresholdService, IotThresholdService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.IIotSensorLogRepository, BMS.Infrastructure.Repositories.IotSensorLogRepository>();
 builder.Services.AddScoped<IIotTelemetryService, IotTelemetryService>();
 builder.Services.AddHostedService<BMS.Api.Services.IotMqttBridgeHostedService>();
+builder.Services.AddHostedService<BMS.Api.Services.IotLogRollupHostedService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultVerificationRepository, BMS.Infrastructure.Repositories.TestResultVerificationRepository>();
 builder.Services.AddScoped<ITestResultVerificationService, TestResultVerificationService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ISampleOriginTraceRepository, BMS.Infrastructure.Repositories.SampleOriginTraceRepository>();

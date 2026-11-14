@@ -18,4 +18,6 @@ public interface IIotTelemetryService
     Task<IotConnectionStatusDto> ForceDisconnectStateAsync(string deviceId, string? reason = null, CancellationToken ct = default);
     Task<IotTelemetryIngestResponseDto> SimulateReconnectWithBufferedDataAsync(SimulateReconnectRequestDto request, CancellationToken ct = default);
     Task<IotTelemetryIngestResponseDto> ReevaluateThresholdsAsync(string deviceId = "BMS-IOT-001", CancellationToken ct = default);
+    Task<int> RunDailyRollupAsync(DateTime? targetUtcDate = null, CancellationToken ct = default);
+    Task<List<IotDailySummaryDto>> GetDailySummariesAsync(string? deviceId = null, DateTime? fromDate = null, DateTime? toDate = null, int maxLimit = 365, CancellationToken ct = default);
 }

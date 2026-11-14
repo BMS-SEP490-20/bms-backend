@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using BMS.Core.Constants;
 
 namespace BMS.Api.Authorization;
 
@@ -18,23 +19,19 @@ public sealed class RequireDeviceKeyAttribute : Attribute, IAuthorizationFilter
     /// <inheritdoc />
     public void OnAuthorization(AuthorizationFilterContext context)
     {
-        // Allow if already authenticated via staff JWT
+        // A signed-in patient is not a telemetry device or an authorized operator.
         if (context.HttpContext.User?.Identity?.IsAuthenticated == true)
         {
+            if (!RoleSets.AdminManagerLab.Split(',').Any(context.HttpContext.User.IsInRole))
+                context.Result = new ForbidResult();
             return;
         }
 
         var config = context.HttpContext.RequestServices.GetService<IConfiguration>();
         var expected = config?["IoT:DeviceApiKey"];
 
-        // If no DeviceApiKey is enforced in configuration, allow direct local ESP32 hardware connection
-        if (string.IsNullOrEmpty(expected))
-        {
-            return;
-        }
-
         var supplied = context.HttpContext.Request.Headers[HeaderName].ToString();
-        if (string.IsNullOrEmpty(supplied) ||
+        if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(supplied) ||
             !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(supplied)))
         {
             context.Result = new UnauthorizedObjectResult(new ProblemDetails

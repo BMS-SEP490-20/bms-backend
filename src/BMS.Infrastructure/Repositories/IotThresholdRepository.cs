@@ -219,12 +219,6 @@ public class IotThresholdRepository : IIotThresholdRepository
         {
             new IotDeviceThreshold { DeviceId = "BMS-IOT-001", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Nhiệt độ)", Location = "Blood Storage Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 5, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "BMS-IOT-001-HUM", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Độ ẩm)", Location = "Blood Storage Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 45.0, HighAlert = 75.0, IntervalSeconds = 5, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "TEMP-001", DeviceName = "Fridge Temperature Sensor 1", Location = "Fridge R-01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "TEMP-002", DeviceName = "Fridge Temperature Sensor 2", Location = "Fridge R-02", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 60, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "TEMP-003", DeviceName = "Freezer Temperature Sensor", Location = "Freezer F-01", SensorType = "Temperature", Unit = "°C", LowAlert = -25.0, HighAlert = -15.0, IntervalSeconds = 60, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "TEMP-004", DeviceName = "Ambient Lab Temperature", Location = "Lab Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 18.0, HighAlert = 26.0, IntervalSeconds = 120, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "HUM-001", DeviceName = "Cold Storage Humidity", Location = "Cold Storage", SensorType = "Humidity", Unit = "%", LowAlert = 45.0, HighAlert = 75.0, IntervalSeconds = 60, Status = "Active" },
-            new IotDeviceThreshold { DeviceId = "HUM-002", DeviceName = "Lab Room Humidity", Location = "Lab Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 30.0, HighAlert = 60.0, IntervalSeconds = 120, Status = "Active" }
         };
 
         await BatchUpsertThresholdsAsync(defaultThresholds);

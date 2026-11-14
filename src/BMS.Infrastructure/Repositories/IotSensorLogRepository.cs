@@ -18,9 +18,13 @@ public class IotSensorLogRepository : IIotSensorLogRepository
 {
     public const string LogsCollectionName = "iot_temperature_logs";
     public const string OutagesCollectionName = "iot_connection_outages";
+    public const string DailySummariesCollectionName = "iot_daily_summaries";
+    public const string MqttConfigCollectionName = "iot_mqtt_settings";
 
     private readonly IMongoCollection<IotSensorLog>? _logsCollection;
     private readonly IMongoCollection<IotConnectionOutage>? _outagesCollection;
+    private readonly IMongoCollection<IotDailySummary>? _dailySummariesCollection;
+    private readonly IMongoCollection<IotMqttConfig>? _mqttConfigCollection;
     private readonly BmsDbContext _dbContext;
 
     public IotSensorLogRepository(IMongoDatabase? database, BmsDbContext dbContext)
@@ -32,6 +36,8 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             {
                 _logsCollection = database.GetCollection<IotSensorLog>(LogsCollectionName);
                 _outagesCollection = database.GetCollection<IotConnectionOutage>(OutagesCollectionName);
+                _dailySummariesCollection = database.GetCollection<IotDailySummary>(DailySummariesCollectionName);
+                _mqttConfigCollection = database.GetCollection<IotMqttConfig>(MqttConfigCollectionName);
             }
             catch
             {
@@ -45,7 +51,22 @@ public class IotSensorLogRepository : IIotSensorLogRepository
         // Compound index supports fast device time-series range queries sorted by recorded_at descending
         new CreateIndexModel<IotSensorLog>(
             Builders<IotSensorLog>.IndexKeys.Ascending(x => x.DeviceId).Descending(x => x.RecordedAt),
-            new CreateIndexOptions { Name = "ix_iot_logs_device_recorded_at", Background = true })
+            new CreateIndexOptions { Name = "ix_iot_logs_device_recorded_at", Background = true }),
+        new CreateIndexModel<IotSensorLog>(
+            Builders<IotSensorLog>.IndexKeys.Ascending(x => x.RecordedAt),
+            new CreateIndexOptions
+            {
+                Name = "ix_iot_logs_recorded_at_ttl_90d",
+                ExpireAfter = TimeSpan.FromDays(90),
+                Background = true
+            })
+    ];
+
+    public static IEnumerable<CreateIndexModel<IotDailySummary>> DailySummaryIndexes() =>
+    [
+        new CreateIndexModel<IotDailySummary>(
+            Builders<IotDailySummary>.IndexKeys.Ascending(x => x.DeviceId).Descending(x => x.SummaryDate),
+            new CreateIndexOptions { Name = "ix_iot_daily_summary_device_date", Unique = true, Background = true })
     ];
 
     public async Task InsertLogAsync(IotSensorLog log, CancellationToken ct = default)
@@ -341,6 +362,139 @@ public class IotSensorLogRepository : IIotSensorLogRepository
                 .Where(x => x.DeviceId.Equals(deviceId, StringComparison.OrdinalIgnoreCase) && x.Status == "Disconnected")
                 .OrderByDescending(x => x.DisconnectedAt)
                 .FirstOrDefault();
+        }
+    }
+
+    public async Task UpsertDailySummaryAsync(IotDailySummary summary, CancellationToken ct = default)
+    {
+        if (_dailySummariesCollection != null)
+        {
+            try
+            {
+                await _dailySummariesCollection.ReplaceOneAsync(
+                    x => x.Id == summary.Id,
+                    summary,
+                    new ReplaceOptions { IsUpsert = true },
+                    ct);
+            }
+            catch
+            {
+                // Fallback
+            }
+        }
+
+        lock (_dbContext.IotDailySummaries)
+        {
+            var idx = _dbContext.IotDailySummaries.FindIndex(x => x.Id == summary.Id);
+            if (idx >= 0) _dbContext.IotDailySummaries[idx] = summary;
+            else _dbContext.IotDailySummaries.Add(summary);
+        }
+    }
+
+    public async Task<List<IotDailySummary>> GetDailySummariesAsync(
+        string? deviceId = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        int maxLimit = 365,
+        CancellationToken ct = default)
+    {
+        int limit = Math.Clamp(maxLimit, 1, 2000);
+
+        if (_dailySummariesCollection != null)
+        {
+            try
+            {
+                var builder = Builders<IotDailySummary>.Filter;
+                var filters = new List<FilterDefinition<IotDailySummary>>();
+
+                if (!string.IsNullOrWhiteSpace(deviceId) && !deviceId.Equals("All", StringComparison.OrdinalIgnoreCase))
+                {
+                    filters.Add(builder.Eq(x => x.DeviceId, deviceId));
+                }
+
+                if (fromDate.HasValue)
+                {
+                    filters.Add(builder.Gte(x => x.SummaryDate, fromDate.Value.Date));
+                }
+
+                if (toDate.HasValue)
+                {
+                    filters.Add(builder.Lte(x => x.SummaryDate, toDate.Value.Date));
+                }
+
+                var combined = filters.Count > 0 ? builder.And(filters) : builder.Empty;
+                var mongoItems = await _dailySummariesCollection
+                    .Find(combined)
+                    .SortByDescending(x => x.SummaryDate)
+                    .Limit(limit)
+                    .ToListAsync(ct);
+
+                if (mongoItems.Count > 0)
+                {
+                    return mongoItems;
+                }
+            }
+            catch
+            {
+                // Fallback
+            }
+        }
+
+        lock (_dbContext.IotDailySummaries)
+        {
+            var query = _dbContext.IotDailySummaries.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(deviceId) && !deviceId.Equals("All", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x => x.DeviceId.Equals(deviceId, StringComparison.OrdinalIgnoreCase));
+            }
+            if (fromDate.HasValue)
+            {
+                query = query.Where(x => x.SummaryDate >= fromDate.Value.Date);
+            }
+            if (toDate.HasValue)
+            {
+                query = query.Where(x => x.SummaryDate <= toDate.Value.Date);
+            }
+            return query.OrderByDescending(x => x.SummaryDate).Take(limit).ToList();
+        }
+    }
+
+    public async Task<IotMqttConfig?> GetMqttConfigAsync(CancellationToken ct = default)
+    {
+        if (_mqttConfigCollection != null)
+        {
+            try
+            {
+                var doc = await _mqttConfigCollection.Find(x => x.Id == "default").FirstOrDefaultAsync(ct);
+                if (doc != null) return doc;
+            }
+            catch
+            {
+                // Fallback
+            }
+        }
+        return null;
+    }
+
+    public async Task UpsertMqttConfigAsync(IotMqttConfig config, CancellationToken ct = default)
+    {
+        config.Id = "default";
+        config.UpdatedAt = DateTime.UtcNow;
+
+        if (_mqttConfigCollection != null)
+        {
+            try
+            {
+                await _mqttConfigCollection.ReplaceOneAsync(
+                    x => x.Id == "default",
+                    config,
+                    new ReplaceOptions { IsUpsert = true },
+                    ct);
+            }
+            catch
+            {
+                // Non-fatal
+            }
         }
     }
 

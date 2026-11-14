@@ -134,8 +134,10 @@ try
     });
     var accounts = database.GetCollection<BsonDocument>("accounts");
     var newId = ObjectId.GenerateNewId().ToString();
-    foreach (var (id, role, status) in new[] { (newId, "3", "Active"), (a.ToString(), "4", "Active"), (b.ToString(), "3", "Active"),
-        ("not-lab", "2", "Active"), ("inactive-lab", "3", "Inactive"), ("archived", "4", "Active"), ("race-lab", "4", "Active") })
+    // Role 4 is now Receptionist; former LabHead fixtures must use canonical Lab role 3.
+    foreach (var (id, role, status) in new[] { (newId, "3", "Active"), (a.ToString(), "3", "Active"), (b.ToString(), "3", "Active"),
+        ("not-lab", "2", "Active"), ("inactive-lab", "3", "Inactive"), ("archived", "3", "Active"), ("race-lab", "3", "Active"),
+        ("reception-fixture", "4", "Active") })
         await accounts.InsertOneAsync(new BsonDocument { { "_id", ObjectId.TryParse(id, out var oid) ? oid : id }, { "RoleId", role },
             { "Status", status }, { "FullName", "Fixture " + id }, { "Username", "fixture" }, { "Password", "fixture-secret-never-return" } });
     var actor = new LabProfileActor("manager-check", "Test manager");
@@ -148,6 +150,7 @@ try
         Assert(options.Items.Any(x => x.Id == "archived" && x.HasProfile));
         Assert(!System.Text.Json.JsonSerializer.Serialize(options).Contains("fixture-secret"));
         Assert((await service.AccountsAsync(newId, 1, 1)).Total == 1);
+        Assert((await service.AccountsAsync("reception-fixture", 1, 1)).Total == 0);
     });
     await Check("creation validates account/room/details and preserves existing accounts", async () =>
     {

@@ -63,11 +63,17 @@ public sealed class LabProfileRepository : ILabProfileRepository
             d.GetValue("room_name", "").ToString()!)).ToList();
     }
 
-    // Accounts use the established canonical role IDs: 3 = LabTechnician, 4 = LabHead.
+    // Canonical role 3 includes the merged laboratory staff roles.
     private static FilterDefinition<BsonDocument> EligibleAccounts()
     {
         var f = Builders<BsonDocument>.Filter;
-        return f.In("RoleId", new[] { "3", "4" }) & f.Eq("Status", "Active") &
+        // Canonical Lab is role 3; role 4 is Receptionist and must never gain a Lab profile.
+        // Prefer PascalCase fields when present, matching account deserialization precedence.
+        var labIds = new BsonValue[] { 3, "3" };
+        var active = new BsonValue[] { 1, "1", "Active", "active", "ACTIVE" };
+        var role = f.In("RoleId", labIds) | (f.Eq("RoleId", BsonNull.Value) & f.In("roleId", labIds));
+        var status = f.In("Status", active) | (f.Eq("Status", BsonNull.Value) & f.In("status", active));
+        return role & status &
             f.Ne("IsDeleted", true) & f.Ne("isDeleted", true) & f.Ne("is_deleted", true) &
             f.Ne("IsActive", false) & f.Ne("isActive", false);
     }
