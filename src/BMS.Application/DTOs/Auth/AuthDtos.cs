@@ -36,7 +36,15 @@ public sealed record UserInfoDto(
     int RoleId,
     string Role,
     IReadOnlyList<string> Permissions,
-    bool MedicalProfileCompleted = false);
+    bool MedicalProfileCompleted = false,
+    string? EmployeeCode = null,
+    string? IdentityCardNumber = null,
+    string? DateOfBirth = null,
+    string? Gender = null,
+    string? Address = null,
+    string? LicenseNumber = null,
+    string? Specialty = null,
+    string? Department = null);
 
 public sealed record AuthResponse(
     string AccessToken,

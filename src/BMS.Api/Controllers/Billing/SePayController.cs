@@ -58,6 +58,18 @@ public sealed class SePayController(SePayPaymentService sePay) : ControllerBase
         });
     }
 
+    [Authorize(Roles = RoleSets.ReceptionOrPatient)]
+    [HttpPost("simulate/{appointmentId}")]
+    public async Task<IActionResult> SimulateSuccess(string appointmentId, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var success = await sePay.SimulatePaymentSuccessAsync(appointmentId, userId, User.IsInRole(RoleNames.Patient), ct);
+        if (!success)
+            return BadRequest(new { success = false, message = "Không thể mô phỏng thanh toán cho lịch hẹn này." });
+
+        return Ok(new { success = true, message = "Đã xác nhận thanh toán thành công (Mô phỏng Demo)." });
+    }
+
     [AllowAnonymous]
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook([FromBody] SePayWebhookPayload payload, CancellationToken ct)

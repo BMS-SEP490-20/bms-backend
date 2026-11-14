@@ -8,6 +8,7 @@ namespace BMS.Core.Entities;
 /// Maps to MongoDB collection "test_criteria".
 /// Conforms to: ISO 15189:2022 (Medical Laboratories), Decision 2429/QD-BYT & WHO/ADA reference ranges.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class TestCriterionEntity
 {
     [BsonId]

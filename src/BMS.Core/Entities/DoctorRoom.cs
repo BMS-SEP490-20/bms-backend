@@ -28,4 +28,8 @@ public class DoctorRoom
     /// <summary>Whether the room is currently usable.</summary>
     [BsonElement("is_active")]
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Medical specialty assigned to this room (e.g. Huyết học, Sinh hóa, Miễn dịch, Đông máu, Tổng quát).</summary>
+    [BsonElement("specialty")]
+    public string? Specialty { get; set; }
 }

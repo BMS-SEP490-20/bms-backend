@@ -20,15 +20,24 @@ namespace BMS.Application.Services
 
         private readonly IAppointmentRepository _repository;
         private readonly ISampleRepository _sampleRepository;
+        private readonly IInvoiceRepository _invoiceRepository;
+        private readonly ITestPackageRepository _packageRepository;
+        private readonly IPatientRepository _patientRepository;
         private readonly ILogger<AppointmentService> _logger;
 
         public AppointmentService(
             IAppointmentRepository repository,
             ISampleRepository sampleRepository,
+            IInvoiceRepository invoiceRepository,
+            ITestPackageRepository packageRepository,
+            IPatientRepository patientRepository,
             ILogger<AppointmentService> logger)
         {
             _repository = repository;
             _sampleRepository = sampleRepository;
+            _invoiceRepository = invoiceRepository;
+            _packageRepository = packageRepository;
+            _patientRepository = patientRepository;
             _logger = logger;
         }
 
@@ -108,6 +117,50 @@ namespace BMS.Application.Services
 
             await _repository.InsertAsync(appointment, ct);
             _logger.LogInformation("✅ Appointment booked successfully: {Code}", appointment.AppointmentCode);
+
+            // Auto-create initial unpaid billing invoice for the booked package (allows Patient & Receptionist to track payment)
+            try
+            {
+                var pkg = string.IsNullOrWhiteSpace(primaryPackage)
+                    ? null
+                    : await _packageRepository.GetByIdOrCodeAsync(primaryPackage, includeInactive: true, ct);
+                var patient = await _patientRepository.GetByIdOrCodeAsync(appointment.PatientId, ct);
+                var pkgPrice = pkg?.Price ?? 0m;
+                var pkgName = pkg?.PackageName ?? "Gói xét nghiệm cận lâm sàng";
+
+                var invoice = new Invoice
+                {
+                    InvoiceCode = $"INV-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}",
+                    PatientId = appointment.PatientId,
+                    PatientName = patient?.FullName ?? "Bệnh nhân",
+                    PatientPhone = patient?.PhoneNumber ?? string.Empty,
+                    AppointmentId = appointment.Id,
+                    Items = new List<InvoiceItem>
+                    {
+                        new()
+                        {
+                            ItemCode = pkg?.PackageCode ?? primaryPackage ?? "SRV-PKG",
+                            ItemName = pkgName,
+                            Quantity = 1,
+                            UnitPrice = pkgPrice
+                        }
+                    },
+                    SubTotal = pkgPrice,
+                    DiscountAmount = 0m,
+                    TotalAmount = pkgPrice,
+                    Status = InvoiceStatus.Unpaid,
+                    PaymentMethod = PaymentMethod.BankingQR,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                await _invoiceRepository.CreateAsync(invoice, ct);
+                _logger.LogInformation("🧾 Initial invoice created for appointment {Code}: {InvCode}", appointment.AppointmentCode, invoice.InvoiceCode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create auto-invoice for appointment {Code}", appointment.AppointmentCode);
+            }
+
             return MapToResponse(appointment, doctor);
         }
 
@@ -169,15 +222,30 @@ namespace BMS.Application.Services
             var shifts = await _repository.GetShiftsByDateAsync(date, ct);
             if (shifts.Count > 0)
             {
-                var doctorIds = shifts.Select(s => s.DoctorId).Distinct().ToList();
+                // Only consider clinical doctor shifts (exclude Lab Technicians, Receptionists, Cashiers)
+                var doctorShifts = shifts.Where(s =>
+                    string.IsNullOrWhiteSpace(s.EmployeeRole) ||
+                    string.Equals(s.EmployeeRole, "Doctor", StringComparison.OrdinalIgnoreCase)
+                ).ToList();
+
+                var doctorIds = doctorShifts.Select(s => s.DoctorId).Distinct().ToList();
                 var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
 
                 var list = new List<DoctorOptionDto>();
-                foreach (var s in shifts)
+                foreach (var s in doctorShifts)
                 {
                     doctors.TryGetValue(s.DoctorId, out var doc);
-                    if (!string.IsNullOrWhiteSpace(specialty) && doc != null && !doc.Specialty.Contains(specialty, StringComparison.OrdinalIgnoreCase))
-                        continue;
+                    var effectiveSpec = FirstText(doc?.Specialty, s.Department);
+
+                    if (!string.IsNullOrWhiteSpace(specialty))
+                    {
+                        var specMatch = !string.IsNullOrWhiteSpace(effectiveSpec) &&
+                            (effectiveSpec.Contains(specialty, StringComparison.OrdinalIgnoreCase) ||
+                             specialty.Contains(effectiveSpec, StringComparison.OrdinalIgnoreCase) ||
+                             effectiveSpec.Contains("Tổng quát", StringComparison.OrdinalIgnoreCase));
+
+                        if (!specMatch) continue;
+                    }
 
                     list.Add(MapShiftOption(s, doc));
                 }
@@ -235,7 +303,17 @@ namespace BMS.Application.Services
             Doctor? doctor = null;
             if (!string.IsNullOrEmpty(entity.DoctorId))
                 doctor = await _repository.GetDoctorAsync(entity.DoctorId, ct);
-            return MapToResponse(entity, doctor);
+            var res = MapToResponse(entity, doctor);
+            if (!string.IsNullOrEmpty(entity.PatientId))
+            {
+                var pat = await _patientRepository.GetByIdOrCodeAsync(entity.PatientId, ct)
+                       ?? await _patientRepository.GetByAccountIdAsync(entity.PatientId, ct);
+                if (pat != null && !string.IsNullOrEmpty(pat.FullName))
+                {
+                    res.PatientName = pat.FullName;
+                }
+            }
+            return res;
         }
 
         // UC23: View Appointments (Filter & Paged)
@@ -248,7 +326,35 @@ namespace BMS.Application.Services
             var effectivePatientId = filter.PatientId;
             if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase))
             {
-                effectivePatientId = currentUserId;
+                var candidateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(currentUserId)) candidateIds.Add(currentUserId);
+                if (!string.IsNullOrWhiteSpace(filter.PatientId)) candidateIds.Add(filter.PatientId);
+
+                if (!string.IsNullOrWhiteSpace(currentUserId))
+                {
+                    var pat = await _patientRepository.GetByAccountIdAsync(currentUserId, ct)
+                           ?? await _patientRepository.GetByIdOrCodeAsync(currentUserId, ct);
+                    if (pat != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(pat.Id)) candidateIds.Add(pat.Id);
+                        if (!string.IsNullOrWhiteSpace(pat.PatientCode)) candidateIds.Add(pat.PatientCode);
+                        if (!string.IsNullOrWhiteSpace(pat.IdentityCardNumber)) candidateIds.Add(pat.IdentityCardNumber);
+                    }
+                }
+                effectivePatientId = candidateIds.Count > 0 ? string.Join(",", candidateIds) : currentUserId;
+            }
+            else if (!string.IsNullOrWhiteSpace(filter.PatientId))
+            {
+                var candidateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { filter.PatientId.Trim() };
+                var pat = await _patientRepository.GetByIdOrCodeAsync(filter.PatientId.Trim(), ct)
+                       ?? await _patientRepository.GetByAccountIdAsync(filter.PatientId.Trim(), ct);
+                if (pat != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(pat.Id)) candidateIds.Add(pat.Id);
+                    if (!string.IsNullOrWhiteSpace(pat.PatientCode)) candidateIds.Add(pat.PatientCode);
+                    if (!string.IsNullOrWhiteSpace(pat.AccountId)) candidateIds.Add(pat.AccountId);
+                }
+                effectivePatientId = string.Join(",", candidateIds);
             }
 
             AppointmentStatus? status = null;
@@ -271,11 +377,27 @@ namespace BMS.Application.Services
             var doctorIds = items.Where(a => !string.IsNullOrEmpty(a.DoctorId)).Select(a => a.DoctorId!).Distinct();
             var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
 
+            var patientIds = items.Where(a => !string.IsNullOrEmpty(a.PatientId)).Select(a => a.PatientId!).Distinct();
+            var patientsDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pid in patientIds)
+            {
+                var pat = await _patientRepository.GetByIdOrCodeAsync(pid, ct)
+                       ?? await _patientRepository.GetByAccountIdAsync(pid, ct);
+                if (pat != null && !string.IsNullOrEmpty(pat.FullName))
+                {
+                    patientsDict[pid] = pat.FullName;
+                }
+            }
+
             var dtos = new List<AppointmentReadDto>();
             foreach (var a in items)
             {
                 doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
                 var dto = MapToReadDto(a, doc);
+                if (!string.IsNullOrEmpty(a.PatientId) && patientsDict.TryGetValue(a.PatientId, out var pName))
+                {
+                    dto.PatientName = pName;
+                }
                 await FillDutyFromShiftAsync(a, dto, ct);
                 dtos.Add(dto);
             }
@@ -286,14 +408,31 @@ namespace BMS.Application.Services
         // UC13: Manage Appointments
         public async Task<IEnumerable<AppointmentReadDto>> GetAllAsync(CancellationToken ct = default)
         {
-            var list = await _repository.GetAllAsync(ct);
+            var list = (await _repository.GetAllAsync(ct)).ToList();
             var doctorIds = list.Where(a => !string.IsNullOrEmpty(a.DoctorId)).Select(a => a.DoctorId!).Distinct();
             var doctors = (await _repository.GetDoctorsByIdsAsync(doctorIds, ct)).ToDictionary(d => d.Id);
+
+            var patientIds = list.Where(a => !string.IsNullOrEmpty(a.PatientId)).Select(a => a.PatientId!).Distinct();
+            var patientsDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pid in patientIds)
+            {
+                var pat = await _patientRepository.GetByIdOrCodeAsync(pid, ct)
+                       ?? await _patientRepository.GetByAccountIdAsync(pid, ct);
+                if (pat != null && !string.IsNullOrEmpty(pat.FullName))
+                {
+                    patientsDict[pid] = pat.FullName;
+                }
+            }
 
             return list.Select(a =>
             {
                 doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
-                return MapToReadDto(a, doc);
+                var dto = MapToReadDto(a, doc);
+                if (!string.IsNullOrEmpty(a.PatientId) && patientsDict.TryGetValue(a.PatientId, out var pName))
+                {
+                    dto.PatientName = pName;
+                }
+                return dto;
             });
         }
 
@@ -305,6 +444,15 @@ namespace BMS.Application.Services
             if (!string.IsNullOrEmpty(a.DoctorId))
                 doctor = await _repository.GetDoctorAsync(a.DoctorId, ct);
             var dto = MapToReadDto(a, doctor);
+            if (!string.IsNullOrEmpty(a.PatientId))
+            {
+                var pat = await _patientRepository.GetByIdOrCodeAsync(a.PatientId, ct)
+                       ?? await _patientRepository.GetByAccountIdAsync(a.PatientId, ct);
+                if (pat != null && !string.IsNullOrEmpty(pat.FullName))
+                {
+                    dto.PatientName = pat.FullName;
+                }
+            }
             await FillDutyFromShiftAsync(a, dto, ct);
             return dto;
         }

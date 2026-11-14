@@ -203,12 +203,27 @@ namespace BMS.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(patientId))
             {
-                var cleanPat = patientId.Trim();
-                var patRx = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(cleanPat), "i");
-                filter &= builder.Or(
-                    builder.Eq(x => x.PatientId, cleanPat),
-                    builder.Regex(x => x.PatientId, patRx)
-                );
+                var tokens = patientId.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (tokens.Length > 1)
+                {
+                    var orFilters = new List<FilterDefinition<Appointment>>();
+                    foreach (var tok in tokens)
+                    {
+                        var tokRx = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(tok), "i");
+                        orFilters.Add(builder.Eq(x => x.PatientId, tok));
+                        orFilters.Add(builder.Regex(x => x.PatientId, tokRx));
+                    }
+                    filter &= builder.Or(orFilters);
+                }
+                else
+                {
+                    var cleanPat = patientId.Trim();
+                    var patRx = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(cleanPat), "i");
+                    filter &= builder.Or(
+                        builder.Eq(x => x.PatientId, cleanPat),
+                        builder.Regex(x => x.PatientId, patRx)
+                    );
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(doctorId))
