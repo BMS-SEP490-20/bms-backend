@@ -710,16 +710,38 @@ public class AuthService : IAuthService
             ToUserInfo(user, role));
     }
 
-    private static UserInfoDto ToUserInfo(User u, Role? role) => new(
-        u.Id,
-        u.Username,
-        u.Email,
-        u.FullName,
-        u.PhoneNumber,
-        role?.Id ?? u.RoleId ?? (int)u.Role,
-        role?.RoleName ?? u.Role.ToString(),
-        role?.Permissions ?? [],
-        u.MedicalProfileCompleted);
+    private static UserInfoDto ToUserInfo(User u, Role? role)
+    {
+        var empCode = !string.IsNullOrWhiteSpace(u.EmployeeCode) ? u.EmployeeCode :
+            u.Role switch
+            {
+                UserRole.Receptionist => $"NV-REC-{(u.Id.Length >= 3 ? u.Id[^3..] : "001")}",
+                UserRole.Doctor => $"BS-{(u.Id.Length >= 3 ? u.Id[^3..] : "001")}",
+                UserRole.Lab => $"KTV-{(u.Id.Length >= 3 ? u.Id[^3..] : "001")}",
+                UserRole.Manager => $"QL-{(u.Id.Length >= 3 ? u.Id[^3..] : "001")}",
+                UserRole.Admin => $"QT-{(u.Id.Length >= 3 ? u.Id[^3..] : "001")}",
+                _ => u.PatientCode
+            };
+
+        return new(
+            u.Id,
+            u.Username,
+            u.Email,
+            u.FullName,
+            u.PhoneNumber,
+            role?.Id ?? u.RoleId ?? (int)u.Role,
+            role?.RoleName ?? u.Role.ToString(),
+            role?.Permissions ?? [],
+            u.MedicalProfileCompleted,
+            empCode,
+            u.IdentityCardNumber,
+            u.DateOfBirth?.ToString("yyyy-MM-dd"),
+            u.Gender,
+            u.Address,
+            u.LicenseNumber,
+            u.Specialty,
+            u.Department);
+    }
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
     {

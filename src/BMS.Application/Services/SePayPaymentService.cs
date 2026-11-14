@@ -17,6 +17,8 @@ namespace BMS.Application.Services;
 public sealed class SePayPaymentService(
     IAppointmentRepository appointments,
     ITestPackageRepository packages,
+    IPatientOwnership ownership,
+    IInvoiceRepository invoices,
     IOptions<SePayOptions> options,
     ILogger<SePayPaymentService> logger)
 {
@@ -46,9 +48,12 @@ public sealed class SePayPaymentService(
     {
         var appointment = await FindAppointmentAsync(appointmentId, ct);
         if (appointment == null) return null;
-        if (isPatient && !string.IsNullOrWhiteSpace(currentUserId) &&
-            !string.Equals(appointment.PatientId, currentUserId, StringComparison.Ordinal))
-            return null;
+        if (isPatient && !string.IsNullOrWhiteSpace(currentUserId))
+        {
+            var isOwn = string.Equals(appointment.PatientId, currentUserId, StringComparison.Ordinal)
+                || await ownership.IsOwnPatientAsync(currentUserId, appointment.PatientId, ct);
+            if (!isOwn) return null;
+        }
 
         var amount = await ResolveAmountAsync(appointment, ct);
         var content = BuildPaymentCode(appointment.AppointmentCode);
@@ -90,6 +95,45 @@ public sealed class SePayPaymentService(
             AccountName = options.Value.AccountName?.Trim() ?? string.Empty,
             QrUrl = qr
         };
+    }
+
+    public async Task<bool> SimulatePaymentSuccessAsync(string appointmentId, string? currentUserId, bool isPatient, CancellationToken ct)
+    {
+        var appointment = await FindAppointmentAsync(appointmentId, ct);
+        if (appointment == null) return false;
+        if (isPatient && !string.IsNullOrWhiteSpace(currentUserId))
+        {
+            var isOwn = string.Equals(appointment.PatientId, currentUserId, StringComparison.Ordinal)
+                || await ownership.IsOwnPatientAsync(currentUserId, appointment.PatientId, ct);
+            if (!isOwn) return false;
+        }
+
+        var amount = await ResolveAmountAsync(appointment, ct);
+        var demoTxId = $"DEMO-{DateTime.UtcNow:yyyyMMddHHmmss}-{Random.Shared.Next(1000, 9999)}";
+        var confirmed = await appointments.TryConfirmPaymentAsync(appointment.Id, demoTxId, amount, ct);
+        if (confirmed)
+        {
+            logger.LogInformation("Appointment {Code} confirmed via Demo simulation.", appointment.AppointmentCode);
+            try
+            {
+                var invoiceList = await invoices.GetInvoicesAsync(appointment.PatientId, InvoiceStatus.Unpaid, null, null, 1, 50, ct);
+                var linkedInvoice = invoiceList.FirstOrDefault(i => i.AppointmentId == appointment.Id);
+                if (linkedInvoice != null)
+                {
+                    linkedInvoice.Status = InvoiceStatus.Paid;
+                    linkedInvoice.PaidAt = DateTime.UtcNow;
+                    linkedInvoice.PaymentMethod = PaymentMethod.BankingQR;
+                    linkedInvoice.TransactionReference = demoTxId;
+                    linkedInvoice.ReceiptNumber = $"REC-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
+                    await invoices.UpdateAsync(linkedInvoice, ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to update linked invoice for appointment {AppointmentId}", appointment.Id);
+            }
+        }
+        return confirmed;
     }
 
     public async Task HandleWebhookAsync(SePayWebhookPayload payload, CancellationToken ct)

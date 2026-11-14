@@ -250,10 +250,10 @@ public sealed class ShiftRepository : IShiftRepository
         return (doctor, account);
     }
 
-    public async Task<(string? RoomName, string? RoomNumber, string? Floor)> ResolveRoomAsync(string roomId, CancellationToken ct = default)
+    public async Task<(string? RoomName, string? RoomNumber, string? Floor, string? Specialty)> ResolveRoomAsync(string roomId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(roomId))
-            return (null, null, null);
+            return (null, null, null, null);
 
         var trimmed = roomId.Trim();
         try
@@ -261,7 +261,7 @@ public sealed class ShiftRepository : IShiftRepository
             var docRoom = await _doctorRooms.Find(r => r.Id == trimmed || r.RoomNumber == trimmed).FirstOrDefaultAsync(ct);
             if (docRoom != null)
             {
-                return (docRoom.RoomName, docRoom.RoomNumber, docRoom.Floor);
+                return (docRoom.RoomName, docRoom.RoomNumber, docRoom.Floor, docRoom.Specialty);
             }
 
             var labRoom = await _labRooms.Find(Builders<BsonDocument>.Filter.Eq("_id", trimmed)).FirstOrDefaultAsync(ct);
@@ -269,7 +269,7 @@ public sealed class ShiftRepository : IShiftRepository
             {
                 var rName = labRoom.TryGetValue("room_name", out var rn) && rn.IsString ? rn.AsString : trimmed;
                 var rType = labRoom.TryGetValue("room_type", out var rt) && rt.IsString ? rt.AsString : null;
-                return (rName, trimmed, rType);
+                return (rName, trimmed, rType, null);
             }
         }
         catch
@@ -277,7 +277,7 @@ public sealed class ShiftRepository : IShiftRepository
             // Ignore
         }
 
-        return (null, null, null);
+        return (null, null, null, null);
     }
 
     public async Task<IReadOnlyDictionary<string, (string FullName, string Role, string Department, string? LicenseNumber)>> GetEmployeeMetadataAsync(

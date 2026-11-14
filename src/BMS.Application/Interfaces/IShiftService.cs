@@ -14,7 +14,7 @@ public interface IShiftRepository
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
     Task<bool> HasActiveAppointmentsAsync(string shiftId, CancellationToken ct = default);
     Task<(Doctor? Doctor, User? Account)> ResolveEmployeeAsync(string employeeId, CancellationToken ct = default);
-    Task<(string? RoomName, string? RoomNumber, string? Floor)> ResolveRoomAsync(string roomId, CancellationToken ct = default);
+    Task<(string? RoomName, string? RoomNumber, string? Floor, string? Specialty)> ResolveRoomAsync(string roomId, CancellationToken ct = default);
     Task<IReadOnlyDictionary<string, (string FullName, string Role, string Department, string? LicenseNumber)>> GetEmployeeMetadataAsync(
         IEnumerable<string> employeeIds,
         CancellationToken ct = default);

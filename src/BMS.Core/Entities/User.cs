@@ -74,6 +74,19 @@ public class User : ISupportInitialize
     [BsonElement("bloodType")]
     public string? BloodType { get; set; }
 
+    // Thông tin nhân sự cán bộ y tế (Đề án 06 Bộ Y tế & ISO 15189)
+    [BsonElement("employeeCode")]
+    public string? EmployeeCode { get; set; }
+
+    [BsonElement("licenseNumber")]
+    public string? LicenseNumber { get; set; }
+
+    [BsonElement("specialty")]
+    public string? Specialty { get; set; }
+
+    [BsonElement("department")]
+    public string? Department { get; set; }
+
     // Vai trò
     [BsonElement("RoleId")]
     [BsonIgnoreIfNull]

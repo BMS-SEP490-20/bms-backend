@@ -13,11 +13,16 @@ public class UserProfileResponseDto
     public string PhoneNumber { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string? PatientCode { get; set; }
+    public string? EmployeeCode { get; set; }
+    public string? IdentityCardNumber { get; set; }
     public string? IdentityCardNumberMasked { get; set; }
     public string? DateOfBirth { get; set; }
     public string? Gender { get; set; }
     public string? Address { get; set; }
     public string? BloodType { get; set; }
+    public string? LicenseNumber { get; set; }
+    public string? Specialty { get; set; }
+    public string? Department { get; set; }
     public string Role { get; set; } = "Patient";
     public bool IsActive { get; set; } = true;
     public string? AvatarUrl { get; set; }

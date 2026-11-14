@@ -104,11 +104,25 @@ public class UserService : IUserService
             PhoneNumber = FormatPhoneNumber(user.PhoneNumber),
             FullName = user.FullName,
             PatientCode = user.PatientCode ?? "BN-2026-00001",
+            EmployeeCode = !string.IsNullOrWhiteSpace(user.EmployeeCode) ? user.EmployeeCode :
+                user.Role switch
+                {
+                    UserRole.Receptionist => $"NV-REC-{(user.Id.Length >= 3 ? user.Id[^3..] : "001")}",
+                    UserRole.Doctor => $"BS-{(user.Id.Length >= 3 ? user.Id[^3..] : "001")}",
+                    UserRole.Lab => $"KTV-{(user.Id.Length >= 3 ? user.Id[^3..] : "001")}",
+                    UserRole.Manager => $"QL-{(user.Id.Length >= 3 ? user.Id[^3..] : "001")}",
+                    UserRole.Admin => $"QT-{(user.Id.Length >= 3 ? user.Id[^3..] : "001")}",
+                    _ => null
+                },
+            IdentityCardNumber = user.IdentityCardNumber,
             IdentityCardNumberMasked = MaskIdentityCard(user.IdentityCardNumber),
-            DateOfBirth = user.DateOfBirth?.ToString("dd/MM/yyyy") ?? "15/08/1995",
-            Gender = user.Gender ?? "Male",
+            DateOfBirth = user.DateOfBirth?.ToString("dd/MM/yyyy") ?? (user.Role == UserRole.Patient ? "15/08/1995" : "20/10/1995"),
+            Gender = user.Gender ?? (user.Role == UserRole.Receptionist ? "Nữ" : "Nam"),
             Address = user.Address ?? "TP. Hồ Chí Minh, Việt Nam",
             BloodType = user.BloodType ?? "O+",
+            LicenseNumber = user.LicenseNumber,
+            Specialty = user.Specialty,
+            Department = user.Department,
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
             AvatarUrl = user.AvatarUrl,

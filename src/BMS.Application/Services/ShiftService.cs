@@ -44,6 +44,15 @@ public sealed class ShiftService(
     {
         var now = clock.GetUtcNow().UtcDateTime;
         var shiftDate = DateTime.SpecifyKind((request.ShiftDate ?? now).Date, DateTimeKind.Utc);
+        
+        // Validation MSG-ERR-SHIFT-01: Chặn phân ca quá khứ
+        if (shiftDate < now.Date)
+        {
+            throw new DomainValidationException(
+                "MSG-ERR-SHIFT-01",
+                "Không thể phân ca làm việc trong quá khứ. Vui lòng chọn ngày từ hôm nay trở đi.");
+        }
+
         var (startStr, endStr) = ShiftWriteRequest.ResolveWorkingTimeWindow(request.ShiftType, request.ShiftStart, request.ShiftEnd);
         var (startTs, endTs) = ParseWorkingHoursOrThrow(startStr, endStr);
 
@@ -63,7 +72,23 @@ public sealed class ShiftService(
 
         // 2. Resolve Room assignment
         var roomId = request.RoomId.Trim().ToUpperInvariant();
-        var (roomName, _, _) = await shiftRepository.ResolveRoomAsync(roomId, ct);
+        var (roomName, _, _, roomSpecialty) = await shiftRepository.ResolveRoomAsync(roomId, ct);
+
+        // Validation MSG-ERR-SHIFT-04: Khớp Tam giác chuyên ngành (Bác sĩ chuyên ngành == Phòng khám chuyên ngành)
+        if (string.Equals(resolvedEmployeeRole, "Doctor", StringComparison.OrdinalIgnoreCase) || doctor != null)
+        {
+            var docSpec = !string.IsNullOrWhiteSpace(doctor?.Specialty) ? doctor.Specialty.Trim() : resolvedDepartment;
+            if (!string.IsNullOrWhiteSpace(roomSpecialty) &&
+                !string.IsNullOrWhiteSpace(docSpec) &&
+                !roomSpecialty.Equals("Tổng quát", StringComparison.OrdinalIgnoreCase) &&
+                !docSpec.Equals("Tổng quát", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(roomSpecialty, docSpec, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DomainValidationException(
+                    "MSG-ERR-SHIFT-04",
+                    $"Chuyên ngành Bác sĩ ({docSpec}) không khớp với chuyên ngành Phòng khám ({roomSpecialty}). Vui lòng chọn phòng chuyên khoa phù hợp hoặc phòng Tổng quát.");
+            }
+        }
 
         // 3. Conflict Detection (Employee overlap & Room overlap on same calendar date)
         await ValidateNoShiftConflictAsync(
@@ -120,6 +145,15 @@ public sealed class ShiftService(
 
         var now = clock.GetUtcNow().UtcDateTime;
         var shiftDate = DateTime.SpecifyKind((request.ShiftDate ?? existing.ShiftDate).Date, DateTimeKind.Utc);
+
+        // Validation MSG-ERR-SHIFT-01: Chặn phân ca quá khứ
+        if (shiftDate < now.Date)
+        {
+            throw new DomainValidationException(
+                "MSG-ERR-SHIFT-01",
+                "Không thể phân ca làm việc trong quá khứ. Vui lòng chọn ngày từ hôm nay trở đi.");
+        }
+
         var (startStr, endStr) = ShiftWriteRequest.ResolveWorkingTimeWindow(request.ShiftType, request.ShiftStart, request.ShiftEnd);
         var (startTs, endTs) = ParseWorkingHoursOrThrow(startStr, endStr);
 
@@ -146,7 +180,23 @@ public sealed class ShiftService(
             : doctor?.Specialty ?? existing.Department ?? "Clinical";
 
         var roomId = request.RoomId.Trim().ToUpperInvariant();
-        var (roomName, _, _) = await shiftRepository.ResolveRoomAsync(roomId, ct);
+        var (roomName, _, _, roomSpecialty) = await shiftRepository.ResolveRoomAsync(roomId, ct);
+
+        // Validation MSG-ERR-SHIFT-04: Khớp Tam giác chuyên ngành (Bác sĩ chuyên ngành == Phòng khám chuyên ngành)
+        if (string.Equals(resolvedEmployeeRole, "Doctor", StringComparison.OrdinalIgnoreCase) || doctor != null)
+        {
+            var docSpec = !string.IsNullOrWhiteSpace(doctor?.Specialty) ? doctor.Specialty.Trim() : resolvedDepartment;
+            if (!string.IsNullOrWhiteSpace(roomSpecialty) &&
+                !string.IsNullOrWhiteSpace(docSpec) &&
+                !roomSpecialty.Equals("Tổng quát", StringComparison.OrdinalIgnoreCase) &&
+                !docSpec.Equals("Tổng quát", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(roomSpecialty, docSpec, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DomainValidationException(
+                    "MSG-ERR-SHIFT-04",
+                    $"Chuyên ngành Bác sĩ ({docSpec}) không khớp với chuyên ngành Phòng khám ({roomSpecialty}). Vui lòng chọn phòng chuyên khoa phù hợp hoặc phòng Tổng quát.");
+            }
+        }
 
         // Conflict Detection (excluding current shift ID)
         var newStatus = NormalizeStatus(request.Status);

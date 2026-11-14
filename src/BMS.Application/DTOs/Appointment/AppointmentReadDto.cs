@@ -16,6 +16,7 @@ namespace BMS.Application.DTOs.Appointment
         public string? Status { get; set; }
         public string CreatedBy { get; set; } = string.Empty;
         public string? PatientId { get; set; }
+        public string? PatientName { get; set; }
         public DateTime? CreatedAt { get; set; }
         public string? LabAssignmentId { get; set; }
         public DateTime? AppointmentTime { get; set; }

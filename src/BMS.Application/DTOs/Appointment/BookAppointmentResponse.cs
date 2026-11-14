@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -9,6 +9,7 @@ namespace BMS.Application.DTOs.Appointment
         public string AppointmentId { get; set; } = string.Empty;
         public string AppointmentCode { get; set; } = string.Empty;
         public string PatientId { get; set; } = string.Empty;
+        public string? PatientName { get; set; }
         public string? DoctorId { get; set; }
         public string DoctorName { get; set; } = string.Empty;
         public string Specialty { get; set; } = string.Empty;
