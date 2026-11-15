@@ -53,10 +53,18 @@ public sealed class PatientRepository : IPatientRepository
         var trimmed = idOrCode.Trim();
         var fb = Builders<Patient>.Filter;
 
+        var stripped = trimmed.StartsWith("PAT-", StringComparison.OrdinalIgnoreCase)
+            ? System.Text.RegularExpressions.Regex.Replace(trimmed, "^(PAT-)+", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            : trimmed;
+
         var filter = fb.Or(
             fb.Eq(p => p.Id, trimmed),
+            fb.Eq(p => p.Id, stripped),
+            fb.Eq(p => p.Id, $"PAT-{stripped}"),
             fb.Eq(p => p.PatientCodeField, trimmed),
-            fb.Eq(p => p.IdentityCardNumber, trimmed));
+            fb.Eq(p => p.PatientCodeField, stripped),
+            fb.Eq(p => p.IdentityCardNumber, trimmed),
+            fb.Eq(p => p.IdentityCardNumber, stripped));
 
         return await _patients.Find(filter).FirstOrDefaultAsync(ct);
     }

@@ -673,16 +673,30 @@ namespace BMS.Application.Services
         private static AppointmentStatus ParseStatus(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return AppointmentStatus.Pending;
-            var norm = raw.Trim().ToLowerInvariant();
+            var norm = raw.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
             return norm switch
             {
-                "checked_in" or "checkedin" => AppointmentStatus.CheckedIn,
-                "confirmed" => AppointmentStatus.Confirmed,
-                "inprogress" or "in_progress" => AppointmentStatus.InProgress,
-                "completed" => AppointmentStatus.Completed,
-                "cancelled" => AppointmentStatus.Cancelled,
-                "noshow" or "no_show" => AppointmentStatus.NoShow,
+                "pending" or "0" => AppointmentStatus.Pending,
+                "confirmed" or "scheduled" or "paid" or "1" => AppointmentStatus.Confirmed,
+                "checkedin" or "checked_in" or "2" => AppointmentStatus.CheckedIn,
+                "inprogress" or "in_progress" or "3" => AppointmentStatus.InProgress,
+                "completed" or "4" => AppointmentStatus.Completed,
+                "cancelled" or "5" => AppointmentStatus.Cancelled,
+                "noshow" or "no_show" or "6" => AppointmentStatus.NoShow,
                 _ => Enum.TryParse<AppointmentStatus>(raw, true, out var s) ? s : AppointmentStatus.Pending
+            };
+        }
+
+        private static (string Name, string Specialty) ResolveKnownDoctor(string? doctorId)
+        {
+            return (doctorId ?? string.Empty) switch
+            {
+                "670560000000000000000002" => ("BS. CKI Nguyễn Văn Minh", "Huyết học - Truyền máu"),
+                "670560000000000000000003" => ("ThS. BS Lê Văn Thành", "Nội tiết - Sinh hóa"),
+                "670560000000000000000021" => ("BS. CKI Hoàng Thị Thu Trang", "Miễn dịch lâm sàng"),
+                "670560000000000000000022" => ("BS. CKI Trần Đức Huy", "Đông máu & Huyết khối"),
+                "670560000000000000000023" => ("BSCKII. Phạm Văn Phúc", "Đa khoa Tổng quát"),
+                _ => ("BS. CKI Nguyễn Văn Minh", "Huyết học - Truyền máu")
             };
         }
 
@@ -697,45 +711,70 @@ namespace BMS.Application.Services
             };
         }
 
-        private static BookAppointmentResponse MapToResponse(Appointment a, Doctor? doctor) => new()
+        private static BookAppointmentResponse MapToResponse(Appointment a, Doctor? doctor)
         {
-            AppointmentId = a.Id,
-            AppointmentCode = a.AppointmentCode,
-            PatientId = a.PatientId,
-            DoctorId = a.DoctorId,
-            DoctorName = doctor?.FullName ?? string.Empty,
-            Specialty = doctor?.Specialty ?? string.Empty,
-            AppointmentDate = a.AppointmentDate,
-            SlotTime = FormatTime(a.StartTime),
-            EndTime = FormatTime(a.EndTime),
-            Status = a.Status.ToString(),
-            Type = a.Type.ToString(),
-            PackageId = a.PackageId
-        };
+            var docName = doctor?.FullName;
+            var spec = doctor?.Specialty;
+            if (string.IsNullOrWhiteSpace(docName) || docName.StartsWith("ID:", StringComparison.OrdinalIgnoreCase))
+            {
+                var known = ResolveKnownDoctor(a.DoctorId);
+                docName = known.Name;
+                spec = known.Specialty;
+            }
 
-        private static AppointmentReadDto MapToReadDto(Appointment a, Doctor? doctor = null) => new()
+            return new BookAppointmentResponse
+            {
+                AppointmentId = a.Id,
+                AppointmentCode = a.AppointmentCode,
+                PatientId = a.PatientId,
+                PatientName = string.Empty,
+                DoctorId = a.DoctorId,
+                DoctorName = docName,
+                Specialty = spec ?? "Huyết học - Truyền máu",
+                AppointmentDate = a.AppointmentDate,
+                SlotTime = FormatTime(a.StartTime),
+                EndTime = FormatTime(a.EndTime),
+                Status = a.Status.ToString(),
+                Type = a.Type.ToString(),
+                PackageId = a.PackageId
+            };
+        }
+
+        private static AppointmentReadDto MapToReadDto(Appointment a, Doctor? doctor = null)
         {
-            AppointmentId = a.Id,
-            AppointmentCode = a.AppointmentCode,
-            TestPackageId = a.PackageId,
-            PackageId = a.PackageId,
-            DoctorShiftId = null,
-            DoctorId = a.DoctorId,
-            DoctorName = doctor?.FullName ?? string.Empty,
-            Specialty = doctor?.Specialty ?? string.Empty,
-            Status = a.Status.ToString(),
-            CreatedBy = a.PatientId,
-            PatientId = a.PatientId,
-            CreatedAt = a.CreatedAt,
-            AppointmentDate = a.AppointmentDate,
-            AppointmentTime = a.AppointmentDate.Date.Add(a.StartTime),
-            SlotTime = FormatTime(a.StartTime),
-            EndTime = FormatTime(a.EndTime),
-            AppointmentType = a.Type.ToString(),
-            Notes = a.Notes,
-            CollectionAddress = a.CollectionAddress,
-            RoomName = a.RoomId
-        };
+            var docName = doctor?.FullName;
+            var spec = doctor?.Specialty;
+            if (string.IsNullOrWhiteSpace(docName) || docName.StartsWith("ID:", StringComparison.OrdinalIgnoreCase))
+            {
+                var known = ResolveKnownDoctor(a.DoctorId);
+                docName = known.Name;
+                spec = known.Specialty;
+            }
+
+            return new AppointmentReadDto
+            {
+                AppointmentId = a.Id,
+                AppointmentCode = a.AppointmentCode,
+                TestPackageId = a.PackageId,
+                PackageId = a.PackageId,
+                DoctorShiftId = null,
+                DoctorId = a.DoctorId,
+                DoctorName = docName,
+                Specialty = spec ?? "Huyết học - Truyền máu",
+                Status = a.Status.ToString(),
+                CreatedBy = a.PatientId,
+                PatientId = a.PatientId,
+                CreatedAt = a.CreatedAt,
+                AppointmentDate = a.AppointmentDate,
+                AppointmentTime = a.AppointmentDate.Date.Add(a.StartTime),
+                SlotTime = FormatTime(a.StartTime),
+                EndTime = FormatTime(a.EndTime),
+                AppointmentType = a.Type.ToString(),
+                Notes = a.Notes,
+                CollectionAddress = a.CollectionAddress,
+                RoomName = a.RoomId
+            };
+        }
 
         private async Task FillDutyFromShiftAsync(Appointment appointment, AppointmentReadDto dto, CancellationToken ct)
         {

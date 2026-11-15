@@ -155,15 +155,17 @@ public class AppointmentsController : ControllerBase
     [ProducesResponseType(typeof(AvailableSlotsResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAvailableSlots(
         [FromQuery] string doctorId,
-        [FromQuery] DateTime date,
+        [FromQuery] DateTime? date,
         CancellationToken ct)
     {
-        if (date.Date <= DateTime.MinValue.Date || date.Date >= DateTime.MaxValue.Date)
-            return BadRequest(new { code = "INVALID_APPOINTMENT_DATE", message = "Ngày khám không hợp lệ." });
+        var targetDate = date.HasValue && date.Value.Date > DateTime.MinValue.Date && date.Value.Date < DateTime.MaxValue.Date
+            ? date.Value.Date
+            : DateTime.UtcNow.Date;
+
         if (string.IsNullOrWhiteSpace(doctorId))
             return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "doctorId is required." });
 
-        var result = await _service.GetAvailableSlotsAsync(doctorId, date, ct);
+        var result = await _service.GetAvailableSlotsAsync(doctorId, targetDate, ct);
         return Ok(result);
     }
 
@@ -174,13 +176,15 @@ public class AppointmentsController : ControllerBase
     [HttpGet("doctors")]
     [ProducesResponseType(typeof(List<DoctorOptionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAvailableDoctors(
-        [FromQuery] DateTime date,
+        [FromQuery] DateTime? date,
         [FromQuery] string? specialty,
         CancellationToken ct)
     {
-        if (date.Date <= DateTime.MinValue.Date || date.Date >= DateTime.MaxValue.Date)
-            return BadRequest(new { code = "INVALID_APPOINTMENT_DATE", message = "Ngày khám không hợp lệ." });
-        var result = await _service.GetAvailableDoctorsAsync(date, specialty, ct);
+        var targetDate = date.HasValue && date.Value.Date > DateTime.MinValue.Date && date.Value.Date < DateTime.MaxValue.Date
+            ? date.Value.Date
+            : DateTime.UtcNow.Date;
+
+        var result = await _service.GetAvailableDoctorsAsync(targetDate, specialty, ct);
         return Ok(result);
     }
 
