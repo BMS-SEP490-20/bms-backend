@@ -104,8 +104,8 @@ public static class RoleSets
     public const string DoctorManagerOrPatient = RoleNames.Doctor + C + RoleNames.Manager + C + RoleNames.Patient;
     /// <summary>Appointment readers (UC23): Receptionist, Manager, Doctor (assigned), Patient (own).</summary>
     public const string AppointmentReaders = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Patient;
-    /// <summary>Appointment editors (UC24): Receptionist, Manager, Patient (own cancel/reschedule).</summary>
-    public const string AppointmentEditors = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Patient;
+    /// <summary>Appointment editors (UC24): Receptionist, Manager, Doctor (reschedule/status), Patient (own cancel/reschedule).</summary>
+    public const string AppointmentEditors = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Patient;
     /// <summary>Doctor schedule viewers (UC16): Admin, Manager, Doctor, Receptionist.</summary>
     public const string DoctorScheduleViewers = RoleNames.Admin + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Receptionist;
     /// <summary>Push dispatchers (UC58): Lab, Manager, Receptionist.</summary>
