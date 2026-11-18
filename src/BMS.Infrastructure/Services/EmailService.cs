@@ -254,6 +254,95 @@ public class EmailService : IEmailService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> SendWalkInAccountEmailAsync(
+        string toEmail,
+        string patientName,
+        string patientCode,
+        string username,
+        string temporaryPassword,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var htmlBody = $$"""
+            <!DOCTYPE html>
+            <html lang="vi">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b; }
+                    .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+                    .header { background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%); color: #ffffff; padding: 24px 20px; text-align: center; }
+                    .content { padding: 26px 24px; }
+                    .cred-box { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 10px; padding: 16px 18px; margin: 18px 0; }
+                    .row { margin: 6px 0; font-size: 14px; }
+                    .code { font-family: Consolas, monospace; font-weight: 700; color: #1e40af; font-size: 15px; }
+                    .btn { display: inline-block; background: #1e40af; color: #ffffff !important; text-decoration: none; padding: 12px 26px; border-radius: 8px; font-weight: 700; font-size: 14px; }
+                    .footer { background: #f1f5f9; padding: 14px; font-size: 12px; color: #64748b; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2 style="margin:0; font-size:20px;">BMS Health · Cấp Tài Khoản Tra Cứu Kết Quả</h2>
+                        <p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Hồ sơ bệnh nhân đã được tiếp nhận thành công</p>
+                    </div>
+                    <div class="content">
+                        <p>Kính gửi Quý khách <strong>{{System.Net.WebUtility.HtmlEncode(patientName)}}</strong>,</p>
+                        <p style="font-size:14px; color:#475569; line-height:1.6;">
+                            Hồ sơ xét nghiệm của Quý khách đã được tạo tại quầy tiếp đón. Hệ thống đã tự động cấp tài khoản Cổng Bệnh Nhân để Quý khách theo dõi tiến trình và xem/tải phiếu kết quả xét nghiệm trực tuyến:
+                        </p>
+                        <div class="cred-box">
+                            <div class="row">Mã bệnh nhân: <span class="code">{{System.Net.WebUtility.HtmlEncode(patientCode)}}</span></div>
+                            <div class="row">Tên đăng nhập: <span class="code">{{System.Net.WebUtility.HtmlEncode(username)}}</span> (hoặc email <strong>{{System.Net.WebUtility.HtmlEncode(toEmail)}}</strong>)</div>
+                            <div class="row">Mật khẩu tạm thời: <span class="code">{{System.Net.WebUtility.HtmlEncode(temporaryPassword)}}</span></div>
+                        </div>
+                        <p style="font-size:13px; color:#64748b;">Vì lý do bảo mật hồ sơ y tế, Quý khách vui lòng đổi mật khẩu sau lần đăng nhập đầu tiên.</p>
+                        <div style="text-align:center; margin:22px 0;">
+                            <a href="http://localhost:3000/login" class="btn">Đăng Nhập Cổng Bệnh Nhân BMS</a>
+                        </div>
+                    </div>
+                    <div class="footer">&copy; 2026 BMS Health System · Bảo mật theo tiêu chuẩn ISO 15189</div>
+                </div>
+            </body>
+            </html>
+            """;
+
+            if (!string.IsNullOrEmpty(_emailSettings.SenderEmail) &&
+                !string.IsNullOrEmpty(_emailSettings.AppPassword))
+            {
+                using var client = new SmtpClient(_emailSettings.SmtpServer, _emailSettings.Port)
+                {
+                    Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.AppPassword),
+                    EnableSsl = _emailSettings.EnableSsl,
+                    Timeout = 20000
+                };
+                using var mail = new MailMessage
+                {
+                    From = new MailAddress(_emailSettings.SenderEmail, _emailSettings.SenderName, System.Text.Encoding.UTF8),
+                    Subject = $"[BMS Health] Thông tin tài khoản tra cứu kết quả xét nghiệm ({patientCode})",
+                    Body = htmlBody,
+                    IsBodyHtml = true,
+                    SubjectEncoding = System.Text.Encoding.UTF8,
+                    BodyEncoding = System.Text.Encoding.UTF8
+                };
+                mail.To.Add(toEmail);
+                await client.SendMailAsync(mail, ct);
+                _logger.LogInformation("[BMS Email Service] Delivered walk-in portal account email to {Email} ({PatientCode})", toEmail, patientCode);
+                return true;
+            }
+
+            _logger.LogInformation("[BMS Email Simulation] Walk-in account email for {PatientCode} -> {Email} (Username: {Username})", patientCode, toEmail, username);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[BMS Email Warning] Failed to deliver walk-in account email to {Email}.", toEmail);
+            return false;
+        }
+    }
+
     private static string BuildMedicalEmailTemplate(
         string email,
         string otpCode,
@@ -503,7 +592,8 @@ public class EmailService : IEmailService
                     </div>
 
                     <div style="text-align: center; margin: 24px 0;">
-                        <a href="http://localhost:5173/laboratory/notifications" class="btn">Tra Cứu Phiếu Kết Quả Trực Tuyến</a>
+                        <a href="http://localhost:3000/patient/test-history" class="btn" style="margin: 6px;">Xem Kết Quả Xét Nghiệm</a>
+                        <a href="http://localhost:3000/login" class="btn" style="background: #475569; margin: 6px;">Đăng Nhập Cổng Bệnh Nhân</a>
                     </div>
 
                     <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-bottom: 0;">

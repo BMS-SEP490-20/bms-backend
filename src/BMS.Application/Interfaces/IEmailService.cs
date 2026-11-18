@@ -44,4 +44,16 @@ public interface IEmailService
         List<string>? criticalParameters,
         string? clinicalRecommendation,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Dispatches an HTML email containing auto-provisioned Patient Portal credentials for a walk-in patient.
+    /// Default implementation returns true so test mocks remain source-compatible.
+    /// </summary>
+    Task<bool> SendWalkInAccountEmailAsync(
+        string toEmail,
+        string patientName,
+        string patientCode,
+        string username,
+        string temporaryPassword,
+        CancellationToken ct = default) => Task.FromResult(true);
 }

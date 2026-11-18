@@ -64,6 +64,14 @@ public class TrackTestProgressController : ControllerBase
             });
         }
 
+        // If an authenticated Patient looks up their own specimen, return unmasked details.
+        if (!isStaff && User.Identity?.IsAuthenticated == true && User.IsInRole(RoleNames.Patient) &&
+            !string.IsNullOrWhiteSpace(result.PatientId) &&
+            await this.MayAccessPatientAsync(result.PatientId, ct))
+        {
+            result = await _trackingService.GetTrackingAsync(identifier.Trim(), isPublicQuery: false, ct) ?? result;
+        }
+
         return Ok(new
         {
             success = true,

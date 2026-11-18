@@ -19,7 +19,10 @@ public sealed class PatientService(
     IUserRepository userRepository,
     ISequenceGenerator sequences,
     TimeProvider clock,
-    ILogger<PatientService> logger) : IPatientService
+    ILogger<PatientService> logger,
+    IAuditLogRepository? auditLogs = null,
+    IPasswordHasher? passwordHasher = null,
+    IEmailService? emailService = null) : IPatientService
 {
     /// <summary>
     /// UC25 - Create Guest Profile (Issue I2-016 | BR-077 / BR-REC-01).
@@ -38,7 +41,7 @@ public sealed class PatientService(
             ? null
             : request.IdentityNumber.Trim();
 
-        PatientIdentityRules.Validate(identityNumber, phone);
+        PatientIdentityRules.Validate(identityNumber, phone, request.DateOfBirth);
 
         // 1. Check duplicate identity card number (CCCD) — MSG-ERR-REC-01. WHY masked: the message reaches the
         // UI and logs; it must not echo the full CCCD or another patient's name (INV-4).
@@ -76,11 +79,69 @@ public sealed class PatientService(
                 : request.DateOfBirth.Value.ToUniversalTime().Date)
             : (DateTime?)null;
 
+        var normalizedEmail = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
+        string accountId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        string? portalUsername = null;
+        string? temporaryPassword = null;
+        bool accountAutoCreated = false;
+
+        // Always provision a dedicated isolated Patient portal account per patient record so patients never see another patient's history.
+        try
+        {
+            User? existingAccount = null;
+            if (!string.IsNullOrWhiteSpace(normalizedEmail))
+            {
+                existingAccount = await userRepository.FindByEmailAsync(normalizedEmail, ct);
+            }
+
+            if (passwordHasher != null)
+            {
+                var digits = new string(phone.Where(char.IsDigit).ToArray());
+                var suffix = digits.Length >= 6 ? digits[^6..] : digits.PadLeft(6, '0');
+                temporaryPassword = $"Bms@{suffix}";
+                portalUsername = patientId.ToLowerInvariant();
+                var accountEmail = (!string.IsNullOrWhiteSpace(normalizedEmail) && existingAccount == null)
+                    ? normalizedEmail
+                    : $"{portalUsername}@guest.bms.local";
+
+                var newAccount = new User
+                {
+                    Id = accountId,
+                    Username = portalUsername,
+                    Email = accountEmail,
+                    PhoneNumber = phone,
+                    FullName = fullName,
+                    PatientCode = patientId,
+                    IdentityCardNumber = identityNumber,
+                    DateOfBirth = dobUtc,
+                    Gender = NormalizeGender(request.Gender),
+                    Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim(),
+                    BloodType = string.IsNullOrWhiteSpace(request.BloodType) ? "Unknown" : request.BloodType.Trim().ToUpperInvariant(),
+                    RoleId = (int)UserRole.Patient,
+                    Status = (int)UserStatus.Active,
+                    IsActive = true,
+                    MedicalProfileCompleted = true,
+                    PasswordHash = passwordHasher.Hash(temporaryPassword),
+                    CreatedAt = now
+                };
+
+                await userRepository.CreateAsync(newAccount, ct);
+                accountAutoCreated = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not auto-provision portal account for walk-in patient {PatientId}; continuing with guest profile.", patientId);
+            temporaryPassword = null;
+            portalUsername = null;
+            accountAutoCreated = false;
+        }
+
         var entity = new Patient
         {
             Id = patientId,
             PatientCodeField = patientId,
-            AccountId = MongoDB.Bson.ObjectId.GenerateNewId().ToString(), // Unique reference so non-sparse AccountId index in MongoDB never collides
+            AccountId = accountId,
             IsGuest = true,
             FullName = fullName,
             DateOfBirth = dobUtc,
@@ -114,11 +175,62 @@ public sealed class PatientService(
 
         await patientRepository.InsertAsync(entity, ct);
 
-        logger.LogInformation(
-            "Guest patient profile created: {PatientId} ({FullName}, Phone={Phone}) by {CreatedBy}",
-            entity.Id, PiiMasker.MaskName(entity.FullName), PiiMasker.Mask(entity.PhoneNumber), createdByUserId ?? "ANONYMOUS");
+        // Ghi nhận Audit Trail (ISO 15189 / ISO 27789)
+        if (auditLogs != null)
+        {
+            try
+            {
+                await auditLogs.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = createdByUserId ?? "ANONYMOUS",
+                    UserName = createdByUserId ?? "ANONYMOUS",
+                    UserRole = "Receptionist",
+                    Action = "GUEST_PROFILE_CREATED",
+                    Category = "PATIENT_IDENTITY",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "Patient",
+                    EntityId = entity.Id,
+                    Details = $"Created guest profile {entity.Id} for patient {PiiMasker.MaskName(entity.FullName)} (DOB: {entity.DateOfBirth:yyyy-MM-dd}, Phone: {PiiMasker.Mask(entity.PhoneNumber)})."
+                }, ct);
+            }
+            catch { /* Skip audit failure */ }
+        }
 
-        return MapToDto(entity, [], [], now);
+        if (accountAutoCreated &&
+            emailService != null &&
+            !string.IsNullOrWhiteSpace(normalizedEmail) &&
+            !string.IsNullOrWhiteSpace(portalUsername) &&
+            !string.IsNullOrWhiteSpace(temporaryPassword))
+        {
+            try
+            {
+                await emailService.SendWalkInAccountEmailAsync(
+                    normalizedEmail,
+                    entity.FullName,
+                    entity.Id,
+                    portalUsername,
+                    temporaryPassword,
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Walk-in account welcome email failed for {PatientId}", entity.Id);
+            }
+        }
+
+        logger.LogInformation(
+            "Guest patient profile created: {PatientId} ({FullName}, Phone={Phone}, AccountAutoCreated={AccountAutoCreated}) by {CreatedBy}",
+            entity.Id, PiiMasker.MaskName(entity.FullName), PiiMasker.Mask(entity.PhoneNumber), accountAutoCreated, createdByUserId ?? "ANONYMOUS");
+
+        var dto = MapToDto(entity, [], [], now);
+        dto.PortalUsername = portalUsername;
+        dto.TemporaryPassword = temporaryPassword;
+        dto.AccountAutoCreated = accountAutoCreated;
+        return dto;
     }
 
     /// <summary>
@@ -142,7 +254,7 @@ public sealed class PatientService(
         if (patient is null)
             throw new PatientNotFoundException(idOrCode);
 
-        // Enforce HIPAA / clinical RBAC access control:
+        // Enforce HIPAA / clinical RBAC access control (UC30 Anti-IDOR):
         // Non-staff (Patient role) can only view their own profile.
         if (!isStaffOrAdmin)
         {
@@ -152,9 +264,58 @@ public sealed class PatientService(
 
             if (!isOwner)
             {
+                if (auditLogs != null)
+                {
+                    try
+                    {
+                        await auditLogs.AddAsync(new AuditLog
+                        {
+                            AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                            Timestamp = now,
+                            UserId = requesterUserId ?? "ANONYMOUS",
+                            UserName = requesterUserId ?? "ANONYMOUS",
+                            Action = "VIEW_PATIENT_INFORMATION",
+                            Category = "PATIENT_IDENTITY",
+                            Severity = "WARNING",
+                            UserRole = "Patient",
+                            Status = "ACCESS_DENIED",
+                            IpAddress = "127.0.0.1",
+                            TargetEntity = "Patient",
+                            EntityId = patient.Id,
+                            Details = $"Unauthorized access attempt (IDOR) to patient record {patient.Id} by user {requesterUserId}."
+                        }, ct);
+                    }
+                    catch { /* Skip audit failure */ }
+                }
+
                 throw new ForbiddenAccessException(
                     "Bạn chỉ có quyền xem hồ sơ bệnh nhân của chính mình.");
             }
+        }
+
+        // Audit Trail for viewing patient information (ISO 27789:2021 / ISO 15189)
+        if (auditLogs != null)
+        {
+            try
+            {
+                await auditLogs.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = requesterUserId ?? "ANONYMOUS",
+                    UserName = requesterUserId ?? "ANONYMOUS",
+                    Action = "VIEW_PATIENT_INFORMATION",
+                    Category = "PATIENT_IDENTITY",
+                    Severity = "INFO",
+                    UserRole = isStaffOrAdmin ? "Staff" : "Patient",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "Patient",
+                    EntityId = patient.Id,
+                    Details = $"User {requesterUserId} viewed clinical patient record {patient.Id}."
+                }, ct);
+            }
+            catch { /* Skip audit failure */ }
         }
 
         var appointments = await patientRepository.GetRecentAppointmentsAsync(patient.Id, 10, ct);

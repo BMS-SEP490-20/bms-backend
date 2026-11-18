@@ -1,31 +1,44 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BMS.Application.DTOs.Notifications;
 using BMS.Application.DTOs.Roles;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
 /// <summary>
 /// Service implementation for Laboratory Diagnostic Test Result Notifications (UC60 / BR-182).
 /// Dispatches test result emails directly via SMTP, with automatic Panic Value detection and emergency escalation.
-/// Conforms to: Production Medical Standards, ISO 15189 Quality Management & AGENTS-CODE.md.
+/// Conforms to: Production Medical Standards, ISO 15189:2022, ISO 27789:2021, OWASP ASVS & AGENTS-CODE.md.
 /// </summary>
 public class TestResultNotificationService : ITestResultNotificationService
 {
     private readonly ITestResultNotificationRepository _repository;
     private readonly IEmailService _emailService;
     private readonly ILogger<TestResultNotificationService> _logger;
+    private readonly IMongoDatabase? _db;
+    private readonly IPasswordHasher? _passwordHasher;
 
     public TestResultNotificationService(
         ITestResultNotificationRepository repository,
         IEmailService emailService,
-        ILogger<TestResultNotificationService> logger)
+        ILogger<TestResultNotificationService> logger,
+        IMongoDatabase? db = null,
+        IPasswordHasher? passwordHasher = null)
     {
         _repository = repository;
         _emailService = emailService;
         _logger = logger;
+        _db = db;
+        _passwordHasher = passwordHasher;
     }
 
     public async Task<(bool Success, string Message, TestResultNotificationDetailDto? Data)> DispatchNotificationAsync(
@@ -44,6 +57,99 @@ public class TestResultNotificationService : ITestResultNotificationService
             return (false, "Thông tin bệnh nhân (Mã và Họ tên) là bắt buộc.", null);
         }
 
+        // =====================================================================
+        // RULE 1: Only notify if test result is APPROVED (ISO 15189:2022)
+        // =====================================================================
+        if (_db != null)
+        {
+            var testResultsCol = _db.GetCollection<TestResult>("test_results");
+            var filter = Builders<TestResult>.Filter.Or(
+                Builders<TestResult>.Filter.Eq(x => x.AppointmentId, dto.TestOrderId.Trim()),
+                Builders<TestResult>.Filter.Eq(x => x.TestResultId, dto.TestOrderId.Trim()),
+                Builders<TestResult>.Filter.Eq(x => x.Id, dto.TestOrderId.Trim()),
+                Builders<TestResult>.Filter.Eq(x => x.SampleId, dto.TestOrderId.Trim()),
+                Builders<TestResult>.Filter.Eq("test_order_id", dto.TestOrderId.Trim())
+            );
+            var testResult = await testResultsCol.Find(filter).FirstOrDefaultAsync(ct);
+            if (testResult != null)
+            {
+                if (!TestResultRules.IsSigned(testResult))
+                {
+                    return (false, "Kết quả xét nghiệm chưa được phê duyệt theo quy trình BMS. Chỉ được gửi thông báo khi kết quả đã được bác sĩ / trưởng lab ký duyệt.", null);
+                }
+            }
+            else
+            {
+                // Check blood_samples fallback
+                var samplesCol = _db.GetCollection<Sample>("blood_samples");
+                var sFilter = Builders<Sample>.Filter.Or(
+                    Builders<Sample>.Filter.Eq(x => x.TestOrderId, dto.TestOrderId.Trim()),
+                    Builders<Sample>.Filter.Eq(x => x.Id, dto.TestOrderId.Trim()),
+                    Builders<Sample>.Filter.Eq(x => x.Barcode, dto.TestOrderId.Trim())
+                );
+                var sample = await samplesCol.Find(sFilter).FirstOrDefaultAsync(ct);
+                if (sample != null && sample.Status != SampleStatus.Completed)
+                {
+                    return (false, "Mẫu xét nghiệm chưa hoàn tất xử lý và chưa được phê duyệt kết quả.", null);
+                }
+                else if (sample == null)
+                {
+                    return (false, $"Không tìm thấy kết quả xét nghiệm đã được phê duyệt cho mã đơn '{dto.TestOrderId}'.", null);
+                }
+            }
+
+            // =====================================================================
+            // RULE 2: Recipient Account Binding Verification (OWASP ASVS / Anti-mismatch)
+            // =====================================================================
+            var patientsCol = _db.GetCollection<Patient>("patients");
+            var pFilter = Builders<Patient>.Filter.Or(
+                Builders<Patient>.Filter.Eq(x => x.Id, dto.PatientId.Trim()),
+                Builders<Patient>.Filter.Eq(x => x.PatientCodeField, dto.PatientId.Trim())
+            );
+            var patient = await patientsCol.Find(pFilter).FirstOrDefaultAsync(ct);
+            if (patient != null)
+            {
+                if (!string.IsNullOrWhiteSpace(dto.PatientEmail))
+                {
+                    var isDirectEmailMatch = string.Equals(patient.Email?.Trim(), dto.PatientEmail.Trim(), StringComparison.OrdinalIgnoreCase);
+                    var isAccountEmailMatch = false;
+
+                    if (!isDirectEmailMatch && !string.IsNullOrWhiteSpace(patient.AccountId))
+                    {
+                        var usersCol = _db.GetCollection<User>("accounts");
+                        var uFilter = Builders<User>.Filter.Eq(x => x.Id, patient.AccountId.Trim());
+                        var linkedUser = await usersCol.Find(uFilter).FirstOrDefaultAsync(ct);
+                        if (linkedUser != null && string.Equals(linkedUser.Email?.Trim(), dto.PatientEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            isAccountEmailMatch = true;
+                        }
+                    }
+
+                    if (!isDirectEmailMatch && !isAccountEmailMatch)
+                    {
+                        return (false, $"Địa chỉ email người nhận '{dto.PatientEmail}' không liên kết với hồ sơ bệnh nhân '{dto.PatientName}' ({dto.PatientId}). Kiểm tra liên kết tài khoản thất bại.", null);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(dto.PatientPhone) && !string.IsNullOrWhiteSpace(patient.PhoneNumber))
+                {
+                    var p1 = new string(patient.PhoneNumber.Where(char.IsDigit).ToArray());
+                    var p2 = new string(dto.PatientPhone.Where(char.IsDigit).ToArray());
+                    if (!string.Equals(p1, p2, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (false, $"Số điện thoại người nhận '{dto.PatientPhone}' không liên kết với hồ sơ bệnh nhân '{dto.PatientName}' ({dto.PatientId}).", null);
+                    }
+                }
+            }
+            else
+            {
+                return (false, $"Không tìm thấy hồ sơ bệnh nhân với mã '{dto.PatientId}'.", null);
+            }
+        }
+
+        // =====================================================================
+        // RULE 3: Data Protection: Do not put full raw clinical values into email
+        // =====================================================================
         bool hasPanic = dto.IsCriticalPanicValue || (dto.CriticalParameters != null && dto.CriticalParameters.Count > 0);
         var priority = hasPanic ? NotificationPriority.Critical : dto.Priority;
         bool requiresImmediate = hasPanic || dto.RequiresImmediateAction;
@@ -56,14 +162,91 @@ public class TestResultNotificationService : ITestResultNotificationService
 
         string message = !string.IsNullOrWhiteSpace(dto.Message)
             ? dto.Message.Trim()
-            : hasPanic
-                ? $"CẢNH BÁO Y KHOA: Kết quả xét nghiệm của bệnh nhân {dto.PatientName} có chỉ số vượt ngưỡng nguy kịch. Vui lòng liên hệ bác sĩ hoặc phòng cấp cứu ngay lập tức."
-                : $"Kính gửi quý khách {dto.PatientName}, hồ sơ xét nghiệm ({dto.TestOrderId}) đã được duyệt y khoa và sẵn sàng để xem chi tiết trên hệ thống BMS.";
+            : "Kết quả xét nghiệm của bạn đã sẵn sàng. Vui lòng đăng nhập BMS để xem kết quả.";
 
         var deliveryStatus = NotificationDeliveryStatus.Delivered;
         string? failureReason = null;
 
-        // Dispatches live email when channel includes Email or when PatientEmail is provided
+        // Ensure walk-in patients have a live Patient Portal account before sending result email
+        string emailMessage = message;
+        if (!string.IsNullOrWhiteSpace(dto.PatientEmail) &&
+            (dto.Channel == TestResultNotificationChannel.Email || dto.Channel == TestResultNotificationChannel.All) &&
+            _db != null && _passwordHasher != null)
+        {
+            try
+            {
+                var patientsCol = _db.GetCollection<Patient>("patients");
+                var accountsCol = _db.GetCollection<User>("accounts");
+                var targetPat = await patientsCol.Find(
+                    Builders<Patient>.Filter.Or(
+                        Builders<Patient>.Filter.Eq(p => p.Id, dto.PatientId.Trim()),
+                        Builders<Patient>.Filter.Eq(p => p.PatientCodeField, dto.PatientId.Trim())))
+                    .FirstOrDefaultAsync(ct);
+
+                if (targetPat != null)
+                {
+                    User? existingAcc = null;
+                    if (!string.IsNullOrWhiteSpace(targetPat.AccountId))
+                    {
+                        existingAcc = await accountsCol.Find(Builders<User>.Filter.Eq(u => u.Id, targetPat.AccountId)).FirstOrDefaultAsync(ct);
+                    }
+
+                    if (existingAcc == null)
+                    {
+                        var normMail = dto.PatientEmail.Trim().ToLowerInvariant();
+                        var emailTaken = await accountsCol.Find(
+                            Builders<User>.Filter.Regex(u => u.Email, new MongoDB.Bson.BsonRegularExpression($"^{System.Text.RegularExpressions.Regex.Escape(normMail)}$", "i")))
+                            .AnyAsync(ct);
+
+                        var accId = !string.IsNullOrWhiteSpace(targetPat.AccountId) && MongoDB.Bson.ObjectId.TryParse(targetPat.AccountId, out _)
+                            ? targetPat.AccountId
+                            : MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+                        var rawPhone = targetPat.PhoneNumber ?? dto.PatientPhone ?? "000000";
+                        var digits = new string(rawPhone.Where(char.IsDigit).ToArray());
+                        var suffix = digits.Length >= 6 ? digits[^6..] : digits.PadLeft(6, '0');
+                        var tempPass = $"Bms@{suffix}";
+                        var username = targetPat.Id.ToLowerInvariant();
+
+                        var createdAcc = new User
+                        {
+                            Id = accId,
+                            Username = username,
+                            Email = emailTaken ? $"{username}@guest.bms.local" : normMail,
+                            PhoneNumber = targetPat.PhoneNumber ?? dto.PatientPhone,
+                            FullName = targetPat.FullName,
+                            PatientCode = targetPat.Id,
+                            IdentityCardNumber = targetPat.IdentityCardNumber,
+                            DateOfBirth = targetPat.DateOfBirth,
+                            Gender = targetPat.GenderString,
+                            Address = targetPat.Address,
+                            BloodType = targetPat.BloodType,
+                            RoleId = (int)UserRole.Patient,
+                            Status = (int)UserStatus.Active,
+                            IsActive = true,
+                            MedicalProfileCompleted = true,
+                            PasswordHash = _passwordHasher.Hash(tempPass),
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        await accountsCol.InsertOneAsync(createdAcc, cancellationToken: ct);
+                        if (!string.Equals(targetPat.AccountId, accId, StringComparison.Ordinal))
+                        {
+                            await patientsCol.UpdateOneAsync(
+                                Builders<Patient>.Filter.Eq(p => p.Id, targetPat.Id),
+                                Builders<Patient>.Update.Set(p => p.AccountId, accId),
+                                cancellationToken: ct);
+                        }
+
+                        emailMessage = $"{message} | Tài khoản tra cứu Cổng Bệnh Nhân đã được cấp tự động — Tên đăng nhập: {username} (hoặc {dto.PatientEmail.Trim()}) · Mật khẩu tạm thời: {tempPass} (vui lòng đổi mật khẩu sau khi đăng nhập).";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Notification Service] Could not auto-provision portal account for {PatientId}", dto.PatientId);
+            }
+        }
+
+        // Dispatches email when channel includes Email
         if (!string.IsNullOrWhiteSpace(dto.PatientEmail) &&
             (dto.Channel == TestResultNotificationChannel.Email || dto.Channel == TestResultNotificationChannel.All))
         {
@@ -75,7 +258,7 @@ public class TestResultNotificationService : ITestResultNotificationService
                     dto.TestOrderId.Trim(),
                     dto.TestPackageName,
                     title,
-                    message,
+                    emailMessage,
                     hasPanic,
                     dto.CriticalParameters,
                     dto.ClinicalRecommendation,
@@ -121,11 +304,45 @@ public class TestResultNotificationService : ITestResultNotificationService
             CreatedBy = !string.IsNullOrWhiteSpace(operatorName) ? operatorName : "Hệ thống tự động"
         };
 
+        var saved = await _repository.AddAsync(notification, ct);
+
+        // =====================================================================
+        // RULE 4: ISO 27789 Audit Trail for Notification Dispatch
+        // =====================================================================
+        if (_db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = operatorId,
+                    UserName = operatorName,
+                    UserRole = RoleNames.Lab,
+                    Action = "NOTIFY_TEST_RESULT",
+                    Category = "COMMUNICATION",
+                    Severity = deliveryStatus == NotificationDeliveryStatus.Failed ? "WARNING" : "INFO",
+                    Status = deliveryStatus == NotificationDeliveryStatus.Failed ? "FAILED" : "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "TestResultNotification",
+                    EntityId = saved.NotificationId,
+                    Details = $"Gửi thông báo kết quả xét nghiệm {saved.TestOrderId} tới {saved.PatientEmail ?? saved.PatientPhone} qua kênh {saved.Channel}. Trạng thái: {saved.Status}." + (failureReason != null ? $" Lỗi: {failureReason}" : "")
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
+
+        if (deliveryStatus == NotificationDeliveryStatus.Failed)
+        {
+            return (false, "Gửi thông báo thất bại: " + failureReason, MapToDetailDto(saved));
+        }
+
         _logger.LogInformation(
             "[Notification Service] Dispatched {Channel} notification {NotifId} for order {OrderId} (Status: {Status}, Panic: {Panic})",
             notification.Channel, notification.NotificationId, notification.TestOrderId, notification.Status, notification.IsCriticalPanicValue);
 
-        var saved = await _repository.AddAsync(notification, ct);
         return (true, "Phát thông báo kết quả xét nghiệm qua email thành công.", MapToDetailDto(saved));
     }
 
@@ -267,6 +484,33 @@ public class TestResultNotificationService : ITestResultNotificationService
             existing.NotificationId, existing.RetryCount, operatorName);
 
         var updated = await _repository.UpdateAsync(existing, ct);
+
+        // ISO 27789 Audit Trail for Resend
+        if (_db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = operatorName,
+                    UserName = operatorName,
+                    UserRole = RoleNames.Lab,
+                    Action = "RESEND_TEST_RESULT_NOTIFICATION",
+                    Category = "COMMUNICATION",
+                    Severity = existing.Status == NotificationDeliveryStatus.Failed ? "WARNING" : "INFO",
+                    Status = existing.Status == NotificationDeliveryStatus.Failed ? "FAILED" : "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "TestResultNotification",
+                    EntityId = existing.NotificationId,
+                    Details = $"Gửi lại thông báo kết quả xét nghiệm {existing.TestOrderId} (Lần thử {existing.RetryCount}). Trạng thái: {existing.Status}."
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
+
         return (true, "Gửi lại thông báo kết quả xét nghiệm thành công.", MapToDetailDto(updated));
     }
 

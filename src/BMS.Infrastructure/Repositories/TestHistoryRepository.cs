@@ -37,7 +37,8 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
     private static BsonDocument PatientFilter(List<string>? scope) => scope is null ? new() : new("$expr", new BsonDocument("$in", new BsonArray {
         Coalesce("patient_id", "patientId"), new BsonArray(scope.SelectMany(s => new BsonValue[] { s, Id(s) })) }));
     public async Task<List<string>> OwnPatientsAsync(string accountId, CancellationToken ct = default) =>
-        (await _db.GetCollection<BsonDocument>("patients").Find(new BsonDocumentFilterDefinition<BsonDocument>(Active) & Identity("AccountId", accountId))
+        (await _db.GetCollection<BsonDocument>("patients")
+            .Find(new BsonDocumentFilterDefinition<BsonDocument>(Active) & (Identity("AccountId", accountId) | Identity("accountId", accountId)))
             .Project(new BsonDocument("_id", 1)).ToListAsync(ct)).Select(x => Text(x, "_id")).ToList();
 
     public async Task<(List<TestHistorySummary> Items, long Total)> ListAsync(TestHistorySearch search, List<string>? scope, CancellationToken ct = default)
@@ -78,10 +79,19 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
             .Project(new BsonDocument { { "_id", 0 }, { "status", 1 } }).FirstOrDefaultAsync(ct);
         approved &= sample is not null && new[] { "Completed", "Stored" }.Contains(Text(sample, "status"), StringComparer.OrdinalIgnoreCase);
         var packageId = Text(d, "package_id", "packageId");
-        var package = await _db.GetCollection<BsonDocument>("test_packages").Find(Identity("_id", packageId))
+        var package = await _db.GetCollection<BsonDocument>("test_packages")
+            .Find(Identity("_id", packageId) | Builders<BsonDocument>.Filter.Eq("package_code", packageId))
             .Project(new BsonDocument { { "_id", 0 }, { "package_name", 1 } }).FirstOrDefaultAsync(ct);
+        var resolvedPackageName = package is null ? "" : Text(package, "package_name");
+        if (string.IsNullOrWhiteSpace(resolvedPackageName) && !string.IsNullOrWhiteSpace(packageId))
+        {
+            var sp = await _db.GetCollection<BsonDocument>("service_packages")
+                .Find(Identity("_id", packageId) | Builders<BsonDocument>.Filter.Eq("Code", packageId))
+                .Project(new BsonDocument { { "_id", 0 }, { "Name", 1 } }).FirstOrDefaultAsync(ct);
+            if (sp is not null) resolvedPackageName = Text(sp, "Name");
+        }
         return new(Text(d, "_id"), Text(d, "result_code", "resultCode"), patientId, sampleId,
-            package is null ? packageId : Text(package, "package_name"), Date(d, "created_at", "createdAt"), approved ? Date(d, "approved_at", "approvedAt") : null, approved);
+            string.IsNullOrWhiteSpace(resolvedPackageName) ? packageId : resolvedPackageName, Date(d, "created_at", "createdAt"), approved ? Date(d, "approved_at", "approvedAt") : null, approved);
     }
     public async Task<TestHistoryDetail?> GetAsync(string id, List<string>? scope, CancellationToken ct = default)
     {

@@ -25,13 +25,17 @@ namespace BMS.Application.Services
         private readonly ILogger<TestResultService> _logger;
         private readonly ISampleRepository? _samples;
         private readonly BMS.Core.Interfaces.ITestCriterionRepository? _criteria;
+        private readonly ITestOrderRepository? _testOrders;
 
         /// <summary>Creates the service.</summary>
         public TestResultService(
             ITestResultRepository repo,
             IAppointmentRepository appointmentRepo,
             INotificationRepository notificationRepo,
-            ILogger<TestResultService> logger, ISampleRepository? samples = null, BMS.Core.Interfaces.ITestCriterionRepository? criteria = null)
+            ILogger<TestResultService> logger,
+            ISampleRepository? samples = null,
+            BMS.Core.Interfaces.ITestCriterionRepository? criteria = null,
+            ITestOrderRepository? testOrders = null)
         {
             _repo = repo;
             _appointmentRepo = appointmentRepo;
@@ -39,6 +43,7 @@ namespace BMS.Application.Services
             _logger = logger;
             _samples = samples;
             _criteria = criteria;
+            _testOrders = testOrders;
         }
 
         /// <inheritdoc />
@@ -64,18 +69,74 @@ namespace BMS.Application.Services
                 ?? throw new ResourceNotFoundException("SAMPLE_NOT_FOUND", "Không tìm thấy mẫu xét nghiệm.");
             if (sample.IsDeleted || sample.Status is not (SampleStatus.Received or SampleStatus.Processing or SampleStatus.Testing))
                 throw new ConflictStateException("SAMPLE_NOT_READY", "Mẫu chưa được tiếp nhận hoặc không còn cho phép nhập kết quả.");
-            var order = await _appointmentRepo.GetByIdAsync(sample.AppointmentId, ct)
-                ?? await _appointmentRepo.GetByCodeAsync(sample.AppointmentId, ct)
-                ?? throw new ResourceNotFoundException("APPOINTMENT_NOT_FOUND", "Không tìm thấy lịch hẹn liên kết với mẫu.");
-            if (order.Status == AppointmentStatus.Cancelled || (!string.IsNullOrWhiteSpace(dto.AppointmentId)
-                && dto.AppointmentId != order.Id && dto.AppointmentId != order.AppointmentCode))
-                throw new DomainValidationException("INVALID_RESULT_ORDER", "Lịch hẹn không khớp với mẫu xét nghiệm.");
-            if (await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], [order.Id, order.AppointmentCode], ct))
+            // Resolve linked Appointment or UC32 TestOrder (supports both appointment-based and direct lab collection samples).
+            Appointment? appointment = !string.IsNullOrWhiteSpace(sample.AppointmentId)
+                ? await _appointmentRepo.GetByIdAsync(sample.AppointmentId, ct)
+                  ?? await _appointmentRepo.GetByCodeAsync(sample.AppointmentId, ct)
+                : null;
+
+            TestOrder? testOrder = null;
+            if (appointment is null && _testOrders is not null && !string.IsNullOrWhiteSpace(sample.AppointmentId))
+            {
+                testOrder = await _testOrders.GetByIdAsync(sample.AppointmentId, ct)
+                    ?? await _testOrders.GetByOrderNumberAsync(sample.AppointmentId, ct);
+            }
+
+            if (appointment is null && testOrder is null && !string.IsNullOrWhiteSpace(sample.PatientId))
+            {
+                var patientAppointments = await _appointmentRepo.GetByPatientIdAsync(sample.PatientId, ct);
+                appointment = patientAppointments.FirstOrDefault(a => a.Status != AppointmentStatus.Cancelled);
+
+                if (appointment is null && _testOrders is not null)
+                {
+                    var patientOrders = await _testOrders.GetAllAsync(sample.PatientId, null, null, 20, ct);
+                    testOrder = patientOrders.FirstOrDefault(o => o.Status != TestOrderStatus.Cancelled);
+                }
+            }
+
+            string resolvedOrderId;
+            string? resolvedPackageId = null;
+            string[] orderKeys;
+
+            if (appointment is not null)
+            {
+                if (appointment.Status == AppointmentStatus.Cancelled || (!string.IsNullOrWhiteSpace(dto.AppointmentId)
+                    && dto.AppointmentId != appointment.Id && dto.AppointmentId != appointment.AppointmentCode))
+                    throw new DomainValidationException("INVALID_RESULT_ORDER", "Lịch hẹn không khớp với mẫu xét nghiệm.");
+                resolvedOrderId = appointment.Id;
+                resolvedPackageId = appointment.PackageId;
+                orderKeys = [appointment.Id, appointment.AppointmentCode];
+            }
+            else if (testOrder is not null)
+            {
+                if (testOrder.Status == TestOrderStatus.Cancelled || (!string.IsNullOrWhiteSpace(dto.AppointmentId)
+                    && dto.AppointmentId != testOrder.Id && dto.AppointmentId != testOrder.OrderNumber))
+                    throw new DomainValidationException("INVALID_RESULT_ORDER", "Phiếu chỉ định không khớp với mẫu xét nghiệm hoặc đã bị hủy.");
+                resolvedOrderId = !string.IsNullOrWhiteSpace(testOrder.OrderNumber) ? testOrder.OrderNumber : testOrder.Id;
+                orderKeys = [testOrder.Id, testOrder.OrderNumber];
+            }
+            else if (!string.IsNullOrWhiteSpace(sample.AppointmentId))
+            {
+                if (!string.IsNullOrWhiteSpace(dto.AppointmentId) && dto.AppointmentId != sample.AppointmentId)
+                    throw new DomainValidationException("INVALID_RESULT_ORDER", "Lịch hẹn không khớp với mẫu xét nghiệm.");
+                resolvedOrderId = sample.AppointmentId;
+                orderKeys = [sample.AppointmentId];
+            }
+            else
+            {
+                throw new ResourceNotFoundException("APPOINTMENT_NOT_FOUND", "Không tìm thấy lịch hẹn liên kết với mẫu.");
+            }
+
+            if (await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], orderKeys, ct))
                 throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả đã ký không được nhập lại.");
             var items = await ValidatedItemsAsync(dto.Parameters, ct);
-            var panic = items.Any(x => x.Flag == ResultFlag.CriticalPanic);
+            var panicItems = items.Where(x => x.Flag == ResultFlag.CriticalPanic).ToList();
+            var panic = panicItems.Count > 0;
             if (panic && (!dto.ConfirmRerunChecked || !dto.CriticalNotified || string.IsNullOrWhiteSpace(dto.DoctorNotifiedName)))
-                throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", "Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic.");
+            {
+                var panicDetail = string.Join(", ", panicItems.Select(x => $"{x.CriterionCode}={x.MeasuredValue} {x.Unit}".Trim()));
+                throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", $"Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic ({panicDetail}).");
+            }
             var now = DateTime.UtcNow;
             // Server-generated, collision-resistant id (was "TRE" + Random 6 digits).
             var resultId = $"TRE-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
@@ -83,10 +144,10 @@ namespace BMS.Application.Services
             {
                 Id = resultId,
                 TestResultId = resultId,
-                AppointmentId = order.Id,
+                AppointmentId = resolvedOrderId,
                 SampleId = sample.Id,
                 PatientId = sample.PatientId,
-                PackageId = order.PackageId,
+                PackageId = resolvedPackageId,
                 ReagentCode = dto.ReagentCode,
                 Quantity = dto.Quantity,
                 DeviceId = dto.DeviceId,
@@ -264,10 +325,11 @@ namespace BMS.Application.Services
             var items = new List<TestResultItem>();
             foreach (var p in parameters)
             {
-                var criterion = await _criteria.GetByCodeAsync(p.Abbreviation ?? p.CriteriaId, ct)
-                    ?? await _criteria.GetByIdAsync(p.CriteriaId, ct);
+                var lookupCode = !string.IsNullOrWhiteSpace(p.Abbreviation) ? p.Abbreviation.Trim() : (p.CriteriaId?.Trim() ?? string.Empty);
+                var criterion = (!string.IsNullOrWhiteSpace(lookupCode) ? await _criteria.GetByCodeAsync(lookupCode, ct) : null)
+                    ?? (!string.IsNullOrWhiteSpace(p.CriteriaId) ? await _criteria.GetByIdAsync(p.CriteriaId.Trim(), ct) : null);
                 if (criterion is null || !criterion.IsActive || criterion.IsDeleted || string.IsNullOrWhiteSpace(p.Value))
-                    throw new DomainValidationException("INVALID_RESULT_CRITERION", "Chỉ tiêu không tồn tại, đã ngừng dùng hoặc thiếu giá trị.");
+                    throw new DomainValidationException("INVALID_RESULT_CRITERION", $"Chỉ tiêu '{lookupCode}' không tồn tại, đã ngừng dùng hoặc thiếu giá trị.");
                 var flag = ResultFlag.Normal;
                 if (!string.Equals(criterion.ValueType, "Qualitative", StringComparison.OrdinalIgnoreCase))
                 {

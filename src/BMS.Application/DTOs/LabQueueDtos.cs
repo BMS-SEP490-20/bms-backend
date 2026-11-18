@@ -24,6 +24,8 @@ public class LabQueueItemDto
     public string? PatientGender { get; set; }
     public int? PatientAge { get; set; }
     public string TestPackageName { get; set; } = string.Empty;
+    public string? PackageId { get; set; }
+    public IReadOnlyList<SampleExpectedParameterDto> PackageParameters { get; set; } = Array.Empty<SampleExpectedParameterDto>();
     public string SampleType { get; set; } = "Blood"; // Blood, Serum, Plasma...
     public string? TubeColor { get; set; }
     public string? Anticoagulant { get; set; }
@@ -35,6 +37,9 @@ public class LabQueueItemDto
     public string? CollectorName { get; set; }
     public string? AssignedTechnicianId { get; set; }
     public string? AssignedTechnicianName { get; set; }
+    public string? ReceivedBy { get; set; }
+    public string? HandoverBy { get; set; }
+    public string? HandoverById { get; set; }
     public string? RejectionReason { get; set; }
     public string? RerunReason { get; set; }
     public DateTime CollectedAt { get; set; }
@@ -43,6 +48,7 @@ public class LabQueueItemDto
     public DateTime? ProcessedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
+    public string? RejectedBy { get; set; }
     public string? Notes { get; set; }
     public IReadOnlyList<SampleStatusHistoryDto> StatusHistory { get; set; } = Array.Empty<SampleStatusHistoryDto>();
 }
@@ -127,6 +133,12 @@ public class UpdateSampleStatusDto
     [StringLength(150)]
     public string? TechnicianName { get; set; }
 
+    [StringLength(150)]
+    public string? HandoverBy { get; set; }
+
+    [StringLength(100)]
+    public string? HandoverById { get; set; }
+
     [StringLength(100)]
     public string? LabRoom { get; set; }
 
@@ -192,4 +204,31 @@ public class QueueFilterDto
     public string? AppointmentId { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
+}
+
+public class SampleExpectedParameterDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Unit { get; set; } = string.Empty;
+    public double? NormalMin { get; set; }
+    public double? NormalMax { get; set; }
+    public string? NormalText { get; set; }
+    public double? PanicLow { get; set; }
+    public double? PanicHigh { get; set; }
+    public string ValueType { get; set; } = "Numeric";
+}
+
+/// <summary>
+/// Active clinical/laboratory staff member returned from MongoDB for specimen collection and check-in selectors (UC40/UC41).
+/// </summary>
+public class LabStaffMemberDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public string Department { get; set; } = string.Empty;
+    public string? AssignedRoom { get; set; }
 }

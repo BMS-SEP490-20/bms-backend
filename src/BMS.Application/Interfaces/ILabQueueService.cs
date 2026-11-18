@@ -29,4 +29,9 @@ public interface ILabQueueService
     Task<bool> RequestRerunAsync(string id, SampleRerunRequestDto dto);
     Task<List<SampleRerunItemDto>> GetRerunRequestsAsync();
     Task<SampleRerunDetailsDto?> GetSampleRerunDetailsAsync(string id);
+
+    /// <summary>
+    /// Retrieves active clinical and laboratory staff accounts from MongoDB for sample collection and reception dropdowns (UC40/UC41).
+    /// </summary>
+    Task<List<LabStaffMemberDto>> GetStaffDirectoryAsync(CancellationToken ct = default);
 }

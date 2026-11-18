@@ -16,15 +16,34 @@ public class VerificationCheckItemDto
 }
 
 /// <summary>
+/// Measured laboratory parameter submitted by technician for supervisor review (UC72).
+/// </summary>
+public class VerificationResultItemDto
+{
+    public string CriterionCode { get; set; } = string.Empty;
+    public string CriterionName { get; set; } = string.Empty;
+    public string MeasuredValue { get; set; } = string.Empty;
+    public string Unit { get; set; } = string.Empty;
+    public string ReferenceInterval { get; set; } = string.Empty;
+    public string Flag { get; set; } = "Normal";
+    public string? Notes { get; set; }
+}
+
+/// <summary>
 /// Full verification checklist and specimen diagnostic packet DTO (UC72 / Issue I3-073).
 /// </summary>
 public class TestResultVerificationDetailDto
 {
     public string SpecimenId { get; set; } = string.Empty;
+    public string? TestResultId { get; set; }
     public string OrderId { get; set; } = string.Empty;
-    public string PackageName { get; set; } = "Lipid Profile";
+    public string PackageName { get; set; } = string.Empty;
     public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
+    public string? DeviceId { get; set; }
+    public DateTime? EnteredAt { get; set; }
+    public bool IsPanic { get; set; }
+    public List<VerificationResultItemDto> TestResultItems { get; set; } = new();
     public List<VerificationCheckItemDto> Checklist { get; set; } = new();
     public string VerifierComment { get; set; } = string.Empty;
     public string Status { get; set; } = "PendingVerification";
@@ -62,8 +81,10 @@ public class ReturnTestResultRequestDto
 public class VerificationQueueItemDto
 {
     public string SpecimenId { get; set; } = string.Empty;
+    public string? TestResultId { get; set; }
     public string OrderId { get; set; } = string.Empty;
     public string PackageName { get; set; } = string.Empty;
+    public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
     public int FlagCount { get; set; }
     public string Priority { get; set; } = "Normal";
