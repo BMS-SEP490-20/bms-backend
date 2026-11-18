@@ -11,6 +11,10 @@ public sealed class ServicePackageTestDto
     [Required(ErrorMessage = "Tên xét nghiệm là bắt buộc.")]
     [StringLength(200, MinimumLength = 1)]
     public string Name { get; init; } = default!;
+
+    public string? SampleType { get; init; }
+    public decimal? Price { get; init; }
+    public string? ClinicalMeaning { get; init; }
 }
 
 /// <summary>Phần dữ liệu dùng chung cho Create / Update.</summary>
@@ -20,14 +24,27 @@ public abstract class ServicePackageWriteRequest : IValidatableObject
     [StringLength(200, MinimumLength = 2, ErrorMessage = "Tên gói phải từ 2 đến 200 ký tự.")]
     public string Name { get; init; } = default!;
 
-    [StringLength(2000)]
+    [StringLength(5000)]
     public string? Description { get; init; }
 
     [StringLength(100)]
     public string? Category { get; init; }
 
-    [StringLength(1000)]
+    [StringLength(2000)]
     public string? PreparationNotes { get; init; }
+
+    [StringLength(2000)]
+    public string? TargetAudience { get; init; }
+
+    [StringLength(500)]
+    public string? Tat { get; init; }
+
+    [StringLength(100)]
+    public string? SampleTube { get; init; }
+
+    public double? SampleVolumeMl { get; init; }
+
+    public List<string> Highlights { get; init; } = new();
 
     [Range(typeof(decimal), "0", "1000000000", ErrorMessage = "Giá không hợp lệ.")]
     public decimal Price { get; init; }
@@ -127,9 +144,19 @@ public sealed record ServicePackageDto(
     DateTime? UpdatedAt,
     string? Category = null,
     string? PreparationNotes = null,
+    string? TargetAudience = null,
+    string? Tat = null,
+    string? SampleTube = null,
+    double? SampleVolumeMl = null,
+    IReadOnlyList<string>? Highlights = null,
     decimal? CostPrice = null,
     string? InternalNotes = null,
     string? CreatedBy = null,
     string? UpdatedBy = null);
 
-public sealed record ServicePackageTestInfo(string Code, string Name);
+public sealed record ServicePackageTestInfo(
+    string Code,
+    string Name,
+    string? SampleType = null,
+    decimal? Price = null,
+    string? ClinicalMeaning = null);

@@ -148,10 +148,9 @@ public sealed partial class TestOrderService(
             DoctorId = doctorUserId,
             DoctorName = doctor?.FullName ?? string.Empty,
             Priority = priority,
-            // WHY: Routine/Urgent wait for payment (BA:L38); STAT skips the payment gate (post-check) but still
-            // owes the fee, so it stays AwaitingPayment with PaymentDeferred = true.
-            Status = request.SaveAsDraft ? TestOrderStatus.Draft : TestOrderStatus.AwaitingPayment,
-            PaymentDeferred = isStat && !request.SaveAsDraft,
+            // Bác sĩ ký & phát hành y lệnh -> Chuyển thẳng sang Phòng Lấy Mẫu & Lab (Đồ án không có vai trò thu ngân/kế toán)
+            Status = request.SaveAsDraft ? TestOrderStatus.Draft : TestOrderStatus.PaidPendingSample,
+            PaymentDeferred = false,
             Icd10Codes = icd,
             ClinicalIndication = request.ClinicalIndication.Trim(),
             SpecialInstructions = string.IsNullOrWhiteSpace(request.SpecialInstructions) ? null : request.SpecialInstructions.Trim(),
@@ -164,9 +163,70 @@ public sealed partial class TestOrderService(
             CreatedAt = now
         };
         await orders.InsertAsync(order, ct);
+
+        // Sau khi BS phát hành y lệnh (PaidPendingSample): tạo ống PendingCollection theo từng loại ống
+        // để Lab tiếp nhận / in barcode — gắn TestOrderId = order.Id (không dùng appointment).
+        if (!request.SaveAsDraft)
+        {
+            try
+            {
+                var tubeGroups = items
+                    .GroupBy(i => (Color: string.IsNullOrWhiteSpace(i.TubeColor) ? "Gold" : i.TubeColor,
+                                   Type: string.IsNullOrWhiteSpace(i.TubeType) ? "Serum" : i.TubeType))
+                    .ToList();
+                var tubes = new List<Sample>();
+                var draw = 1;
+                foreach (var g in tubeGroups)
+                {
+                    var smpSeq = await sequences.NextAsync($"smp:{localDate:yyyy-MM-dd}", ct);
+                    var tubeCodes = string.Join(", ", g.Select(x => x.TestCode).Distinct());
+                    tubes.Add(new Sample
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Barcode = $"SMP-{localDate:yyyyMMdd}-{smpSeq:D4}",
+                        SmpDay = localDate.ToString("yyyy-MM-dd"),
+                        DrawOrder = draw++,
+                        TestOrderId = order.Id,
+                        PatientId = patient.Id,
+                        PatientName = patient.FullName,
+                        PatientGender = patient.GenderString,
+                        PatientAge = order.PatientAge,
+                        TestPackageName = tubeCodes,
+                        SampleType = InferSampleType(g.Key.Color, g.Key.Type),
+                        TubeColor = g.Key.Color,
+                        VolumeMl = 2.0,
+                        Status = SampleStatus.PendingCollection,
+                        Priority = priority,
+                        LabRoom = "LAB-ROOM-01",
+                        Notes = $"Từ y lệnh {order.OrderNumber}",
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                }
+                if (tubes.Count > 0)
+                {
+                    await specimens.InsertManyAsync(tubes, ct);
+                    logger.LogInformation("Created {Count} PendingCollection tube(s) for order {OrderNumber}", tubes.Count, order.OrderNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to create specimen tubes for order {OrderNumber}", order.OrderNumber);
+            }
+        }
+
         logger.LogInformation("Test order {OrderNumber} created by doctor {DoctorId} for {Patient} ({Priority}, {Status}, {Count} tests)",
             order.OrderNumber, doctorUserId, PiiMasker.MaskName(order.PatientName), order.Priority, order.Status, items.Count);
         return Map(order);
+    }
+
+    private static string InferSampleType(string tubeColor, string tubeType)
+    {
+        var t = $"{tubeColor} {tubeType}".ToUpperInvariant();
+        if (t.Contains("EDTA") || t.Contains("PURPLE") || t.Contains("TÍM")) return "Blood";
+        if (t.Contains("CITRATE") || t.Contains("BLUE") || t.Contains("XANH")) return "Plasma";
+        if (t.Contains("URINE") || t.Contains("NƯỚC TIỂU")) return "Urine";
+        return "Serum";
     }
 
     /// <inheritdoc />

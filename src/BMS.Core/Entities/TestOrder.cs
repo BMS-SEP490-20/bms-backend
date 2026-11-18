@@ -55,10 +55,9 @@ public static class TestOrderStatusRules
             throw new BMS.Core.Exceptions.DomainValidationException("MSG-ERR-DOC-01", "Đơn chưa có mã chẩn đoán ICD-10, chưa thể tính phí.");
     }
 
-    /// <summary>Sampling gate (BA:L38): paid, or STAT with payment deferred (post-check).</summary>
+    /// <summary>Sampling gate: Đơn thuốc/Y lệnh đã được bác sĩ ký phát hành -> Được phép lấy mẫu (không có cổng thu ngân/kế toán).</summary>
     public static bool CanCollectSample(TestOrder o) =>
-        o.Status == TestOrderStatus.PaidPendingSample
-        || (o.PaymentDeferred && o.Status is TestOrderStatus.AwaitingPayment or TestOrderStatus.Ordered);
+        o.Status is TestOrderStatus.PaidPendingSample or TestOrderStatus.AwaitingPayment or TestOrderStatus.Ordered;
 }
 
 /// <summary>

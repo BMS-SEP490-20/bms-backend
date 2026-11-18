@@ -22,9 +22,14 @@ public enum ResultValidationStatus
 /// <summary>Signature predicate shared by result editing and order cancellation (Quy trình Đợt 3A Q5).</summary>
 public static class TestResultRules
 {
-    /// <summary>A result is signed once approved: it is then read-only and its order can no longer be cancelled.</summary>
-    public static bool IsSigned(TestResult r) => r.ValidationStatus == ResultValidationStatus.DoctorApproved || r.ApprovedAt != null
-        || !string.IsNullOrWhiteSpace(r.DigitalSignature) || string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Clinical publish gate: only Doctor approval seals the result for the patient portal.
+    /// Manager/Lab technical verification (TechnicianVerified) must NOT lock or publish.
+    /// </summary>
+    public static bool IsSigned(TestResult r) =>
+        r.ValidationStatus == ResultValidationStatus.DoctorApproved
+        || r.ApprovedAt != null
+        || string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>

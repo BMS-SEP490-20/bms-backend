@@ -181,6 +181,11 @@ public class Appointment : ISupportInitialize
     [BsonElement("packageId")]
     public string? PackageId { get; set; }
 
+    /// <summary>Catalog package code snapshot (e.g. CBC-01); present on older Mongo docs.</summary>
+    [BsonElement("packageCode")]
+    [BsonIgnoreIfNull]
+    public string? PackageCode { get; set; }
+
     [BsonElement("appointmentDate")]
     public DateTime AppointmentDate { get; set; }
 

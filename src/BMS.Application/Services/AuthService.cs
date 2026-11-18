@@ -670,42 +670,34 @@ public class AuthService : IAuthService
         return BuildAuthResponse(user, role, access, refresh, now);
     }
 
-    private async Task<Role> ResolveRoleAsync(User user, CancellationToken ct)
+    private Task<Role> ResolveRoleAsync(User user, CancellationToken ct)
     {
-        if (user.RoleId.HasValue && _roleRepository != null)
-        {
-            var dbRole = await _roleRepository.GetRoleByIdAsync(user.RoleId.Value, ct);
-            if (dbRole != null)
-            {
-                return dbRole;
-            }
-        }
-
-        // WHY: the fallback must follow the 6-role seed (1 Admin, 2 Manager, 3 Lab, 4 Doctor,
-        // 5 Receptionist, 6 Patient). The token service derives the role claim from this ID.
+        // Canonical 6-role IDs: 1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager.
+        // Never trust Mongo `roles` docs for JWT permissions — legacy seed still has LabHead at
+        // _id:4 / Nurse at _id:5 while users.roleId maps Receptionist=4, Patient=5.
         // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
         var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? (int)user.Role;
         var roleName = RoleNames.FromRoleId(roleId) ?? throw new RoleNotAssignedException();
 
-        // Permissions per ROLE-PERMISSION-MATRIX §3.2: Admin has no clinical permission (decision 10);
-        // only Manager approves results; Receptionist no longer collects samples.
         var permissions = roleId switch
         {
             1 => new List<string> { "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "MANAGE_SCHEDULE" },
-            2 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS" },
+            // ISO 15189 / QĐ 2429: only Doctor clinically approves & signs results for patient release.
+            2 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "APPROVE_RESULTS", "APPROVE_RESULT", "SIGN_REPORTS" },
             3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "VIEW_ALL_LAB" },
             4 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
             5 => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" },
-            6 => new List<string> { "APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS", "VIEW_ALL_LAB" },
+            // Manager: tech-verify / QC unlock only — NOT Doctor SIGN_REPORTS / patient publish.
+            6 => new List<string> { "TECH_VERIFY_RESULT", "APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS", "VIEW_ALL_LAB" },
             _ => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" }
         };
 
-        return new Role
+        return Task.FromResult(new Role
         {
             Id = roleId,
             RoleName = roleName,
             Permissions = permissions
-        };
+        });
     }
 
     private bool VerifyUserPassword(string plainPassword, string? storedHash)

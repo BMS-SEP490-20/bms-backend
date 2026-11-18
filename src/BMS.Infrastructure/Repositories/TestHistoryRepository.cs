@@ -69,29 +69,60 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
     private async Task<TestHistorySummary> Summary(BsonDocument d, CancellationToken ct)
     {
         var signature = Alias(d, "digital_signature", "digitalSignature");
-        var status = Text(d, "status"); var validation = Text(d, "validationStatus");
-        // Conflicting approval states fail closed; a stored signature alone never publishes clinical values.
-        var approved = (status.Length > 0 || validation.Length > 0) && (status.Length == 0 || status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase)) &&
-            (validation.Length == 0 || validation is "3" or "DoctorApproved") && signature.IsString && !string.IsNullOrWhiteSpace(signature.AsString) &&
-            !d.GetValue("rerun_requested", false).Equals(BsonBoolean.True) && !d.GetValue("rerunRequested", false).Equals(BsonBoolean.True);
+        var status = Text(d, "status");
+        var validation = Text(d, "validationStatus");
+        // GATE (step 5): patient sees values ONLY after Doctor clinical approve — not after Lab entry or Manager tech-verify.
+        var doctorApproved = validation is "3" or "DoctorApproved";
+        var statusOk = status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("Completed", StringComparison.OrdinalIgnoreCase);
+        var approved = doctorApproved
+            && statusOk
+            && signature.IsString && !string.IsNullOrWhiteSpace(signature.AsString)
+            && !d.GetValue("rerun_requested", false).Equals(BsonBoolean.True)
+            && !d.GetValue("rerunRequested", false).Equals(BsonBoolean.True);
         var sampleId = Text(d, "sample_id", "sampleId"); var patientId = Text(d, "patient_id", "patientId");
-        var sample = await _db.GetCollection<BsonDocument>("blood_samples").Find(new BsonDocumentFilterDefinition<BsonDocument>(Active) & Identity("_id", sampleId) & Identity("patient_id", patientId))
-            .Project(new BsonDocument { { "_id", 0 }, { "status", 1 } }).FirstOrDefaultAsync(ct);
-        approved &= sample is not null && new[] { "Completed", "Stored" }.Contains(Text(sample, "status"), StringComparer.OrdinalIgnoreCase);
+        var sample = await _db.GetCollection<BsonDocument>("blood_samples").Find(
+                new BsonDocumentFilterDefinition<BsonDocument>(Active)
+                & Builders<BsonDocument>.Filter.Or(Identity("_id", sampleId), Builders<BsonDocument>.Filter.Eq("barcode", sampleId)))
+            .Project(new BsonDocument
+            {
+                { "_id", 0 }, { "status", 1 }, { "barcode", 1 },
+                { "packageId", 1 }, { "package_id", 1 }, { "packageCode", 1 },
+                { "test_package_name", 1 }, { "testPackageName", 1 }
+            }).FirstOrDefaultAsync(ct);
+        if (sample is not null)
+            approved &= new[] { "Completed", "Stored" }.Contains(Text(sample, "status"), StringComparer.OrdinalIgnoreCase);
         var packageId = Text(d, "package_id", "packageId");
-        var package = await _db.GetCollection<BsonDocument>("test_packages")
-            .Find(Identity("_id", packageId) | Builders<BsonDocument>.Filter.Eq("package_code", packageId))
-            .Project(new BsonDocument { { "_id", 0 }, { "package_name", 1 } }).FirstOrDefaultAsync(ct);
-        var resolvedPackageName = package is null ? "" : Text(package, "package_name");
-        if (string.IsNullOrWhiteSpace(resolvedPackageName) && !string.IsNullOrWhiteSpace(packageId))
+        if (string.IsNullOrWhiteSpace(packageId) && sample is not null)
+            packageId = Text(sample, "packageId", "package_id");
+        if (string.IsNullOrWhiteSpace(packageId) && sample is not null)
+            packageId = Text(sample, "packageCode");
+        var package = string.IsNullOrWhiteSpace(packageId) ? null
+            : await _db.GetCollection<BsonDocument>("test_packages").Find(
+                    Builders<BsonDocument>.Filter.Or(Identity("_id", packageId), Builders<BsonDocument>.Filter.Eq("code", packageId), Builders<BsonDocument>.Filter.Eq("package_code", packageId)))
+                .Project(new BsonDocument { { "_id", 0 }, { "package_name", 1 }, { "name", 1 } }).FirstOrDefaultAsync(ct);
+        var packageName = package is null ? "" : (Text(package, "package_name").Length > 0 ? Text(package, "package_name") : Text(package, "name"));
+        if (string.IsNullOrWhiteSpace(packageName) && !string.IsNullOrWhiteSpace(packageId))
         {
             var sp = await _db.GetCollection<BsonDocument>("service_packages")
-                .Find(Identity("_id", packageId) | Builders<BsonDocument>.Filter.Eq("Code", packageId))
-                .Project(new BsonDocument { { "_id", 0 }, { "Name", 1 } }).FirstOrDefaultAsync(ct);
-            if (sp is not null) resolvedPackageName = Text(sp, "Name");
+                .Find(Builders<BsonDocument>.Filter.Or(Identity("_id", packageId), Builders<BsonDocument>.Filter.Eq("Code", packageId), Builders<BsonDocument>.Filter.Eq("code", packageId)))
+                .Project(new BsonDocument { { "_id", 0 }, { "Name", 1 }, { "name", 1 } }).FirstOrDefaultAsync(ct);
+            if (sp is not null)
+                packageName = Text(sp, "Name", "name");
         }
-        return new(Text(d, "_id"), Text(d, "result_code", "resultCode"), patientId, sampleId,
-            string.IsNullOrWhiteSpace(resolvedPackageName) ? packageId : resolvedPackageName, Date(d, "created_at", "createdAt"), approved ? Date(d, "approved_at", "approvedAt") : null, approved);
+        if (string.IsNullOrWhiteSpace(packageName) && sample is not null)
+            packageName = Text(sample, "testPackageName", "test_package_name");
+        if (string.IsNullOrWhiteSpace(packageName) && !string.IsNullOrWhiteSpace(packageId))
+            packageName = packageId;
+        if (string.IsNullOrWhiteSpace(packageName))
+            packageName = "CBC / Huyết học";
+        var displaySampleId = sample is not null && !string.IsNullOrWhiteSpace(Text(sample, "barcode"))
+            ? Text(sample, "barcode")
+            : sampleId;
+        var resultCode = Text(d, "result_code", "resultCode");
+        if (string.IsNullOrWhiteSpace(resultCode)) resultCode = Text(d, "testResultId");
+        return new(Text(d, "_id"), resultCode, patientId, displaySampleId,
+            packageName, Date(d, "created_at", "createdAt"), approved ? Date(d, "approved_at", "approvedAt") : null, approved);
     }
     public async Task<TestHistoryDetail?> GetAsync(string id, List<string>? scope, CancellationToken ct = default)
     {

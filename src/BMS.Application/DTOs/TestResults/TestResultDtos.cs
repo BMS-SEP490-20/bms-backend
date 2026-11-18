@@ -45,6 +45,14 @@ public class TestResultDto
     public DateTime? ReviewedAt { get; set; }
     /// <summary>Workflow status, e.g. waiting_review, Completed.</summary>
     public string? Status { get; set; }
+    /// <summary>Clinical validation gate (DoctorApproved = 3 publishes to patient).</summary>
+    public string? ValidationStatus { get; set; }
+    /// <summary>Doctor account id that clinically approved the result.</summary>
+    public string? ApprovedByDoctorId { get; set; }
+    /// <summary>UTC time of Doctor clinical approval.</summary>
+    public DateTime? ApprovedAt { get; set; }
+    /// <summary>SHA-256 clinical seal required before patient portal release.</summary>
+    public string? DigitalSignature { get; set; }
     /// <summary>Creation time (UTC).</summary>
     public DateTime CreatedAt { get; set; }
     /// <summary>Last update time (UTC).</summary>
@@ -109,8 +117,7 @@ public class UpdateTestResultDto
 /// <summary>Approval metadata (I3-004).</summary>
 public class ApproveTestResultDto
 {
-    /// <summary>Approver account id.</summary>
-    [Required]
+    /// <summary>Approver account id — filled from JWT in the controller (client may omit).</summary>
     public string ApproverId { get; set; } = string.Empty;
     /// <summary>Approver display name.</summary>
     public string? ApproverName { get; set; }

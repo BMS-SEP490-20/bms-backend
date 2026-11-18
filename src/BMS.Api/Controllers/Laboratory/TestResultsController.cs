@@ -380,24 +380,29 @@ public class TestResultsController : ControllerBase
             newItems = doc["items"].AsBsonArray;
         }
 
+        var sampleIdVal = ReadString(doc, "sample_id", "sampleId");
+        var patientIdVal = ReadString(doc, "patient_id", "patientId");
+        var orderIdVal = ReadString(doc, "order_id", "orderId");
+        var packageIdVal = ReadString(doc, "package_id", "packageId");
         var newDoc = new BsonDocument
         {
             { "_id", newResultId },
             { "testResultId", newResultId },
-            { "sample_id", doc.Contains("sample_id") ? doc["sample_id"].AsString : (doc.Contains("sampleId") ? doc["sampleId"].AsString : "") },
-            { "sampleId", doc.Contains("sampleId") ? doc["sampleId"].AsString : (doc.Contains("sample_id") ? doc["sample_id"].AsString : "") },
-            { "patient_id", doc.Contains("patient_id") ? doc["patient_id"].AsString : (doc.Contains("patientId") ? doc["patientId"].AsString : "") },
-            { "patientId", doc.Contains("patientId") ? doc["patientId"].AsString : (doc.Contains("patient_id") ? doc["patient_id"].AsString : "") },
-            { "order_id", doc.Contains("order_id") ? doc["order_id"].AsString : (doc.Contains("orderId") ? doc["orderId"].AsString : "") },
-            { "orderId", doc.Contains("orderId") ? doc["orderId"].AsString : (doc.Contains("order_id") ? doc["order_id"].AsString : "") },
-            { "package_id", doc.Contains("package_id") ? doc["package_id"].AsString : "" },
+            { "sample_id", sampleIdVal },
+            { "sampleId", sampleIdVal },
+            { "patient_id", patientIdVal },
+            { "patientId", patientIdVal },
+            { "order_id", orderIdVal },
+            { "orderId", orderIdVal },
+            { "package_id", packageIdVal },
+            { "packageId", packageIdVal },
             { "parent_result_id", doc["_id"].AsString },
             { "analysis_run", newRun },
             { "version", newVersion },
             { "status", "Entered" },
             { "validationStatus", "Entered" },
             { "rerun_reason", request.Reason },
-            { "equipment_code", request.EquipmentCode ?? (doc.Contains("equipment_code") ? doc["equipment_code"].AsString : null) },
+            { "equipment_code", string.IsNullOrWhiteSpace(request.EquipmentCode) ? (BsonValue)(ReadString(doc, "equipment_code", "deviceId") is { Length: > 0 } eq ? eq : BsonNull.Value) : request.EquipmentCode },
             { "conclusion_notes", request.Notes ?? "" },
             { "created_at", now },
             { "items", newItems }
@@ -406,9 +411,7 @@ public class TestResultsController : ControllerBase
         await _resultsCol.InsertOneAsync(newDoc);
 
         // Audit Trail
-        var actor = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "LabTechnician";
-        var patientId = doc.Contains("patient_id") ? doc["patient_id"].AsString : "";
-        await LogAuditTrailAsync("RERUN_BIOCHEMICAL_TEST", newResultId, patientId, $"Tạo Analysis Run {newRun} từ kết quả {id}. Lý do: {request.Reason}");
+        await LogAuditTrailAsync("RERUN_BIOCHEMICAL_TEST", newResultId, patientIdVal, $"Tạo Analysis Run {newRun} từ kết quả {id}. Lý do: {request.Reason}");
 
         return Ok(new
         {
@@ -465,26 +468,62 @@ public class TestResultsController : ControllerBase
         return Ok(new { success = true, message = "Cập nhật kết quả xét nghiệm thành công." });
     }
 
+    private static string ReadString(BsonDocument doc, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (doc.Contains(key) && !doc[key].IsBsonNull)
+            {
+                return doc[key].IsString ? doc[key].AsString : doc[key].ToString()!;
+            }
+        }
+        return "";
+    }
+
+    private static string MapResultFlag(BsonValue? flagVal)
+    {
+        if (flagVal == null || flagVal.IsBsonNull) return "Normal";
+        if (flagVal.IsString)
+        {
+            var s = flagVal.AsString;
+            return string.IsNullOrWhiteSpace(s) ? "Normal" : s;
+        }
+        if (flagVal.IsInt32 || flagVal.IsInt64 || flagVal.IsDouble)
+        {
+            var n = flagVal.ToInt32();
+            return n switch
+            {
+                1 => "Low",
+                2 => "High",
+                3 => "CriticalPanic",
+                _ => "Normal"
+            };
+        }
+        return "Normal";
+    }
+
     private static bool IsResultApproved(BsonDocument doc)
     {
-        var status = doc.Contains("status") && !doc["status"].IsBsonNull ? doc["status"].AsString : "";
-        var valStatus = doc.Contains("validationStatus") && !doc["validationStatus"].IsBsonNull ? doc["validationStatus"].AsString : "";
-        var approvedAt = doc.Contains("approved_at") && !doc["approved_at"].IsBsonNull;
-        var digitalSig = doc.Contains("digital_signature") && !doc["digital_signature"].IsBsonNull && !string.IsNullOrWhiteSpace(doc["digital_signature"].AsString);
+        var status = ReadString(doc, "status");
+        var valStatus = ReadString(doc, "validationStatus");
+        var approvedAt = (doc.Contains("approved_at") && !doc["approved_at"].IsBsonNull)
+            || (doc.Contains("approvedAt") && !doc["approvedAt"].IsBsonNull);
+        var digitalSig = !string.IsNullOrWhiteSpace(ReadString(doc, "digitalSignature", "digital_signature"));
 
         return string.Equals(status, "Approved", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(status, "COMPLETED", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(valStatus, "DoctorApproved", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(valStatus, "3", StringComparison.OrdinalIgnoreCase) ||
                (approvedAt && digitalSig);
     }
 
     private async Task<object> BuildDetailedResultAsync(BsonDocument doc, string? requestedTestId = null)
     {
-        var resultId = doc["_id"].AsString;
-        var sampleId = doc.Contains("sample_id") ? doc["sample_id"].AsString : (doc.Contains("sampleId") ? doc["sampleId"].AsString : "");
-        var packageId = doc.Contains("package_id") ? doc["package_id"].AsString : (doc.Contains("packageId") ? doc["packageId"].AsString : "");
-        var patientId = doc.Contains("patient_id") ? doc["patient_id"].AsString : (doc.Contains("patientId") ? doc["patientId"].AsString : "");
-        var orderId = doc.Contains("order_id") ? doc["order_id"].AsString : (doc.Contains("orderId") ? doc["orderId"].AsString : (doc.Contains("appointment_id") ? doc["appointment_id"].AsString : (doc.Contains("appointmentId") ? doc["appointmentId"].AsString : "")));
+        var resultId = ReadString(doc, "_id", "testResultId", "resultCode");
+        var sampleId = ReadString(doc, "sampleId", "sample_id");
+        var packageId = ReadString(doc, "packageId", "package_id");
+        var patientId = ReadString(doc, "patientId", "patient_id");
+        var orderId = ReadString(doc, "order_id", "orderId", "appointment_id", "appointmentId");
 
         var analysisRun = doc.Contains("analysis_run") && doc["analysis_run"].IsInt32 ? doc["analysis_run"].AsInt32 : (doc.Contains("analysisRun") && doc["analysisRun"].IsInt32 ? doc["analysisRun"].AsInt32 : 1);
         var version = doc.Contains("version") && doc["version"].IsInt32 ? doc["version"].AsInt32 : 1;
@@ -492,7 +531,7 @@ public class TestResultsController : ControllerBase
 
         var parameters = new List<object>();
 
-        // 1. Try reading items embedded in the result doc
+        // 1. Try reading items embedded in the result doc (TestResultService schema)
         if (doc.Contains("items") && doc["items"].IsBsonArray && doc["items"].AsBsonArray.Count > 0)
         {
             foreach (var itemVal in doc["items"].AsBsonArray)
@@ -500,17 +539,18 @@ public class TestResultsController : ControllerBase
                 if (!itemVal.IsBsonDocument) continue;
                 var itemDoc = itemVal.AsBsonDocument;
 
-                var code = itemDoc.Contains("criterionCode") ? itemDoc["criterionCode"].AsString : (itemDoc.Contains("criterionId") ? itemDoc["criterionId"].AsString : "");
-                var name = itemDoc.Contains("criterionName") ? itemDoc["criterionName"].AsString : code;
-                var rawVal = itemDoc.Contains("measuredValue") ? itemDoc["measuredValue"].AsString : "0";
-                double numVal = double.TryParse(rawVal, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var nv) ? nv : 0;
-                var unit = itemDoc.Contains("unit") ? itemDoc["unit"].AsString : "";
-                var refInterval = itemDoc.Contains("referenceInterval") ? itemDoc["referenceInterval"].AsString : "";
+                var code = ReadString(itemDoc, "criterionCode", "code", "abbreviation", "criterionId");
+                var name = ReadString(itemDoc, "criterionName", "name", "paramName");
+                if (string.IsNullOrWhiteSpace(name)) name = code;
+                var rawVal = ReadString(itemDoc, "measuredValue", "value");
+                object parsedVal = double.TryParse(rawVal, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var nv) ? nv : rawVal;
+                var unit = ReadString(itemDoc, "unit");
+                var refInterval = ReadString(itemDoc, "referenceInterval", "reference_display", "referenceRange");
 
                 double? refLow = itemDoc.Contains("refLow") && !itemDoc["refLow"].IsBsonNull ? (itemDoc["refLow"].IsDouble ? itemDoc["refLow"].AsDouble : (double)itemDoc["refLow"].AsInt32) : null;
                 double? refHigh = itemDoc.Contains("refHigh") && !itemDoc["refHigh"].IsBsonNull ? (itemDoc["refHigh"].IsDouble ? itemDoc["refHigh"].AsDouble : (double)itemDoc["refHigh"].AsInt32) : null;
 
-                var flagStr = itemDoc.Contains("flag") ? itemDoc["flag"].AsString : "NORMAL";
+                var flagStr = MapResultFlag(itemDoc.Contains("flag") ? itemDoc["flag"] : null);
                 var normFlag = NormalizeFlag(flagStr);
 
                 parameters.Add(new
@@ -518,7 +558,7 @@ public class TestResultsController : ControllerBase
                     testId = code,
                     code = code,
                     name = name,
-                    value = numVal,
+                    value = parsedVal,
                     unit = unit,
                     referenceRange = ParseReferenceRange(refInterval, refLow, refHigh),
                     flag = normFlag,
@@ -526,19 +566,35 @@ public class TestResultsController : ControllerBase
                 });
             }
         }
-        else if (_paramsCol != null)
+
+        if (parameters.Count == 0 && _paramsCol != null)
         {
             // 2. Query test_parameters collection
-            var paramDocs = await _paramsCol.Find(Builders<BsonDocument>.Filter.Eq("result_id", resultId)).ToListAsync();
+            var paramDocs = await _paramsCol.Find(Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("result_id", resultId),
+                Builders<BsonDocument>.Filter.Eq("resultId", resultId)
+            )).ToListAsync();
+
             foreach (var p in paramDocs)
             {
-                var code = p.Contains("code") ? p["code"].AsString : "";
-                var name = p.Contains("name") ? p["name"].AsString : code;
-                var val = p.Contains("value_numeric") ? (p["value_numeric"].IsDouble ? p["value_numeric"].AsDouble : (p["value_numeric"].IsInt32 ? (double)p["value_numeric"].AsInt32 : 0)) : 0;
-                var unit = p.Contains("unit") ? p["unit"].AsString : "";
-                var refDisplay = p.Contains("reference_display") ? p["reference_display"].AsString : "";
-                var flag = p.Contains("flag") ? p["flag"].AsString : "NORMAL";
-                var normFlag = NormalizeFlag(flag);
+                var code = ReadString(p, "code", "criterionCode", "abbreviation");
+                var name = ReadString(p, "name", "criterionName", "paramName");
+                if (string.IsNullOrWhiteSpace(name)) name = code;
+                object val = 0d;
+                if (p.Contains("value_numeric") && !p["value_numeric"].IsBsonNull)
+                {
+                    val = p["value_numeric"].IsDouble ? p["value_numeric"].AsDouble
+                        : (p["value_numeric"].IsInt32 ? (double)p["value_numeric"].AsInt32 : p["value_numeric"].ToString()!);
+                }
+                else if (p.Contains("value") && !p["value"].IsBsonNull)
+                {
+                    val = p["value"].ToString()!;
+                }
+
+                var unit = ReadString(p, "unit");
+                var refDisplay = ReadString(p, "reference_display", "referenceInterval", "referenceRange");
+                var flagStr = MapResultFlag(p.Contains("flag") ? p["flag"] : null);
+                var normFlag = NormalizeFlag(flagStr);
 
                 parameters.Add(new
                 {
@@ -549,7 +605,7 @@ public class TestResultsController : ControllerBase
                     unit = unit,
                     referenceRange = ParseReferenceRange(refDisplay),
                     flag = normFlag,
-                    isAbnormal = normFlag != "NORMAL"
+                    isAbnormal = (p.Contains("is_abnormal") && p["is_abnormal"].AsBoolean) || normFlag != "NORMAL"
                 });
             }
         }
@@ -561,18 +617,27 @@ public class TestResultsController : ControllerBase
         string priority = "Normal";
         if (_samplesCol != null && !string.IsNullOrWhiteSpace(sampleId))
         {
-            var sDoc = await _samplesCol.Find(Builders<BsonDocument>.Filter.Eq("_id", sampleId)).FirstOrDefaultAsync();
+            var sDoc = await _samplesCol.Find(Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("_id", sampleId),
+                Builders<BsonDocument>.Filter.Eq("barcode", sampleId)
+            )).FirstOrDefaultAsync();
             if (sDoc != null)
             {
-                barcode = sDoc.Contains("barcode") ? sDoc["barcode"].AsString : sampleId;
-                if (sDoc.Contains("tube_color")) tubeColor = sDoc["tube_color"].AsString;
-                if (sDoc.Contains("sample_type")) sampleType = sDoc["sample_type"].AsString;
-                if (sDoc.Contains("priority")) priority = sDoc["priority"].AsString;
+                barcode = ReadString(sDoc, "barcode");
+                if (string.IsNullOrWhiteSpace(barcode)) barcode = sampleId;
+                tubeColor = ReadString(sDoc, "tube_color", "tubeColor");
+                if (string.IsNullOrWhiteSpace(tubeColor)) tubeColor = "Purple";
+                sampleType = ReadString(sDoc, "sample_type", "sampleType");
+                if (string.IsNullOrWhiteSpace(sampleType)) sampleType = "Blood";
+                priority = ReadString(sDoc, "priority");
+                if (string.IsNullOrWhiteSpace(priority)) priority = "Normal";
+                if (string.IsNullOrWhiteSpace(packageId))
+                    packageId = ReadString(sDoc, "packageId", "package_id", "test_package_code", "testPackageCode");
             }
         }
 
         // Enrich patient info
-        string patientName = "Bệnh nhân " + patientId;
+        string patientName = string.IsNullOrWhiteSpace(patientId) ? "Bệnh nhân" : ("Bệnh nhân " + patientId);
         string patientGender = "Nam";
         string patientDob = "";
         string patientPhone = "";
@@ -581,15 +646,18 @@ public class TestResultsController : ControllerBase
         {
             var pDoc = await _patientsCol.Find(Builders<BsonDocument>.Filter.Or(
                 Builders<BsonDocument>.Filter.Eq("_id", patientId),
-                Builders<BsonDocument>.Filter.Eq("patient_code", patientId)
+                Builders<BsonDocument>.Filter.Eq("patient_code", patientId),
+                Builders<BsonDocument>.Filter.Eq("patientCode", patientId)
             )).FirstOrDefaultAsync();
 
             if (pDoc != null)
             {
-                patientName = pDoc.Contains("fullname") ? pDoc["fullname"].AsString : (pDoc.Contains("full_name") ? pDoc["full_name"].AsString : patientName);
-                patientGender = pDoc.Contains("gender") ? pDoc["gender"].AsString : patientGender;
-                patientPhone = pDoc.Contains("phone") ? pDoc["phone"].AsString : (pDoc.Contains("phone_number") ? pDoc["phone_number"].AsString : "");
-                patientAddress = pDoc.Contains("address") ? pDoc["address"].AsString : "";
+                patientName = ReadString(pDoc, "fullname", "full_name", "fullName");
+                if (string.IsNullOrWhiteSpace(patientName)) patientName = "Bệnh nhân " + patientId;
+                patientGender = ReadString(pDoc, "gender");
+                if (string.IsNullOrWhiteSpace(patientGender)) patientGender = "Nam";
+                patientPhone = ReadString(pDoc, "phone", "phone_number", "phoneNumber");
+                patientAddress = ReadString(pDoc, "address");
                 if (pDoc.Contains("dob") && pDoc["dob"].IsBsonDateTime)
                 {
                     patientDob = pDoc["dob"].ToUniversalTime().ToString("yyyy-MM-dd");
@@ -601,10 +669,19 @@ public class TestResultsController : ControllerBase
         string packageName = "Xét nghiệm sinh hóa / huyết học";
         if (_packagesCol != null && !string.IsNullOrWhiteSpace(packageId))
         {
-            var pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Eq("_id", packageId)).FirstOrDefaultAsync();
+            var pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("_id", packageId),
+                Builders<BsonDocument>.Filter.Eq("package_code", packageId),
+                Builders<BsonDocument>.Filter.Eq("code", packageId)
+            )).FirstOrDefaultAsync();
             if (pkgDoc != null)
             {
-                packageName = pkgDoc.Contains("package_name") ? pkgDoc["package_name"].AsString : (pkgDoc.Contains("name") ? pkgDoc["name"].AsString : packageName);
+                packageName = ReadString(pkgDoc, "package_name", "name", "packageName");
+                if (string.IsNullOrWhiteSpace(packageName)) packageName = "Xét nghiệm sinh hóa / huyết học";
+            }
+            else if (packageId.Contains("CBC", StringComparison.OrdinalIgnoreCase))
+            {
+                packageName = "CBC — Tổng phân tích tế bào máu";
             }
         }
 
@@ -617,13 +694,24 @@ public class TestResultsController : ControllerBase
         }
         targetParam ??= parameters.FirstOrDefault();
 
-        var status = doc.Contains("status") ? doc["status"].AsString : "Approved";
+        var equipmentCode = ReadString(doc, "deviceId", "equipment_code", "equipmentCode");
+        DateTime? approvedAt = null;
+        if (doc.Contains("approvedAt") && doc["approvedAt"].IsBsonDateTime)
+            approvedAt = doc["approvedAt"].ToUniversalTime();
+        else if (doc.Contains("approved_at") && doc["approved_at"].IsBsonDateTime)
+            approvedAt = doc["approved_at"].ToUniversalTime();
+
+        var digitalSignature = ReadString(doc, "digitalSignature", "digital_signature");
+        var conclusionNotes = ReadString(doc, "clinicalComment", "conclusion_notes", "conclusionNotes");
+        var status = ReadString(doc, "status");
+        if (string.IsNullOrWhiteSpace(status)) status = "Approved";
         var isApproved = IsResultApproved(doc);
 
         return new
         {
             id = resultId,
             resultId = resultId,
+            testResultId = resultId,
             patientId = patientId,
             orderId = orderId,
             sampleId = sampleId,
@@ -638,18 +726,21 @@ public class TestResultsController : ControllerBase
             tubeColor = tubeColor,
             sampleType = sampleType,
             priority = priority,
-            equipmentCode = doc.Contains("equipment_code") && !doc["equipment_code"].IsBsonNull ? doc["equipment_code"].AsString : null,
+            equipmentCode = string.IsNullOrWhiteSpace(equipmentCode) ? null : equipmentCode,
             status = status,
             approvalStatus = isApproved ? "Approved" : "PendingApproval",
             isOfficialRelease = isApproved,
             analysisRun = analysisRun,
             version = version,
             parentResultId = parentResultId,
-            digitalSignature = doc.Contains("digital_signature") && !doc["digital_signature"].IsBsonNull ? doc["digital_signature"].AsString : null,
-            approvedAt = doc.Contains("approved_at") && doc["approved_at"].IsBsonDateTime ? doc["approved_at"].ToUniversalTime() : (DateTime?)null,
-            conclusionNotes = doc.Contains("conclusion_notes") && !doc["conclusion_notes"].IsBsonNull ? doc["conclusion_notes"].AsString : "",
-            rerunRequested = doc.Contains("rerun_requested") && doc["rerun_requested"].AsBoolean,
-            reportPdfUrl = doc.Contains("report_pdf_url") && !doc["report_pdf_url"].IsBsonNull ? doc["report_pdf_url"].AsString : null,
+            digitalSignature = string.IsNullOrWhiteSpace(digitalSignature) ? null : digitalSignature,
+            approvedAt = approvedAt,
+            conclusionNotes = conclusionNotes,
+            rerunRequested = (doc.Contains("rerun_requested") && doc["rerun_requested"].AsBoolean)
+                || (doc.Contains("rerunRequested") && doc["rerunRequested"].AsBoolean),
+            reportPdfUrl = string.IsNullOrWhiteSpace(ReadString(doc, "report_pdf_url", "reportPdfUrl"))
+                ? null
+                : ReadString(doc, "report_pdf_url", "reportPdfUrl"),
 
             // Primary single-parameter fields
             testId = targetParam != null ? (targetParam as dynamic).testId : (requestedTestId ?? ""),
@@ -699,39 +790,52 @@ public class TestResultsController : ControllerBase
 
     private async Task<object> BuildSummaryResultAsync(BsonDocument d)
     {
-        var sampleId = d.Contains("sample_id") ? d["sample_id"].AsString : (d.Contains("sampleId") ? d["sampleId"].AsString : "");
-        var packageId = d.Contains("package_id") ? d["package_id"].AsString : (d.Contains("packageId") ? d["packageId"].AsString : "");
-        var patientId = d.Contains("patient_id") ? d["patient_id"].AsString : (d.Contains("patientId") ? d["patientId"].AsString : "");
-        var orderId = d.Contains("order_id") ? d["order_id"].AsString : (d.Contains("orderId") ? d["orderId"].AsString : "");
+        var sampleId = ReadString(d, "sampleId", "sample_id");
+        var packageId = ReadString(d, "packageId", "package_id");
+        var patientId = ReadString(d, "patientId", "patient_id");
+        var orderId = ReadString(d, "order_id", "orderId", "appointment_id", "appointmentId");
 
         string patientName = patientId;
         if (_patientsCol != null && !string.IsNullOrWhiteSpace(patientId))
         {
             var pDoc = await _patientsCol.Find(Builders<BsonDocument>.Filter.Or(
                 Builders<BsonDocument>.Filter.Eq("_id", patientId),
-                Builders<BsonDocument>.Filter.Eq("patient_code", patientId)
+                Builders<BsonDocument>.Filter.Eq("patient_code", patientId),
+                Builders<BsonDocument>.Filter.Eq("patientCode", patientId)
             )).FirstOrDefaultAsync();
             if (pDoc != null)
             {
-                patientName = pDoc.Contains("fullname") ? pDoc["fullname"].AsString : (pDoc.Contains("full_name") ? pDoc["full_name"].AsString : patientId);
+                patientName = ReadString(pDoc, "fullname", "full_name", "fullName");
+                if (string.IsNullOrWhiteSpace(patientName)) patientName = patientId;
             }
         }
 
         string packageName = packageId;
         if (_packagesCol != null && !string.IsNullOrWhiteSpace(packageId))
         {
-            var pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Eq("_id", packageId)).FirstOrDefaultAsync();
+            var pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("_id", packageId),
+                Builders<BsonDocument>.Filter.Eq("code", packageId)
+            )).FirstOrDefaultAsync();
             if (pkgDoc != null)
             {
-                packageName = pkgDoc.Contains("package_name") ? pkgDoc["package_name"].AsString : (pkgDoc.Contains("name") ? pkgDoc["name"].AsString : packageId);
+                packageName = ReadString(pkgDoc, "package_name", "name", "packageName");
+                if (string.IsNullOrWhiteSpace(packageName)) packageName = packageId;
             }
         }
 
         string barcode = sampleId;
         if (_samplesCol != null && !string.IsNullOrWhiteSpace(sampleId))
         {
-            var sDoc = await _samplesCol.Find(Builders<BsonDocument>.Filter.Eq("_id", sampleId)).FirstOrDefaultAsync();
-            if (sDoc != null && sDoc.Contains("barcode")) barcode = sDoc["barcode"].AsString;
+            var sDoc = await _samplesCol.Find(Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("_id", sampleId),
+                Builders<BsonDocument>.Filter.Eq("barcode", sampleId)
+            )).FirstOrDefaultAsync();
+            if (sDoc != null)
+            {
+                barcode = ReadString(sDoc, "barcode");
+                if (string.IsNullOrWhiteSpace(barcode)) barcode = sampleId;
+            }
         }
 
         var isApproved = IsResultApproved(d);

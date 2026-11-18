@@ -13,18 +13,18 @@ public static class RoleNames
 {
     /// <summary>Role 1 – system administration (accounts, roles, backup). No clinical data.</summary>
     public const string Admin = "Admin";
-    /// <summary>Role 2 – Quản lý (absorbs LabHead). Only role that signs results, unlocks Westgard, edits panic thresholds.</summary>
-    public const string Manager = "Manager";
+    /// <summary>Role 2 – Bác sĩ (clinic exam, order tests, approve clinical results for patient release).</summary>
+    public const string Doctor = "Doctor";
     /// <summary>Role 3 – Lab (absorbs LabTech, Phlebotomist, WarehouseStaff).</summary>
     public const string Lab = "Lab";
-    /// <summary>Role 4 – Bác sĩ.</summary>
-    public const string Doctor = "Doctor";
-    /// <summary>Role 5 – Lễ tân (absorbs Cashier, Nurse). Only role that takes cash/POS payments.</summary>
+    /// <summary>Role 4 – Lễ tân (absorbs Cashier, Nurse). Check-in, queue, cash/POS payments.</summary>
     public const string Receptionist = "Receptionist";
-    /// <summary>Role 6 – Bệnh nhân. Own data only.</summary>
+    /// <summary>Role 5 – Bệnh nhân. Own data only.</summary>
     public const string Patient = "Patient";
+    /// <summary>Role 6 – Quản lý (absorbs LabHead). QC unlock, panic thresholds, optional tech-verify — not required on main patient-publish path.</summary>
+    public const string Manager = "Manager";
 
-    /// <summary>All six canonical names, indexed by role ID (index 0 unused).</summary>
+    /// <summary>All six canonical names, indexed by role ID (index 0 unused): 1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager.</summary>
     private static readonly string[] ById = ["", Admin, Doctor, Lab, Receptionist, Patient, Manager];
 
     /// <summary>Maps a seeded role ID (1–6) to its canonical claim name; any other ID returns <c>null</c>.</summary>
@@ -102,8 +102,8 @@ public static class RoleSets
     public const string AdminManagerLab = RoleNames.Admin + C + RoleNames.Manager + C + RoleNames.Lab;
     /// <summary>EMR / assessment readers (UC33, UC50): Doctor, Manager (view), Patient (own).</summary>
     public const string DoctorManagerOrPatient = RoleNames.Doctor + C + RoleNames.Manager + C + RoleNames.Patient;
-    /// <summary>Appointment readers (UC23): Receptionist, Manager, Doctor (assigned), Patient (own).</summary>
-    public const string AppointmentReaders = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Patient;
+    /// <summary>Appointment readers (UC23): Receptionist, Manager, Doctor (assigned), Patient (own), Lab (specimen intake).</summary>
+    public const string AppointmentReaders = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Patient + C + RoleNames.Lab;
     /// <summary>Appointment editors (UC24): Receptionist, Manager, Doctor (reschedule/status), Patient (own cancel/reschedule).</summary>
     public const string AppointmentEditors = RoleNames.Receptionist + C + RoleNames.Manager + C + RoleNames.Doctor + C + RoleNames.Patient;
     /// <summary>Doctor schedule viewers (UC16): Admin, Manager, Doctor, Receptionist.</summary>
