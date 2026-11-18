@@ -123,16 +123,35 @@ public sealed class ServicePackageService(
             e.Category = string.IsNullOrWhiteSpace(r.Category) ? null : r.Category.Trim();
         if (r.PreparationNotes is not null)
             e.PreparationNotes = string.IsNullOrWhiteSpace(r.PreparationNotes) ? null : r.PreparationNotes.Trim();
+        if (r.TargetAudience is not null)
+            e.TargetAudience = string.IsNullOrWhiteSpace(r.TargetAudience) ? null : r.TargetAudience.Trim();
+        if (r.Tat is not null)
+            e.Tat = string.IsNullOrWhiteSpace(r.Tat) ? null : r.Tat.Trim();
+        if (r.SampleTube is not null)
+            e.SampleTube = string.IsNullOrWhiteSpace(r.SampleTube) ? null : r.SampleTube.Trim();
+        if (r.SampleVolumeMl is not null)
+            e.SampleVolumeMl = r.SampleVolumeMl;
+        if (r.Highlights is not null)
+            e.Highlights = r.Highlights.Where(h => !string.IsNullOrWhiteSpace(h)).Select(h => h.Trim()).ToList();
+
         e.Price = r.Price;
         e.DiscountPrice = r.DiscountPrice;
         e.IsActive = r.IsActive;
         e.Tests = r.Tests
-            .Select(t => new ServicePackageTest { Code = t.Code.Trim().ToUpperInvariant(), Name = t.Name.Trim() })
+            .Select(t => new ServicePackageTest
+            {
+                Code = t.Code.Trim().ToUpperInvariant(),
+                Name = t.Name.Trim(),
+                SampleType = t.SampleType?.Trim(),
+                Price = t.Price,
+                ClinicalMeaning = t.ClinicalMeaning?.Trim()
+            })
             .ToList();
     }
 
     private static ServicePackageDto ToDto(ServicePackage p) => new(
         p.Id, p.Code, p.Name, p.Description, p.Price, p.DiscountPrice,
-        p.Tests.Select(t => new ServicePackageTestInfo(t.Code, t.Name)).ToList(),
-        p.IsActive, p.CreatedAt, p.UpdatedAt, p.Category, p.PreparationNotes);
+        p.Tests.Select(t => new ServicePackageTestInfo(t.Code, t.Name, t.SampleType, t.Price, t.ClinicalMeaning)).ToList(),
+        p.IsActive, p.CreatedAt, p.UpdatedAt, p.Category, p.PreparationNotes,
+        p.TargetAudience, p.Tat, p.SampleTube, p.SampleVolumeMl, p.Highlights);
 }

@@ -26,12 +26,11 @@ namespace BMS.Infrastructure.Repositories
         private static FilterDefinition<TestResult> Active => F.Ne(x => x.IsDeleted, true);
         // WHY in the filter: makes "signed = read-only" atomic; an edit racing an approval cannot land after the signature.
         private static FilterDefinition<TestResult> NotSigned => F.Not(Signed);
+        // Locked only after Doctor clinical approval — Manager tech-verify must remain editable for Doctor.
         private static FilterDefinition<TestResult> Signed =>
             F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null),
                 F.Regex(x => x.Status, new BsonRegularExpression("^APPROVED$", "i")),
-                new BsonDocument("approved_at", new BsonDocument("$type", "date")),
-                new BsonDocument("digital_signature", new BsonDocument { { "$type", "string" }, { "$regex", @"\S" } }),
-                new BsonDocument("digitalSignature", new BsonDocument { { "$type", "string" }, { "$regex", @"\S" } }));
+                new BsonDocument("approved_at", new BsonDocument("$type", "date")));
         private static FilterDefinition<TestResult> ById(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.TestResultId, id)) & Active;
 
         /// <inheritdoc />
@@ -106,6 +105,7 @@ namespace BMS.Infrastructure.Repositories
             if (c.ApprovedByDoctorId is not null) updates.Add(u.Set(x => x.ApprovedByDoctorId, c.ApprovedByDoctorId));
             if (c.ApprovedAt is not null) updates.Add(u.Set(x => x.ApprovedAt, c.ApprovedAt));
             if (c.IsPanic.HasValue) updates.Add(u.Set(x => x.IsPanic, c.IsPanic.Value));
+            if (c.DigitalSignature is not null) updates.Add(u.Set(x => x.DigitalSignature, c.DigitalSignature));
 
             var result = await _results.UpdateOneAsync(ById(id) & NotSigned, u.Combine(updates), cancellationToken: ct);
             return result.MatchedCount > 0;

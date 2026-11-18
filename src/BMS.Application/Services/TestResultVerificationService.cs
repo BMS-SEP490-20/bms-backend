@@ -290,11 +290,13 @@ public class TestResultVerificationService : ITestResultVerificationService
 
         await _repository.UpsertVerificationAsync(entity);
 
-        // 3. Atomically persist & lock test result in real MongoDB collections (both camelCase & snake_case)
+        // 3. Technical verification only — does NOT publish to patient portal.
+        // Main clinical gate: Doctor must still approve (DoctorApproved + APPROVED + clinical signature).
         if (_database != null)
         {
             try
             {
+                // 3a. Mark test_results as TechnicianVerified / waiting_doctor_review (editable by Doctor).
                 var testResultsCol = _database.GetCollection<BsonDocument>("test_results");
                 var rf = Builders<BsonDocument>.Filter;
                 var resultFilter = rf.Or(
@@ -309,20 +311,21 @@ public class TestResultVerificationService : ITestResultVerificationService
                 }
 
                 var resultUpdate = Builders<BsonDocument>.Update
-                    .Set("status", "Approved")
-                    .Set("validationStatus", 3)
-                    .Set("digitalSignature", digitalSignature)
-                    .Set("digital_signature", digitalSignature)
-                    .Set("is_locked", true)
+                    .Set("status", "waiting_doctor_review")
+                    .Set("validationStatus", (int)ResultValidationStatus.TechnicianVerified)
+                    .Set("tech_signature", digitalSignature)
                     .Set("reviewedBy", normalizedVerifier)
                     .Set("reviewed_by", normalizedVerifier)
                     .Set("reviewedAt", verifyTime)
-                    .Set("approvedByDoctorId", normalizedVerifier)
-                    .Set("approvedAt", verifyTime)
-                    .Set("approved_at", verifyTime)
+                    .Set("reviewed_at", verifyTime)
                     .Set("clinicalComment", request.VerifierComment)
                     .Set("conclusion_notes", request.VerifierComment)
-                    .Set("updatedAt", verifyTime);
+                    .Set("updatedAt", verifyTime)
+                    .Unset("approved_at")
+                    .Unset("approvedAt")
+                    .Unset("digital_signature")
+                    .Unset("digitalSignature")
+                    .Set("is_locked", false);
 
                 var updateResult = await testResultsCol.UpdateManyAsync(resultFilter, resultUpdate);
                 if (updateResult.MatchedCount == 0)
@@ -336,15 +339,14 @@ public class TestResultVerificationService : ITestResultVerificationService
                         { "patient_id", entity.PatientId },
                         { "packageId", entity.PackageName },
                         { "package_id", entity.PackageName },
-                        { "status", "Approved" },
-                        { "validationStatus", 3 },
-                        { "digitalSignature", digitalSignature },
-                        { "digital_signature", digitalSignature },
-                        { "is_locked", true },
+                        { "status", "waiting_doctor_review" },
+                        { "validationStatus", (int)ResultValidationStatus.TechnicianVerified },
+                        { "tech_signature", digitalSignature },
+                        { "is_locked", false },
                         { "reviewedBy", normalizedVerifier },
                         { "reviewed_by", normalizedVerifier },
-                        { "approvedAt", verifyTime },
-                        { "approved_at", verifyTime },
+                        { "reviewedAt", verifyTime },
+                        { "reviewed_at", verifyTime },
                         { "clinicalComment", request.VerifierComment },
                         { "conclusion_notes", request.VerifierComment },
                         { "createdAt", verifyTime },
@@ -353,7 +355,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                     await testResultsCol.InsertOneAsync(newResultDoc);
                 }
 
-                // 3b. Update blood_samples status to Completed
+                // 3b. Sample stays Completed after Lab entry; do not reopen patient portal.
                 var samplesCol = _database.GetCollection<BsonDocument>("blood_samples");
                 var sf = Builders<BsonDocument>.Filter;
                 var sampleFilter = sf.Or(
@@ -368,39 +370,26 @@ public class TestResultVerificationService : ITestResultVerificationService
                     .Set("UpdatedAt", verifyTime);
                 await samplesCol.UpdateManyAsync(sampleFilter, sampleUpdate);
 
-                // 3c. Insert domain notification records into notifications collection for Doctor and Patient
+                // 3c. Notify Doctor only — Patient learns results after Doctor clinical approve.
                 var notifCol = _database.GetCollection<BsonDocument>("notifications");
                 var docNotif = new BsonDocument
                 {
                     { "notification_id", $"NOT-{Guid.NewGuid().ToString("N")[..8].ToUpper()}" },
                     { "user_id", entity.PatientId },
                     { "role", "Doctor" },
-                    { "title", $"[KẾT QUẢ ĐÃ DUYỆT] Mẫu {trimmedId} - Đơn {entity.OrderId}" },
-                    { "message", $"Trưởng Khoa {normalizedVerifier} đã ký số thẩm định kết quả xét nghiệm {entity.PackageName} của bệnh nhân {entity.PatientName} ({entity.PatientId}). Hồ sơ đã sẵn sàng để bác sĩ kết luận điều trị." },
-                    { "type", "TestResultApproved" },
+                    { "title", $"[CHỜ BS THẨM ĐỊNH] Mẫu {trimmedId} - Đơn {entity.OrderId}" },
+                    { "message", $"Trưởng Khoa {normalizedVerifier} đã thẩm định kỹ thuật {entity.PackageName} của BN {entity.PatientName}. Vào /doctor/console → Thẩm Định & Tư Vấn → Ký Số & Trả Kết Quả Cho Bệnh Nhân." },
+                    { "type", "TestResultReadyForDoctor" },
                     { "reference_id", trimmedId },
                     { "is_read", false },
                     { "created_at", verifyTime }
                 };
 
-                var patNotif = new BsonDocument
-                {
-                    { "notification_id", $"NOT-{Guid.NewGuid().ToString("N")[..8].ToUpper()}" },
-                    { "user_id", entity.PatientId },
-                    { "role", "Patient" },
-                    { "title", "Kết quả xét nghiệm đã hoàn tất và được ký duyệt" },
-                    { "message", $"Kính gửi {entity.PatientName}, kết quả xét nghiệm {entity.PackageName} của quý khách đã được Trưởng Khoa ký số thẩm định y khoa." },
-                    { "type", "TestResultAvailable" },
-                    { "reference_id", trimmedId },
-                    { "is_read", false },
-                    { "created_at", verifyTime }
-                };
-
-                await notifCol.InsertManyAsync(new[] { docNotif, patNotif });
+                await notifCol.InsertOneAsync(docNotif);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to persist locked test results or notifications for specimen {SpecimenId}", trimmedId);
+                _logger?.LogError(ex, "Failed to persist technician verification or doctor notification for specimen {SpecimenId}", trimmedId);
             }
         }
 

@@ -49,5 +49,7 @@ namespace BMS.Core.Interfaces
         ResultValidationStatus? ValidationStatus = null,
         string? ApprovedByDoctorId = null,
         DateTime? ApprovedAt = null,
-        bool? IsPanic = null);
+        bool? IsPanic = null,
+        /// <summary>SHA-256 clinical seal written only when the Doctor publishes results to the patient.</summary>
+        string? DigitalSignature = null);
 }

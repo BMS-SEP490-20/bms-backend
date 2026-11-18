@@ -264,7 +264,7 @@ public class RoleRepository : IRoleRepository
         1 => new Role { Id = 1, RoleName = RoleNames.Admin, Description = "System Administrator",
             Permissions = ["MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "MANAGE_SCHEDULE"] },
         2 => new Role { Id = 2, RoleName = RoleNames.Doctor, Description = "Bác sĩ",
-            Permissions = ["EXAMINE_PATIENT", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY"] },
+            Permissions = ["EXAMINE_PATIENT", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "APPROVE_RESULTS", "APPROVE_RESULT", "SIGN_REPORTS"] },
         3 => new Role { Id = 3, RoleName = RoleNames.Lab, Description = "Lab (gồm KTV, lấy mẫu, kho)",
             Permissions = ["RECEIVE_SAMPLE", "COLLECT_SAMPLE", "RUN_ANALYZER", "ENTER_RESULT", "MANAGE_REAGENTS"] },
         4 => new Role { Id = 4, RoleName = RoleNames.Receptionist, Description = "Lễ tân (gồm Thu ngân)",
@@ -318,7 +318,8 @@ public class RoleRepository : IRoleRepository
                 Remove("APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD");
                 break;
             case RoleNames.Doctor:
-                Ensure("EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS");
+                // Clinical approve/sign is Doctor-owned (patient publish gate); Manager keeps tech-verify only.
+                Ensure("EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "APPROVE_RESULTS", "APPROVE_RESULT", "SIGN_REPORTS");
                 break;
             case RoleNames.Receptionist:
                 Ensure("CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE");
