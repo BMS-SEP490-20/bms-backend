@@ -162,6 +162,15 @@ public class User : ISupportInitialize
     [BsonElement("passwordResetExpiresAt")]
     public DateTime? PasswordResetExpiresAt { get; set; }
 
+    [BsonElement("passwordResetFailedAttempts")]
+    public int PasswordResetFailedAttempts { get; set; }
+
+    [BsonElement("passwordResetLockoutEnd")]
+    public DateTime? PasswordResetLockoutEnd { get; set; }
+
+    [BsonElement("passwordResetRequestedAt")]
+    public DateTime? PasswordResetRequestedAt { get; set; }
+
     // Chống brute-force
     [BsonElement("FailedLoginCount")]
     public int FailedLoginCount { get; set; }

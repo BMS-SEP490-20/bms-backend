@@ -222,6 +222,18 @@ public class SpecimenHistoryRecord
     [BsonElement("rejectionReason")]
     public string? RejectionReason { get; set; }
 
+    [BsonElement("isRejected")]
+    public bool IsRejected { get; set; }
+
+    [BsonElement("qcStatus")]
+    public string? QcStatus { get; set; } = "Passed";
+
+    [BsonElement("receivedBy")]
+    public string? ReceivedBy { get; set; }
+
+    [BsonElement("receivedAt")]
+    public DateTime? ReceivedAt { get; set; }
+
     [BsonElement("isActive")]
     public bool IsActive { get; set; } = true;
 

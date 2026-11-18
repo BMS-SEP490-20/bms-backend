@@ -44,6 +44,10 @@ public class MedicalAssessment
     [BsonIgnoreIfNull]
     public string? EncounterId { get; set; }
 
+    [BsonElement("order_id")]
+    [BsonIgnoreIfNull]
+    public string? OrderId { get; set; }
+
     [BsonElement("encounter_type")]
     public string EncounterType { get; set; } = "ClinicVisit"; // ClinicVisit, FollowUp, Emergency, RoutineCheckup
 
@@ -164,4 +168,13 @@ public class MedicalAssessment
     [BsonElement("updated_by")]
     [BsonIgnoreIfNull]
     public string? UpdatedBy { get; set; }
+
+    [BsonElement("version")]
+    public int Version { get; set; } = 1;
+
+    [BsonElement("is_automated_diagnosis")]
+    public bool IsAutomatedDiagnosis { get; set; } = false;
+
+    [BsonElement("assessment_type")]
+    public string AssessmentType { get; set; } = "ClinicalConsultation";
 }

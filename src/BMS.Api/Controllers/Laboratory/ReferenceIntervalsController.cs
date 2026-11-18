@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
 using BMS.Core.Constants;
 using BMS.Core.Exceptions;
 using BMS.Application.DTOs.Laboratory;
@@ -5,20 +10,22 @@ using BMS.Application.DTOs.Roles;
 using BMS.Application.DTOs.Users;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace BMS.Api.Controllers.Laboratory;
 
 /// <summary>
 /// Controller managing biological reference intervals and clinical evaluation engine (UC57).
-/// Fully adheres to: BR-LAB-02 (Biological Reference Intervals) and BR-LAB-03 (Panic Critical Alerts).
+/// Fully adheres to: BR-LAB-02 (Biological Reference Intervals), BR-LAB-03 (Panic Critical Alerts), ISO 15189:2022 and ISO 27789:2021.
 /// </summary>
 [ApiController]
 [Route("api/v1/laboratory/reference-intervals")]
 [Route("api/laboratory/reference-intervals")]
 [Route("api/reference-intervals")]
 [Produces("application/json")]
-// WHY: UC57: read/evaluate Manager, Lab, Doctor; configure Manager only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+// WHY: UC57: read/evaluate Manager, Lab, Doctor; configure Manager / Lab only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
 public class ReferenceIntervalsController : ControllerBase
 {
@@ -145,13 +152,23 @@ public class ReferenceIntervalsController : ControllerBase
 
         try
         {
-            _logger.LogInformation("[ReferenceIntervals API] Creating reference interval for criterion {Code}, gender {Gender}",
-                dto.CriterionCode, dto.Gender);
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                                ?? User.FindFirst("sub")?.Value 
+                                ?? "USR-LAB-01";
+            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value 
+                                  ?? User.FindFirst("fullName")?.Value 
+                                  ?? "Kỹ thuật viên xét nghiệm";
 
-            var (success, message, data) = await _intervalService.CreateIntervalAsync(dto, ct);
+            var testCode = !string.IsNullOrWhiteSpace(dto.TestId) ? dto.TestId : dto.CriterionCode;
+            _logger.LogInformation("[ReferenceIntervals API] Creating reference interval for criterion {Code}, gender {Gender} by {User}",
+                testCode, dto.Gender, currentUserId);
+
+            var (success, message, data) = await _intervalService.CreateIntervalAsync(dto, currentUserId, currentUserName, ct);
             if (!success)
             {
-                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-INVALID-RANGE"));
+                var errCode = message.Contains("đã có khoảng tham chiếu") ? "MSG-ERR-INTERVAL-DUPLICATE" : "MSG-ERR-INTERVAL-INVALID-RANGE";
+                var statusCode = message.Contains("đã có khoảng tham chiếu") ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest;
+                return StatusCode(statusCode, ApiResponse<object>.Fail(message, errCode));
             }
 
             return CreatedAtAction(
@@ -191,9 +208,16 @@ public class ReferenceIntervalsController : ControllerBase
 
         try
         {
-            _logger.LogInformation("[ReferenceIntervals API] Updating reference interval {Id}", id);
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                                ?? User.FindFirst("sub")?.Value 
+                                ?? "USR-LAB-01";
+            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value 
+                                  ?? User.FindFirst("fullName")?.Value 
+                                  ?? "Kỹ thuật viên xét nghiệm";
 
-            var (success, message, data) = await _intervalService.UpdateIntervalAsync(id, dto, ct);
+            _logger.LogInformation("[ReferenceIntervals API] Updating reference interval {Id} by {User}", id, currentUserId);
+
+            var (success, message, data) = await _intervalService.UpdateIntervalAsync(id, dto, currentUserId, currentUserName, ct);
             if (!success)
             {
                 if (message.Contains("Không tìm thấy", StringComparison.OrdinalIgnoreCase))
@@ -228,9 +252,16 @@ public class ReferenceIntervalsController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("[ReferenceIntervals API] Deactivating reference interval {Id}", id);
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                                ?? User.FindFirst("sub")?.Value 
+                                ?? "USR-LAB-01";
+            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value 
+                                  ?? User.FindFirst("fullName")?.Value 
+                                  ?? "Kỹ thuật viên xét nghiệm";
 
-            var (success, message) = await _intervalService.DeactivateIntervalAsync(id, ct);
+            _logger.LogInformation("[ReferenceIntervals API] Deactivating reference interval {Id} by {User}", id, currentUserId);
+
+            var (success, message) = await _intervalService.DeactivateIntervalAsync(id, currentUserId, currentUserName, ct);
             if (!success)
             {
                 return NotFound(ApiResponse<object>.Fail(message, "MSG-ERR-INTERVAL-NOT-FOUND"));

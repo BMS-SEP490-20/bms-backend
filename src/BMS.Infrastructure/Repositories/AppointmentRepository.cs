@@ -1,6 +1,7 @@
 using BMS.Core;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
@@ -24,16 +25,16 @@ namespace BMS.Infrastructure.Repositories
 
             try
             {
-            var indexKeys = Builders<Appointment>.IndexKeys.Ascending(x => x.AppointmentCode);
-            _collection.Indexes.CreateOne(
-                new CreateIndexModel<Appointment>(indexKeys, new CreateIndexOptions { Unique = true }));
+                var indexKeys = Builders<Appointment>.IndexKeys.Ascending(x => x.AppointmentCode);
+                _collection.Indexes.CreateOne(
+                    new CreateIndexModel<Appointment>(indexKeys, new CreateIndexOptions { Unique = true }));
 
-            var slotIndex = Builders<Appointment>.IndexKeys
-                .Ascending(x => x.DoctorId)
-                .Ascending(x => x.AppointmentDate)
-                .Ascending(x => x.StartTime)
-                .Ascending(x => x.Status);
-            _collection.Indexes.CreateOne(new CreateIndexModel<Appointment>(slotIndex));
+                var slotIndex = Builders<Appointment>.IndexKeys
+                    .Ascending(x => x.DoctorId)
+                    .Ascending(x => x.AppointmentDate)
+                    .Ascending(x => x.StartTime)
+                    .Ascending(x => x.Status);
+                _collection.Indexes.CreateOne(new CreateIndexModel<Appointment>(slotIndex));
             }
             catch
             {
@@ -53,20 +54,32 @@ namespace BMS.Infrastructure.Repositories
             => await _collection.Find(x => x.AppointmentCode == appointmentCode).FirstOrDefaultAsync(ct);
 
         public async Task<List<Appointment>> GetByPatientIdAsync(string patientId, CancellationToken ct = default)
-            => await _collection
-                .Find(x => x.PatientId == patientId)
+        {
+            var filter = Builders<Appointment>.Filter.Or(
+                Builders<Appointment>.Filter.Eq(x => x.PatientId, patientId),
+                Builders<Appointment>.Filter.Eq("patient_id", patientId)
+            );
+            return await _collection
+                .Find(filter)
                 .SortByDescending(x => x.AppointmentDate)
                 .ToListAsync(ct);
+        }
 
         public async Task<List<Appointment>> GetByDoctorAndDateAsync(string doctorId, DateTime date, CancellationToken ct = default)
         {
             var start = date.Date;
             var end = start.AddDays(1);
+            var docFilter = Builders<Appointment>.Filter.Or(
+                Builders<Appointment>.Filter.Eq(x => x.DoctorId, doctorId),
+                Builders<Appointment>.Filter.Eq("doctor_id", doctorId),
+                ObjectId.TryParse(doctorId, out var oid) ? Builders<Appointment>.Filter.Eq("doctor_id", oid) : Builders<Appointment>.Filter.Empty
+            );
+            var dateFilter = Builders<Appointment>.Filter.Or(
+                Builders<Appointment>.Filter.Gte(x => x.AppointmentDate, start) & Builders<Appointment>.Filter.Lt(x => x.AppointmentDate, end),
+                Builders<Appointment>.Filter.Gte("appointment_date", start) & Builders<Appointment>.Filter.Lt("appointment_date", end)
+            );
             return await _collection
-                .Find(x => x.DoctorId == doctorId
-                           && x.AppointmentDate >= start
-                           && x.AppointmentDate < end
-                           && x.Status != AppointmentStatus.Cancelled)
+                .Find(Builders<Appointment>.Filter.And(docFilter, dateFilter, Builders<Appointment>.Filter.Ne(x => x.Status, AppointmentStatus.Cancelled)))
                 .ToListAsync(ct);
         }
 
@@ -212,6 +225,8 @@ namespace BMS.Infrastructure.Repositories
                         var tokRx = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(tok), "i");
                         orFilters.Add(builder.Eq(x => x.PatientId, tok));
                         orFilters.Add(builder.Regex(x => x.PatientId, tokRx));
+                        orFilters.Add(Builders<Appointment>.Filter.Eq("patient_id", tok));
+                        orFilters.Add(Builders<Appointment>.Filter.Regex("patient_id", tokRx));
                     }
                     filter &= builder.Or(orFilters);
                 }
@@ -221,31 +236,64 @@ namespace BMS.Infrastructure.Repositories
                     var patRx = new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(cleanPat), "i");
                     filter &= builder.Or(
                         builder.Eq(x => x.PatientId, cleanPat),
-                        builder.Regex(x => x.PatientId, patRx)
+                        builder.Regex(x => x.PatientId, patRx),
+                        Builders<Appointment>.Filter.Eq("patient_id", cleanPat),
+                        Builders<Appointment>.Filter.Regex("patient_id", patRx)
                     );
                 }
             }
 
             if (!string.IsNullOrWhiteSpace(doctorId))
             {
-                filter &= builder.Eq(x => x.DoctorId, doctorId);
+                var docOr = new List<FilterDefinition<Appointment>>
+                {
+                    builder.Eq(x => x.DoctorId, doctorId),
+                    Builders<Appointment>.Filter.Eq("doctor_id", doctorId)
+                };
+                if (ObjectId.TryParse(doctorId, out var docOid))
+                {
+                    docOr.Add(Builders<Appointment>.Filter.Eq("doctor_id", docOid));
+                }
+                filter &= builder.Or(docOr);
             }
 
             if (status.HasValue)
             {
-                filter &= builder.Eq(x => x.Status, status.Value);
+                var strVal = status.Value.ToString();
+                var intVal = (int)status.Value;
+                var statusOr = new List<FilterDefinition<Appointment>>
+                {
+                    builder.Eq(x => x.Status, status.Value),
+                    Builders<Appointment>.Filter.Eq("status", strVal),
+                    Builders<Appointment>.Filter.Eq("status", intVal)
+                };
+                if (status.Value == AppointmentStatus.Pending)
+                {
+                    statusOr.Add(Builders<Appointment>.Filter.Eq("status", "Scheduled"));
+                }
+                else if (status.Value == AppointmentStatus.CheckedIn)
+                {
+                    statusOr.Add(Builders<Appointment>.Filter.Eq("status", "SampleCollected"));
+                }
+                filter &= builder.Or(statusOr);
             }
 
             if (fromDate.HasValue)
             {
                 var start = fromDate.Value.Date;
-                filter &= builder.Gte(x => x.AppointmentDate, start);
+                filter &= builder.Or(
+                    builder.Gte(x => x.AppointmentDate, start),
+                    Builders<Appointment>.Filter.Gte("appointment_date", start)
+                );
             }
 
             if (toDate.HasValue)
             {
                 var end = toDate.Value.Date.AddDays(1).AddTicks(-1);
-                filter &= builder.Lte(x => x.AppointmentDate, end);
+                filter &= builder.Or(
+                    builder.Lte(x => x.AppointmentDate, end),
+                    Builders<Appointment>.Filter.Lte("appointment_date", end)
+                );
             }
 
             if (!string.IsNullOrWhiteSpace(keyword))
@@ -256,7 +304,9 @@ namespace BMS.Infrastructure.Repositories
                     builder.Regex(x => x.AppointmentCode, regex),
                     builder.Regex(x => x.Notes, regex),
                     builder.Regex(x => x.CollectionAddress, regex),
-                    builder.Regex(x => x.PatientId, regex)
+                    builder.Regex(x => x.PatientId, regex),
+                    Builders<Appointment>.Filter.Regex("patient_id", regex),
+                    Builders<Appointment>.Filter.Regex("appointment_code", regex)
                 );
                 filter &= kwFilter;
             }

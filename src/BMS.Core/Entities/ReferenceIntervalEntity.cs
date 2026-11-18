@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -6,8 +8,9 @@ namespace BMS.Core.Entities;
 /// <summary>
 /// Domain entity representing a biological reference interval (UC57 / BR-LAB-02 / BR-LAB-03).
 /// Maps to MongoDB collection "reference_intervals".
-/// Conforms to: ISO 15189:2022, Decision 2429/QD-BYT and WHO/ADA standards.
+/// Conforms to: ISO 15189:2022, Decision 2429/QD-BYT, ISO 27789:2021 and WHO/ADA standards.
 /// </summary>
+[BsonIgnoreExtraElements]
 public class ReferenceIntervalEntity
 {
     [BsonId]
@@ -19,6 +22,20 @@ public class ReferenceIntervalEntity
 
     [BsonElement("criterionCode")]
     public string CriterionCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Alias for CriterionCode / TestId (UC57).
+    /// </summary>
+    [BsonIgnore]
+    public string TestId
+    {
+        get => !string.IsNullOrWhiteSpace(CriterionCode) ? CriterionCode : CriterionId;
+        set
+        {
+            CriterionCode = value;
+            if (string.IsNullOrWhiteSpace(CriterionId)) CriterionId = value;
+        }
+    }
 
     [BsonElement("criterionName")]
     public string CriterionName { get; set; } = string.Empty;
@@ -68,6 +85,20 @@ public class ReferenceIntervalEntity
     [BsonElement("normalMax")]
     public double? NormalMax { get; set; }
 
+    [BsonIgnore]
+    public double? LowerLimit
+    {
+        get => NormalMin;
+        set => NormalMin = value;
+    }
+
+    [BsonIgnore]
+    public double? UpperLimit
+    {
+        get => NormalMax;
+        set => NormalMax = value;
+    }
+
     /// <summary>
     /// Text value for qualitative / semi-quantitative tests (e.g. "Âm tính (Negative)").
     /// </summary>
@@ -104,6 +135,42 @@ public class ReferenceIntervalEntity
     [BsonElement("notes")]
     public string Notes { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Date when this reference interval configuration takes effect (ISO 15189:2022).
+    /// </summary>
+    [BsonElement("effectiveFrom")]
+    public DateTime EffectiveFrom { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Expiration / end date of this interval configuration if replaced or phased out.
+    /// </summary>
+    [BsonElement("effectiveTo")]
+    public DateTime? EffectiveTo { get; set; }
+
+    /// <summary>
+    /// Status: "ACTIVE", "INACTIVE", "DRAFT", "RETIRED".
+    /// </summary>
+    [BsonElement("status")]
+    public string Status { get; set; } = "ACTIVE";
+
+    [BsonElement("createdBy")]
+    public string? CreatedBy { get; set; }
+
+    [BsonElement("approvedBy")]
+    public string? ApprovedBy { get; set; }
+
+    /// <summary>
+    /// Version counter for ISO 15189 configuration change audit.
+    /// </summary>
+    [BsonElement("version")]
+    public int Version { get; set; } = 1;
+
+    /// <summary>
+    /// Snapshot history of prior versions before updates (ISO 15189 / ISO 27789).
+    /// </summary>
+    [BsonElement("previousVersions")]
+    public List<ReferenceIntervalVersionSnapshot> PreviousVersions { get; set; } = new();
+
     [BsonElement("isActive")]
     public bool IsActive { get; set; } = true;
 
@@ -118,4 +185,50 @@ public class ReferenceIntervalEntity
 
     [BsonElement("updatedAt")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Historical version snapshot of a Reference Interval (ISO 15189 / ISO 27789).
+/// </summary>
+[BsonIgnoreExtraElements]
+public class ReferenceIntervalVersionSnapshot
+{
+    [BsonElement("version")]
+    public int Version { get; set; }
+
+    [BsonElement("lowerLimit")]
+    public double? LowerLimit { get; set; }
+
+    [BsonElement("upperLimit")]
+    public double? UpperLimit { get; set; }
+
+    [BsonElement("unit")]
+    public string Unit { get; set; } = string.Empty;
+
+    [BsonElement("gender")]
+    public string Gender { get; set; } = "All";
+
+    [BsonElement("ageMin")]
+    public double AgeMin { get; set; }
+
+    [BsonElement("ageMax")]
+    public double AgeMax { get; set; }
+
+    [BsonElement("effectiveFrom")]
+    public DateTime EffectiveFrom { get; set; }
+
+    [BsonElement("effectiveTo")]
+    public DateTime? EffectiveTo { get; set; }
+
+    [BsonElement("status")]
+    public string Status { get; set; } = "ACTIVE";
+
+    [BsonElement("changedBy")]
+    public string? ChangedBy { get; set; }
+
+    [BsonElement("changedAt")]
+    public DateTime ChangedAt { get; set; } = DateTime.UtcNow;
+
+    [BsonElement("changeReason")]
+    public string? ChangeReason { get; set; }
 }

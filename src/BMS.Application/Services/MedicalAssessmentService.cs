@@ -6,10 +6,13 @@ using System.Threading.Tasks;
 using BMS.Application.DTOs.Clinic;
 using BMS.Application.DTOs.MedicalRecords;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
+using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
@@ -25,19 +28,22 @@ public class MedicalAssessmentService : IMedicalAssessmentService
     private readonly IAppointmentRepository? _appointmentRepository;
     private readonly BmsDbContext _dbContext;
     private readonly ILogger<MedicalAssessmentService> _logger;
+    private readonly IMongoDatabase? _db;
 
     public MedicalAssessmentService(
         IMedicalAssessmentRepository repository,
-        IPatientRepository? patientRepository,
-        IAppointmentRepository? appointmentRepository,
         BmsDbContext dbContext,
-        ILogger<MedicalAssessmentService> logger)
+        ILogger<MedicalAssessmentService> logger,
+        IPatientRepository? patientRepository = null,
+        IAppointmentRepository? appointmentRepository = null,
+        IMongoDatabase? db = null)
     {
         _repository = repository;
         _patientRepository = patientRepository;
         _appointmentRepository = appointmentRepository;
         _dbContext = dbContext;
         _logger = logger;
+        _db = db;
     }
 
     public async Task<MedicalAssessmentDto> CreateAsync(
@@ -46,22 +52,29 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         string? currentUserName,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(dto.PatientId) || dto.PatientId.Trim().Length < 3)
+        {
+            throw new DomainValidationException("INVALID_PATIENT_ID", "Mã bệnh nhân (PatientId) không hợp lệ.");
+        }
+
         // 1. Calculate BMI and category
         var (bmi, bmiCategory) = CalculateBmi(dto.Vitals.HeightCm, dto.Vitals.WeightKg);
 
-        // 2. Resolve patient details
+        // 2. Validate patient existence and resolve details
         var patientName = dto.PatientName;
         var patientCode = dto.PatientCode;
         var patientDob = dto.PatientDob;
         var patientGender = dto.PatientGender;
+        var patientFound = false;
 
-        if (string.IsNullOrWhiteSpace(patientName) && _patientRepository != null)
+        if (_patientRepository != null)
         {
             try
             {
-                var patient = await _patientRepository.GetByIdOrCodeAsync(dto.PatientId, ct);
+                var patient = await _patientRepository.GetByIdOrCodeAsync(dto.PatientId.Trim(), ct);
                 if (patient != null)
                 {
+                    patientFound = true;
                     patientName = patient.FullName;
                     patientCode ??= patient.PatientCode;
                     patientDob ??= patient.DateOfBirth;
@@ -74,36 +87,77 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             }
         }
 
-        // Fallback to in-memory Users if patient is not yet populated
-        if (string.IsNullOrWhiteSpace(patientName))
+        if (!patientFound && _db != null)
         {
-            var user = _dbContext.Users.FirstOrDefault(u => u.Id == dto.PatientId || u.Username == dto.PatientId);
+            try
+            {
+                var patientsCol = _db.GetCollection<Patient>("patients");
+                var p = await patientsCol.Find(x => x.Id == dto.PatientId.Trim()).FirstOrDefaultAsync(ct);
+                if (p != null)
+                {
+                    patientFound = true;
+                    patientName = p.FullName;
+                    patientCode ??= p.PatientCode;
+                    patientDob ??= p.DateOfBirth;
+                    patientGender ??= p.GenderString;
+                }
+                else
+                {
+                    var accountsCol = _db.GetCollection<User>("accounts");
+                    var u = await accountsCol.Find(x => x.Id == dto.PatientId.Trim()).FirstOrDefaultAsync(ct);
+                    if (u != null)
+                    {
+                        patientFound = true;
+                        patientName = u.FullName;
+                        patientCode ??= u.Id;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        if (!patientFound)
+        {
+            var user = _dbContext.Users.FirstOrDefault(u => u.Id == dto.PatientId.Trim() || u.Username == dto.PatientId.Trim());
             if (user != null)
             {
+                patientFound = true;
                 patientName = user.FullName;
                 patientCode ??= user.Id;
             }
         }
 
+        // Reject if patient does not exist in any store
+        if (!patientFound)
+        {
+            throw new DomainValidationException("PATIENT_NOT_FOUND", $"Không tìm thấy hồ sơ bệnh nhân với mã '{dto.PatientId}'.");
+        }
+
         patientName ??= $"Bệnh nhân {dto.PatientId}";
 
-        // 3. Resolve doctor details
-        var doctorId = !string.IsNullOrWhiteSpace(dto.DoctorId) ? dto.DoctorId : currentUserId;
-        var doctorName = dto.DoctorName ?? currentUserName ?? "Bác sĩ lâm sàng";
+        // 3. Resolve doctor details (Anti-spoofing: strictly bound to authenticated user)
+        var doctorId = currentUserId;
+        var doctorName = currentUserName ?? "Bác sĩ điều trị";
 
-        // 4. Generate next assessment code
+        // 4. Resolve Order / Encounter association
+        var orderId = !string.IsNullOrWhiteSpace(dto.OrderId) 
+            ? dto.OrderId.Trim() 
+            : (!string.IsNullOrWhiteSpace(dto.EncounterId) ? dto.EncounterId.Trim() : null);
+
+        // 5. Generate next assessment code
         var assessmentCode = await _repository.GenerateNextAssessmentCodeAsync(DateTime.UtcNow, ct);
 
-        // 5. Create Entity
+        // 6. Create Entity
         var assessment = new MedicalAssessment
         {
             AssessmentCode = assessmentCode,
-            PatientId = dto.PatientId,
+            PatientId = dto.PatientId.Trim(),
             PatientCode = patientCode,
             PatientName = patientName,
             PatientDob = patientDob,
             PatientGender = patientGender,
-            EncounterId = dto.EncounterId,
+            EncounterId = dto.EncounterId ?? orderId,
+            OrderId = orderId,
             EncounterType = dto.EncounterType ?? "ClinicVisit",
             EncounterDate = dto.AssessmentDate ?? DateTime.UtcNow,
             DoctorId = doctorId,
@@ -141,11 +195,40 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             IsFinalized = string.Equals(dto.Status, "Finalized", StringComparison.OrdinalIgnoreCase),
             FinalizedAt = string.Equals(dto.Status, "Finalized", StringComparison.OrdinalIgnoreCase) ? DateTime.UtcNow : null,
             FinalizedBy = string.Equals(dto.Status, "Finalized", StringComparison.OrdinalIgnoreCase) ? doctorName : null,
+            Version = 1,
+            IsAutomatedDiagnosis = false,
+            AssessmentType = "ClinicalConsultation",
             CreatedAt = DateTime.UtcNow,
             CreatedBy = currentUserId
         };
 
         await _repository.CreateAsync(assessment, ct);
+
+        // ISO 27789 Audit Trail for creation
+        if (_db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = currentUserId,
+                    UserName = doctorName,
+                    UserRole = RoleNames.Doctor,
+                    Action = "CREATE_MEDICAL_ASSESSMENT",
+                    Category = "CLINICAL_DOCUMENTATION",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "MedicalAssessment",
+                    EntityId = assessment.Id,
+                    Details = $"Bác sĩ {doctorName} ({currentUserId}) tạo mới đánh giá y khoa {assessment.AssessmentCode} cho bệnh nhân {assessment.PatientId}. Chẩn đoán: {assessment.FinalDiagnosis} (ICD-10: {assessment.Icd10Code})."
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
 
         _logger.LogInformation("Medical assessment {Code} created for Patient {PatientId} by Doctor {DoctorId}",
             assessment.AssessmentCode, assessment.PatientId, assessment.DoctorId);
@@ -162,12 +245,12 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         var assessment = await _repository.GetByIdAsync(id, ct);
         if (assessment == null) return null;
 
-        // Security scoping (BR-IAM-02): Patient can only view their own assessments
+        // Security scoping (BR-IAM-02 / OWASP ASVS IDOR prevention): Patient can only view their own assessments
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(assessment.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning("Unauthorized access attempt by Patient {UserId} to assessment {AssessmentId}", currentUserId, id);
-            return null;
+            throw new ForbiddenAccessException("Bạn không có quyền truy cập hồ sơ đánh giá y khoa của bệnh nhân khác.");
         }
 
         return MapToDto(assessment);
@@ -179,12 +262,12 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         string? currentUserRole,
         CancellationToken ct = default)
     {
-        // Security scoping (BR-IAM-02)
+        // Security scoping (BR-IAM-02 / OWASP ASVS IDOR prevention)
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(patientId, currentUserId, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning("Unauthorized access attempt by Patient {UserId} to patient {PatientId}", currentUserId, patientId);
-            return new List<MedicalAssessmentDto>();
+            throw new ForbiddenAccessException("Bạn không có quyền truy cập hồ sơ đánh giá y khoa của bệnh nhân khác.");
         }
 
         var list = await _repository.GetByPatientIdAsync(patientId, ct);
@@ -319,10 +402,37 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         assessment.PrescriptionNotes = dto.PrescriptionNotes?.Trim();
         assessment.FollowUpDate = dto.FollowUpDate;
         assessment.FollowUpNotes = dto.FollowUpNotes?.Trim();
+        assessment.Version++;
         assessment.UpdatedAt = DateTime.UtcNow;
         assessment.UpdatedBy = currentUserId;
 
         await _repository.UpdateAsync(assessment, ct);
+
+        // ISO 27789 Audit Trail for update
+        if (_db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = currentUserId,
+                    UserName = currentUserName ?? currentUserId,
+                    UserRole = RoleNames.Doctor,
+                    Action = "UPDATE_MEDICAL_ASSESSMENT",
+                    Category = "CLINICAL_DOCUMENTATION",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "MedicalAssessment",
+                    EntityId = assessment.Id,
+                    Details = $"Bác sĩ {currentUserName ?? currentUserId} ({currentUserId}) cập nhật đánh giá y khoa {assessment.AssessmentCode} (Phiên bản {assessment.Version}). Chẩn đoán: {assessment.FinalDiagnosis} (ICD-10: {assessment.Icd10Code})."
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
 
         _logger.LogInformation("Medical assessment {Code} updated by Doctor {UserId}", assessment.AssessmentCode, currentUserId);
         return MapToDto(assessment);
@@ -421,6 +531,7 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             PatientDob = a.PatientDob,
             PatientGender = a.PatientGender,
             EncounterId = a.EncounterId,
+            OrderId = a.OrderId,
             EncounterType = a.EncounterType,
             EncounterDate = a.EncounterDate,
             DoctorId = a.DoctorId,
@@ -458,6 +569,9 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             IsFinalized = a.IsFinalized,
             FinalizedAt = a.FinalizedAt,
             FinalizedBy = a.FinalizedBy,
+            Version = a.Version,
+            IsAutomatedDiagnosis = a.IsAutomatedDiagnosis,
+            AssessmentType = a.AssessmentType,
             CanEdit = canEdit,
             CreatedAt = a.CreatedAt,
             UpdatedAt = a.UpdatedAt

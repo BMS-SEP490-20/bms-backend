@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using BMS.Core.Entities;
 
 namespace BMS.Application.DTOs.Laboratory;
 
@@ -21,8 +24,11 @@ public class CreateReferenceIntervalDto
 {
     public string? CriterionId { get; set; }
 
-    [Required(ErrorMessage = "Mã chỉ số xét nghiệm (CriterionCode) là bắt buộc.")]
-    [StringLength(30, MinimumLength = 1, ErrorMessage = "CriterionCode phải từ 1 đến 30 ký tự.")]
+    /// <summary>
+    /// Test ID / Criterion Code (e.g. "GLU", "TEST-GLU", "WBC").
+    /// </summary>
+    public string? TestId { get; set; }
+
     public string CriterionCode { get; set; } = string.Empty;
 
     public string? CriterionName { get; set; }
@@ -43,6 +49,8 @@ public class CreateReferenceIntervalDto
     [StringLength(150, ErrorMessage = "Nhãn nhóm nhân khẩu học không được vượt quá 150 ký tự.")]
     public string? DemographicLabel { get; set; }
 
+    public double? LowerLimit { get; set; }
+    public double? UpperLimit { get; set; }
     public double? NormalMin { get; set; }
     public double? NormalMax { get; set; }
     public string? NormalText { get; set; }
@@ -53,6 +61,11 @@ public class CreateReferenceIntervalDto
     public string? Condition { get; set; } = "General";
     public string? StandardAuthority { get; set; } = "Quyết định 2429/QĐ-BYT";
     public string? Notes { get; set; }
+    public DateTime? EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public string? Status { get; set; } = "ACTIVE";
+    public string? CreatedBy { get; set; }
+    public string? ApprovedBy { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
@@ -78,6 +91,8 @@ public class UpdateReferenceIntervalDto
     [StringLength(150, ErrorMessage = "Nhãn nhóm nhân khẩu học không được vượt quá 150 ký tự.")]
     public string? DemographicLabel { get; set; }
 
+    public double? LowerLimit { get; set; }
+    public double? UpperLimit { get; set; }
     public double? NormalMin { get; set; }
     public double? NormalMax { get; set; }
     public string? NormalText { get; set; }
@@ -88,6 +103,11 @@ public class UpdateReferenceIntervalDto
     public string? Condition { get; set; }
     public string? StandardAuthority { get; set; }
     public string? Notes { get; set; }
+    public DateTime? EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public string? Status { get; set; }
+    public string? ApprovedBy { get; set; }
+    public string? ChangeReason { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
@@ -97,6 +117,7 @@ public class UpdateReferenceIntervalDto
 public class ReferenceIntervalResponseDto
 {
     public string Id { get; set; } = string.Empty;
+    public string TestId { get; set; } = string.Empty;
     public string CriterionId { get; set; } = string.Empty;
     public string CriterionCode { get; set; } = string.Empty;
     public string CriterionName { get; set; } = string.Empty;
@@ -108,6 +129,8 @@ public class ReferenceIntervalResponseDto
     public string AgeUnit { get; set; } = "Years";
     public string DemographicLabel { get; set; } = string.Empty;
 
+    public double? LowerLimit { get; set; }
+    public double? UpperLimit { get; set; }
     public double? NormalMin { get; set; }
     public double? NormalMax { get; set; }
     public string? NormalText { get; set; }
@@ -120,6 +143,13 @@ public class ReferenceIntervalResponseDto
     public string Condition { get; set; } = "General";
     public string StandardAuthority { get; set; } = string.Empty;
     public string Notes { get; set; } = string.Empty;
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public string Status { get; set; } = "ACTIVE";
+    public string? CreatedBy { get; set; }
+    public string? ApprovedBy { get; set; }
+    public int Version { get; set; } = 1;
+    public List<ReferenceIntervalVersionSnapshot> PreviousVersions { get; set; } = new();
     public bool IsActive { get; set; }
 
     public string CreatedAt { get; set; } = string.Empty;

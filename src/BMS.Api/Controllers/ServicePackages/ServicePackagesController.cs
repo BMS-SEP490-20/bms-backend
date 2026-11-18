@@ -13,16 +13,12 @@ namespace BMS.Api.Controllers.ServicePackages;
 [Route("api/service-packages")]
 [Route("api/v1/service-packages")]
 [Produces("application/json")]
-// WHY: UC15/UC19: public catalog read. Create/edit/delete = Admin + Manager: UC19 (test packages) has no
-// separate controller and is managed through this one, and Quy trình ruled UC19 = Admin + Manager
-// (DOT2 follow-up 2, C5 default, pending Phát).
 [Authorize]
 public sealed class ServicePackagesController(
     IServicePackageService packages,
     ILogger<ServicePackagesController> logger) : ControllerBase
 {
-    /// <summary>Xem danh sách gói dịch vụ (phân trang).</summary>
-    [AllowAnonymous]
+    /// <summary>Xem danh sách gói dịch vụ (phân trang, UC15.1).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(PagedResult<ServicePackageDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(
@@ -50,8 +46,7 @@ public sealed class ServicePackagesController(
         }
     }
 
-    /// <summary>Tìm kiếm gói dịch vụ theo từ khoá (mã/tên/mô tả/xét nghiệm trong gói) và khoảng giá.</summary>
-    [AllowAnonymous]
+    /// <summary>Tìm kiếm gói dịch vụ theo từ khoá (mã/tên/mô tả/xét nghiệm trong gói) và khoảng giá (UC20).</summary>
     [HttpGet("search")]
     [ProducesResponseType(typeof(PagedResult<ServicePackageDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> Search(
@@ -59,6 +54,15 @@ public sealed class ServicePackagesController(
     {
         try
         {
+            if (!ModelState.IsValid)
+            {
+                var firstError = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .FirstOrDefault() ?? "Dữ liệu tìm kiếm không hợp lệ.";
+                return BadRequest(new { success = false, message = firstError, title = firstError, code = "VALIDATION_ERROR" });
+            }
+
             var result = await packages.SearchAsync(request, CanManage(), ct);
             return Ok(result);
         }
@@ -79,8 +83,7 @@ public sealed class ServicePackagesController(
         }
     }
 
-    /// <summary>Xem chi tiết một gói dịch vụ.</summary>
-    [AllowAnonymous]
+    /// <summary>Xem chi tiết một gói dịch vụ (UC15.4).</summary>
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -113,7 +116,7 @@ public sealed class ServicePackagesController(
         }
     }
 
-    /// <summary>Tạo gói dịch vụ mới.</summary>
+    /// <summary>Tạo gói dịch vụ mới (UC15.2).</summary>
     [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status201Created)]
@@ -130,7 +133,7 @@ public sealed class ServicePackagesController(
             }
 
             var created = await packages.CreateAsync(request, CurrentUserId, ct);
-            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+            return StatusCode(StatusCodes.Status201Created, created);
         }
         catch (AppException ex)
         {
@@ -149,7 +152,7 @@ public sealed class ServicePackagesController(
         }
     }
 
-    /// <summary>Cập nhật gói dịch vụ (ghi đè toàn bộ trừ mã gói).</summary>
+    /// <summary>Cập nhật gói dịch vụ (UC15.3).</summary>
     [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPut("{id}")]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status200OK)]
@@ -185,7 +188,7 @@ public sealed class ServicePackagesController(
         }
     }
 
-    /// <summary>Xoá gói dịch vụ (xoá mềm – dữ liệu cũ vẫn được giữ cho hoá đơn/lịch sử).</summary>
+    /// <summary>Xoá gói dịch vụ (xoá mềm, UC15.5).</summary>
     [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -227,7 +230,6 @@ public sealed class ServicePackagesController(
         ?? throw new UnauthorizedAccessException();
 
     /// <summary>Người có quyền quản lý được thấy cả gói đang ẩn; người khác chỉ thấy gói đang hoạt động.</summary>
-    /// <remarks>WHY: same role set as the write actions, so hidden packages are visible exactly to the people who can edit them.</remarks>
     private bool CanManage() =>
         User.Identity?.IsAuthenticated == true
         && (User.IsInRole(RoleNames.Admin) || User.IsInRole(RoleNames.Manager));

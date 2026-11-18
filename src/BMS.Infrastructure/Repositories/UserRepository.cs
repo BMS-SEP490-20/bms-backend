@@ -313,7 +313,7 @@ public sealed class UserRepository : IUserRepository
         string id,
         CancellationToken ct = default)
     {
-        if (_context.Users != null && ObjectId.TryParse(id, out _))
+        if (_context.Users != null && !string.IsNullOrWhiteSpace(id))
         {
             var filter = Builders<User>.Filter.And(
                 Builders<User>.Filter.Eq(u => u.Id, id),
@@ -347,7 +347,7 @@ public sealed class UserRepository : IUserRepository
         DateTime lockoutEnd,
         CancellationToken ct = default)
     {
-        if (_context.Users != null && ObjectId.TryParse(id, out _))
+        if (_context.Users != null && !string.IsNullOrWhiteSpace(id))
         {
             await _context.Users.UpdateOneAsync(
                 Builders<User>.Filter.Eq(u => u.Id, id),
@@ -370,7 +370,7 @@ public sealed class UserRepository : IUserRepository
         string? newPasswordHash,
         CancellationToken ct = default)
     {
-        if (_context.Users != null && ObjectId.TryParse(id, out _))
+        if (_context.Users != null && !string.IsNullOrWhiteSpace(id))
         {
             var update = Builders<User>.Update
                 .Set(u => u.LastLoginAt, now)
@@ -412,7 +412,7 @@ public sealed class UserRepository : IUserRepository
         string newPasswordHash,
         CancellationToken ct = default)
     {
-        if (_context.Users != null && ObjectId.TryParse(id, out _))
+        if (_context.Users != null && !string.IsNullOrWhiteSpace(id))
         {
             var update = Builders<User>.Update
                 .Set(u => u.Password, newPasswordHash)

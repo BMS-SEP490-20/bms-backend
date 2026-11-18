@@ -214,6 +214,12 @@ public class SpecimenHistoryService : ISpecimenHistoryService
             CollectionSite = rec.CollectionSite,
             Notes = rec.Notes,
             RejectionReason = rec.RejectionReason,
+            IsRejected = rec.IsRejected || rec.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(rec.RejectionReason),
+            QcStatus = !string.IsNullOrWhiteSpace(rec.QcStatus) 
+                ? rec.QcStatus 
+                : (rec.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase) ? "Failed" : "Passed"),
+            ReceivedBy = rec.ReceivedBy,
+            ReceivedAt = rec.ReceivedAt?.ToString("dd/MM/yyyy HH:mm"),
             Storage = new SpecimenStorageInfoDto
             {
                 StorageStatus = rec.Storage.StorageStatus,

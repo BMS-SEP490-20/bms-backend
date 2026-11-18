@@ -65,9 +65,12 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Lấy chi tiết lịch sử mẫu bệnh phẩm theo mã vạch Barcode hoặc ID (UC70).
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
     [HttpGet("{barcode}/history")]
+    [HttpGet("/api/laboratory/samples/{barcode}/history")]
+    [HttpGet("/api/samples/{barcode}/history")]
     [ProducesResponseType(typeof(ApiResponse<SpecimenHistoryDetailDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSpecimenByBarcode(
         string barcode,
@@ -81,6 +84,20 @@ public class SpecimenHistoryController : ControllerBase
                 return NotFound(ApiResponse<object>.Fail(
                     $"Không tìm thấy dữ liệu lịch sử của mẫu bệnh phẩm '{barcode}'.",
                     "MSG-ERR-SPECIMEN-NOT-FOUND"));
+            }
+
+            // OWASP ASVS Access Control & IDOR check:
+            // Clinical Staff (Lab, Manager, Doctor) have access to clinical specimens.
+            // Patient role is restricted strictly to their own specimen history.
+            var role = User.FindFirstValue("role") ?? User.FindFirstValue(ClaimTypes.Role);
+            if (string.Equals(role, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(result.PatientId, CurrentUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail(
+                        "Bạn không có quyền truy cập dữ liệu lịch sử mẫu xét nghiệm của bệnh nhân khác.",
+                        "FORBIDDEN"));
+                }
             }
 
             return Ok(ApiResponse<SpecimenHistoryDetailDto>.Ok(
@@ -101,15 +118,27 @@ public class SpecimenHistoryController : ControllerBase
     /// <summary>
     /// Lấy danh sách lịch sử tất cả các mẫu bệnh phẩm của một bệnh nhân (UC70).
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleSets.ClinicalStaffOrPatient)]
     [HttpGet("patient/{patientId}/history")]
     [ProducesResponseType(typeof(ApiResponse<List<SpecimenHistoryListItemDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetPatientSpecimens(
         string patientId,
         CancellationToken ct = default)
     {
         try
         {
+            var role = User.FindFirstValue("role") ?? User.FindFirstValue(ClaimTypes.Role);
+            if (string.Equals(role, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(patientId.Trim(), CurrentUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail(
+                        "Bạn không có quyền truy cập dữ liệu lịch sử mẫu xét nghiệm của bệnh nhân khác.",
+                        "FORBIDDEN"));
+                }
+            }
+
             var result = await _historyService.GetSpecimensByPatientIdAsync(patientId, ct);
             return Ok(ApiResponse<List<SpecimenHistoryListItemDto>>.Ok(
                 result,

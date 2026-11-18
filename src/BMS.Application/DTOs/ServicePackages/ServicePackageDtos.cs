@@ -52,6 +52,14 @@ public abstract class ServicePackageWriteRequest : IValidatableObject
     [Range(typeof(decimal), "0", "1000000000", ErrorMessage = "Giá khuyến mãi không hợp lệ.")]
     public decimal? DiscountPrice { get; init; }
 
+    /// <summary>Giá vốn nội bộ (tùy chọn quản trị).</summary>
+    [Range(typeof(decimal), "0", "1000000000", ErrorMessage = "Giá vốn không hợp lệ.")]
+    public decimal? CostPrice { get; init; }
+
+    /// <summary>Ghi chú nội bộ quản trị phòng xét nghiệm.</summary>
+    [StringLength(2000)]
+    public string? InternalNotes { get; init; }
+
     [MaxLength(100, ErrorMessage = "Một gói tối đa 100 xét nghiệm.")]
     public List<ServicePackageTestDto> Tests { get; init; } = new();
 
@@ -83,10 +91,10 @@ public sealed class UpdateServicePackageRequest : ServicePackageWriteRequest;
 
 public class ServicePackageListRequest
 {
-    [Range(1, int.MaxValue)]
+    [Range(1, int.MaxValue, ErrorMessage = "Trang phải lớn hơn hoặc bằng 1.")]
     public int Page { get; init; } = 1;
 
-    [Range(1, 100)]
+    [Range(1, 100, ErrorMessage = "Kích thước trang phải từ 1 đến 100.")]
     public int PageSize { get; init; } = 20;
 
     /// <summary>true/false: lọc theo trạng thái. Người không có quyền quản lý luôn chỉ thấy gói đang hoạt động.</summary>
@@ -106,8 +114,8 @@ public class ServicePackageListRequest
 
 public sealed class ServicePackageSearchRequest : ServicePackageListRequest, IValidatableObject
 {
-    /// <summary>Tìm theo mã, tên, mô tả hoặc tên/mã xét nghiệm trong gói (không phân biệt hoa thường).</summary>
-    [StringLength(100)]
+    /// <summary>Tìm theo mã, tên, mô tả hoặc tên/mã xét nghiệm trong gói (không phân biệt hoa thường, tối đa 100 ký tự).</summary>
+    [StringLength(100, ErrorMessage = "Từ khóa tìm kiếm không được vượt quá 100 ký tự.")]
     public string? Keyword { get; init; }
 
     [Range(typeof(decimal), "0", "1000000000")]
@@ -140,7 +148,11 @@ public sealed record ServicePackageDto(
     string? Tat = null,
     string? SampleTube = null,
     double? SampleVolumeMl = null,
-    IReadOnlyList<string>? Highlights = null);
+    IReadOnlyList<string>? Highlights = null,
+    decimal? CostPrice = null,
+    string? InternalNotes = null,
+    string? CreatedBy = null,
+    string? UpdatedBy = null);
 
 public sealed record ServicePackageTestInfo(
     string Code,

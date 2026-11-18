@@ -1,5 +1,5 @@
-using System.Text.RegularExpressions;
 using BMS.Application.DTOs.Common;
+using BMS.Application.DTOs.ServicePackages;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
@@ -48,30 +48,36 @@ public sealed class ServicePackageRepository : IServicePackageRepository
         if (q.IsActive is { } active) filters.Add(F.Eq(x => x.IsActive, active));
         if (q.MinPrice is { } min) filters.Add(F.Gte(x => x.Price, min));
         if (q.MaxPrice is { } max) filters.Add(F.Lte(x => x.Price, max));
-
-        if (!string.IsNullOrWhiteSpace(q.Category))
-        {
-            var catRx = new BsonRegularExpression($"^{Regex.Escape(q.Category.Trim())}$", "i");
-            filters.Add(F.Regex(x => x.Category, catRx));
-        }
+        if (!string.IsNullOrWhiteSpace(q.Category)) filters.Add(F.Eq(x => x.Category, q.Category));
 
         if (!string.IsNullOrWhiteSpace(q.Keyword))
         {
-            // Regex.Escape: coi keyword là văn bản thường, chặn regex injection / ReDoS
-            var rx = new BsonRegularExpression(Regex.Escape(q.Keyword), "i");
+            var kw = q.Keyword.Trim();
+            // OWASP ASVS: Escape special regex characters to prevent ReDoS and Regex/NoSQL injection
+            var escapedKw = System.Text.RegularExpressions.Regex.Escape(kw);
+            var regex = new BsonRegularExpression(escapedKw, "i");
+
+            var testFilter = Builders<ServicePackageTest>.Filter;
+            var testCriteriaFilter = testFilter.Or(
+                testFilter.Eq(t => t.Code, kw.ToUpperInvariant()),
+                testFilter.Regex(t => t.Name, regex));
+
             filters.Add(F.Or(
-                F.Regex(x => x.Code, rx),
-                F.Regex(x => x.Name, rx),
-                F.Regex(x => x.Description, rx),
-                F.Regex(x => x.Category, rx),
-                F.Regex("Tests.Code", rx),
-                F.Regex("Tests.Name", rx)));
+                F.Regex(x => x.Code, regex),
+                F.Regex(x => x.Name, regex),
+                F.Regex(x => x.Description, regex),
+                F.ElemMatch(x => x.Tests, testCriteriaFilter)));
         }
 
-        var filter = F.And(filters);
-        var total = await _col.CountDocumentsAsync(filter, cancellationToken: ct);
+        var combined = filters.Count == 1 ? filters[0] : F.And(filters);
+        var total = await _col.CountDocumentsAsync(combined, cancellationToken: ct);
 
-        var items = await _col.Find(filter)
+        if (total == 0)
+        {
+            return new PagedResult<ServicePackage>([], q.Page, q.PageSize, 0);
+        }
+
+        var items = await _col.Find(combined)
             .Sort(BuildSort(q))
             .Skip((q.Page - 1) * q.PageSize)
             .Limit(q.PageSize)
@@ -93,18 +99,32 @@ public sealed class ServicePackageRepository : IServicePackageRepository
     {
         try
         {
-            var appointments = _db.GetCollection<BsonDocument>("appointments");
             var fb = Builders<BsonDocument>.Filter;
-            var inactiveStatuses = new[] { "Cancelled", "Completed", "Rejected", "NoShow" };
+            var inactiveAppointmentStatuses = new[] { "Cancelled", "Completed", "Rejected", "NoShow" };
 
+            // 1. Kiểm tra trong danh sách lịch hẹn đang xử lý
+            var appointments = _db.GetCollection<BsonDocument>("appointments");
             var packageMatch = fb.Or(
                 fb.Eq("service_package_id", id),
                 fb.Eq("service_package_code", code),
                 fb.AnyEq("test_packages", id),
                 fb.AnyEq("test_packages", code));
 
-            var activeStatusFilter = fb.Nin("status", inactiveStatuses);
-            return await appointments.Find(fb.And(packageMatch, activeStatusFilter))
+            var activeAppointmentFilter = fb.Nin("status", inactiveAppointmentStatuses);
+            var inAppointment = await appointments.Find(fb.And(packageMatch, activeAppointmentFilter))
+                .Limit(1)
+                .AnyAsync(ct);
+            if (inAppointment) return true;
+
+            // 2. Kiểm tra trong danh sách đơn xét nghiệm đang hoạt động (chưa hoàn tất hoặc huỷ)
+            var testOrders = _db.GetCollection<BsonDocument>("test_orders");
+            var orderMatch = fb.Or(
+                fb.Eq("package_id", id),
+                fb.Eq("package_code", code),
+                fb.Eq("service_package_id", id),
+                fb.Eq("service_package_code", code));
+            var activeOrderFilter = fb.Nin("status", new object[] { 5, 6, "Completed", "Cancelled" });
+            return await testOrders.Find(fb.And(orderMatch, activeOrderFilter))
                 .Limit(1)
                 .AnyAsync(ct);
         }

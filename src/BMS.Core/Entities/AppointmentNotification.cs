@@ -29,6 +29,7 @@ public enum NotificationChannel
 /// Represents an appointment-related notification record (UC22).
 /// Stored in MongoDB collection "appointment_notifications".
 /// </summary>
+[BsonIgnoreExtraElements]
 public class AppointmentNotification
 {
     [BsonId]
