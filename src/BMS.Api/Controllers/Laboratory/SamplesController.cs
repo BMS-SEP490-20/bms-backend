@@ -91,6 +91,38 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
     }
 
     /// <summary>
+    /// Lấy danh sách nhân sự lâm sàng và xét nghiệm đang hoạt động từ MongoDB phục vụ chọn Người Lấy Mẫu, Người Bàn Giao và KTV Tiếp Nhận (UC40/UC41).
+    /// </summary>
+    [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
+    [HttpGet("staff")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetLaboratoryStaff(CancellationToken ct)
+    {
+        try
+        {
+            var staff = await labQueueService.GetStaffDirectoryAsync(ct);
+            return Ok(new
+            {
+                success = true,
+                total = staff.Count,
+                data = staff
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = StatusCodes.Status500InternalServerError,
+                code = "INTERNAL_SERVER_ERROR",
+                title = "Không thể tải danh sách nhân sự phòng xét nghiệm từ cơ sở dữ liệu.",
+                detail = "Không thể tải danh sách nhân sự phòng xét nghiệm từ cơ sở dữ liệu.",
+                message = "Không thể tải danh sách nhân sự phòng xét nghiệm từ cơ sở dữ liệu."
+            });
+        }
+    }
+
+    /// <summary>
     /// Lấy chi tiết mẫu theo ID, Barcode hoặc RFID tag.
     /// </summary>
     [Authorize(Roles = RoleSets.LabOrManager)]
@@ -212,7 +244,7 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
         try
         {
             var recorded = await labQueueService.RecordSampleCollectionTimeAsync(null, request, CurrentUserId, ct);
-            return CreatedAtAction(nameof(GetSampleDetails), new { id = recorded.Id }, new
+            return StatusCode(StatusCodes.Status201Created, new
             {
                 success = true,
                 message = $"Đã ghi nhận mẫu xét nghiệm '{recorded.Id}' (Barcode: {recorded.Barcode}) lúc {recorded.CollectedAt:yyyy-MM-dd HH:mm:ss} UTC.",

@@ -92,9 +92,13 @@ public sealed class SampleTimelineRepository : ISampleTimelineRepository
         var appointment = Text(sample, "appointment_id");
         if (appointment.Length > 0)
         {
-            var a = await _db.GetCollection<BsonDocument>("appointments").Find(Active & Identity("_id", appointment) & Identity("patient_id", summary.PatientId))
-                .Project(new BsonDocument { { "_id", 0 }, { "check_in_time", 1 } }).FirstOrDefaultAsync(ct);
-            if (a is not null && Date(a, "check_in_time") is DateTime checkIn)
+            var apptFilter = Active
+                & (Identity("_id", appointment) | f.Eq("appointmentCode", appointment) | f.Eq("appointment_code", appointment))
+                & (Identity("patient_id", summary.PatientId) | Identity("patientId", summary.PatientId));
+            var a = await _db.GetCollection<BsonDocument>("appointments").Find(apptFilter)
+                .Project(new BsonDocument { { "_id", 0 }, { "check_in_time", 1 }, { "checkInTime", 1 }, { "checkedInAt", 1 } }).FirstOrDefaultAsync(ct);
+            var checkIn = a is null ? null : (Date(a, "check_in_time") ?? Date(a, "checkInTime") ?? Date(a, "checkedInAt"));
+            if (checkIn.HasValue)
                 events.Add(new("appointment:check_in_time", "CheckedIn", "CheckedIn", checkIn, "appointments.check_in_time"));
         }
         var specimens = string.IsNullOrWhiteSpace(summary.Barcode) || string.IsNullOrWhiteSpace(summary.PatientId) ? [] :

@@ -203,6 +203,14 @@ public class Sample : ISupportInitialize
     [BsonIgnoreIfNull]
     public string? ReceivedBy { get; set; }
 
+    [BsonElement("handover_by")]
+    [BsonIgnoreIfNull]
+    public string? HandoverBy { get; set; }
+
+    [BsonElement("handover_by_id")]
+    [BsonIgnoreIfNull]
+    public string? HandoverById { get; set; }
+
     [BsonElement("processed_at")]
     [BsonIgnoreIfNull]
     public DateTime? ProcessedAt { get; set; }
@@ -215,9 +223,17 @@ public class Sample : ISupportInitialize
     [BsonIgnoreIfNull]
     public DateTime? RejectedAt { get; set; }
 
+    [BsonElement("rejected_by")]
+    [BsonIgnoreIfNull]
+    public string? RejectedBy { get; set; }
+
     [BsonElement("notes")]
     [BsonIgnoreIfNull]
     public string? Notes { get; set; }
+
+    /// <summary>Enriched expected test parameters belonging to the sample's linked service/test package.</summary>
+    [BsonIgnore]
+    public List<SampleExpectedParameter> PackageParameters { get; set; } = [];
 
     /// <summary>Physical storage location of the tube (rack / fridge), used by Print Barcodes (#58).</summary>
     [BsonElement("storage_location")]
@@ -260,4 +276,20 @@ public class Sample : ISupportInitialize
     {
         ExtraElements = null;
     }
+}
+
+/// <summary>
+/// Expected test parameter belonging to a specimen's ordered service/test package, enriched from master test_criteria.
+/// </summary>
+public sealed class SampleExpectedParameter
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Unit { get; set; } = string.Empty;
+    public double? NormalMin { get; set; }
+    public double? NormalMax { get; set; }
+    public string? NormalText { get; set; }
+    public double? PanicLow { get; set; }
+    public double? PanicHigh { get; set; }
+    public string ValueType { get; set; } = "Numeric";
 }

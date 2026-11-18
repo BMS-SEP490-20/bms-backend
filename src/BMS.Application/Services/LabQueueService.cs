@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using BMS.Application.DTOs;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
 using BMS.Infrastructure.Data;
@@ -89,8 +90,17 @@ public class LabQueueService : ILabQueueService
     private IMongoCollection<Patient>? PatientsCol => _db?.GetCollection<Patient>("patients");
     private IMongoCollection<BsonDocument>? AppointmentsCol => _db?.GetCollection<BsonDocument>("appointments");
     private IMongoCollection<User>? AccountsCol => _db?.GetCollection<User>("accounts");
+    private IMongoCollection<BsonDocument>? RawAccountsCol => _db?.GetCollection<BsonDocument>("accounts");
+    private IMongoCollection<BsonDocument>? LabUserProfilesCol => _db?.GetCollection<BsonDocument>("lab_user_profiles");
+    private IMongoCollection<BsonDocument>? DoctorsCol => _db?.GetCollection<BsonDocument>("doctors");
     private IMongoCollection<BsonDocument>? RfidLogsCol => _db?.GetCollection<BsonDocument>("rfid_tracking_logs");
     private IMongoCollection<TestResult>? TestResultsCol => _db?.GetCollection<TestResult>("test_results");
+    private IMongoCollection<AuditLog>? AuditLogsCol => _db?.GetCollection<AuditLog>("audit_logs");
+    private IMongoCollection<BsonDocument>? TestOrdersCol => _db?.GetCollection<BsonDocument>("test_orders");
+    private IMongoCollection<BsonDocument>? ServicePackagesCol => _db?.GetCollection<BsonDocument>("service_packages");
+    private IMongoCollection<BsonDocument>? TestPackagesCol => _db?.GetCollection<BsonDocument>("test_packages");
+    private IMongoCollection<BsonDocument>? TestPackageCriteriaCol => _db?.GetCollection<BsonDocument>("test_package_criteria");
+    private IMongoCollection<BsonDocument>? TestCriteriaCol => _db?.GetCollection<BsonDocument>("test_criteria");
 
     /// <summary>
     /// Retrieves filtered, prioritized specimen list for clinical laboratory technicians.
@@ -307,6 +317,16 @@ public class LabQueueService : ILabQueueService
 
                 patientId ??= appPatientId;
 
+                if (appointmentDoc.TryGetValue("created_at", out var appCreatedVal) && appCreatedVal.IsValidDateTime)
+                {
+                    var appCreatedUtc = appCreatedVal.ToUniversalTime();
+                    if (collectedAt < appCreatedUtc.AddMinutes(-5))
+                    {
+                        throw new InvalidSampleTimestampException(
+                            $"Thời điểm lấy mẫu ({collectedAt:yyyy-MM-dd HH:mm:ss} UTC) không hợp lý so với thời điểm tạo đơn/lịch hẹn ({appCreatedUtc:yyyy-MM-dd HH:mm:ss} UTC).");
+                    }
+                }
+
                 if (appointmentDoc.TryGetValue("check_in_time", out var checkInVal) && checkInVal.IsValidDateTime)
                 {
                     var checkInUtc = checkInVal.ToUniversalTime();
@@ -315,6 +335,26 @@ public class LabQueueService : ILabQueueService
                         throw new InvalidSampleTimestampException(
                             $"Thời điểm lấy mẫu ({collectedAt:yyyy-MM-dd HH:mm:ss} UTC) không được sớm hơn thời điểm check-in của lịch hẹn ({checkInUtc:yyyy-MM-dd HH:mm:ss} UTC).");
                     }
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(appointmentId) && TestOrdersCol != null)
+        {
+            var orderDoc = await TestOrdersCol
+                .Find(Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("_id", appointmentId),
+                    Builders<BsonDocument>.Filter.Eq("order_id", appointmentId),
+                    Builders<BsonDocument>.Filter.Eq("appointment_id", appointmentId)))
+                .FirstOrDefaultAsync(ct);
+
+            if (orderDoc != null && orderDoc.TryGetValue("created_at", out var ordCreatedVal) && ordCreatedVal.IsValidDateTime)
+            {
+                var ordCreatedUtc = ordCreatedVal.ToUniversalTime();
+                if (collectedAt < ordCreatedUtc.AddMinutes(-5))
+                {
+                    throw new InvalidSampleTimestampException(
+                        $"Thời điểm lấy mẫu ({collectedAt:yyyy-MM-dd HH:mm:ss} UTC) không hợp lý so với thời điểm tạo đơn xét nghiệm ({ordCreatedUtc:yyyy-MM-dd HH:mm:ss} UTC).");
                 }
             }
         }
@@ -352,13 +392,72 @@ public class LabQueueService : ILabQueueService
 
         if (isNewSample)
         {
-            var generatedId = !string.IsNullOrWhiteSpace(request.SampleId)
-                ? request.SampleId.Trim()
-                : $"SMP-{now:yyyyMMdd}-{RandomNumberGenerator.GetInt32(1000, 10000)}";
+            // Auto-link the patient's latest active appointment or test order when caller omitted AppointmentId.
+            if (string.IsNullOrWhiteSpace(appointmentId) && !string.IsNullOrWhiteSpace(patientId))
+            {
+                var patientKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { patientId };
+                if (!string.IsNullOrWhiteSpace(patientDoc?.PatientCode))
+                    patientKeys.Add(patientDoc.PatientCode);
+
+                if (AppointmentsCol != null)
+                {
+                    try
+                    {
+                        var af = Builders<BsonDocument>.Filter;
+                        var activeAppt = await AppointmentsCol.Find(af.And(
+                                af.Or(af.In("patient_id", patientKeys), af.In("patientId", patientKeys), af.In("PatientId", patientKeys)),
+                                af.Nin("status", new BsonValue[] { "Cancelled", "cancelled", 5 }),
+                                af.Nin("Status", new BsonValue[] { "Cancelled", "cancelled", 5 })))
+                            .Sort(Builders<BsonDocument>.Sort.Descending("createdAt").Descending("created_at").Descending("CreatedAt"))
+                            .FirstOrDefaultAsync(ct);
+
+                        if (activeAppt != null)
+                        {
+                            appointmentId = ExtractBsonId(activeAppt);
+                        }
+                    }
+                    catch
+                    {
+                        // Non-fatal
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(appointmentId) && TestOrdersCol != null)
+                {
+                    try
+                    {
+                        var of = Builders<BsonDocument>.Filter;
+                        var activeOrder = await TestOrdersCol.Find(of.And(
+                                of.Or(of.In("patient_id", patientKeys), of.In("patientId", patientKeys), of.In("PatientId", patientKeys)),
+                                of.Nin("status", new BsonValue[] { "Cancelled", "cancelled" }),
+                                of.Nin("Status", new BsonValue[] { "Cancelled", "cancelled" })))
+                            .Sort(Builders<BsonDocument>.Sort.Descending("createdAt").Descending("created_at").Descending("CreatedAt"))
+                            .FirstOrDefaultAsync(ct);
+
+                        if (activeOrder != null)
+                        {
+                            var ordNum = GetBsonString(activeOrder, "order_number", "OrderNumber", "order_id");
+                            appointmentId = !string.IsNullOrWhiteSpace(ordNum) ? ordNum : ExtractBsonId(activeOrder);
+                        }
+                    }
+                    catch
+                    {
+                        // Non-fatal
+                    }
+                }
+            }
 
             var generatedBarcode = !string.IsNullOrWhiteSpace(request.Barcode)
                 ? request.Barcode.Trim()
-                : $"{now:yyMMdd}{RandomNumberGenerator.GetInt32(1000, 10000)}";
+                : $"SMP-{now:yyyyMMdd}-{RandomNumberGenerator.GetInt32(100000, 1000000)}";
+
+            // Unify SampleId with Barcode when Barcode already uses the canonical SMP-... format
+            // so the same tube never displays two different SMP-... codes across Lab, Doctor, and Patient screens.
+            var generatedId = !string.IsNullOrWhiteSpace(request.SampleId)
+                ? request.SampleId.Trim()
+                : (generatedBarcode.StartsWith("SMP-", StringComparison.OrdinalIgnoreCase)
+                    ? generatedBarcode
+                    : $"SMP-{now:yyyyMMdd}-{RandomNumberGenerator.GetInt32(1000, 10000)}");
 
             sample = new Sample
             {
@@ -401,10 +500,35 @@ public class LabQueueService : ILabQueueService
                 await SamplesCol.InsertOneAsync(sample, cancellationToken: ct);
             }
             _context.Samples.Add(sample);
+
+            if (AuditLogsCol != null)
+            {
+                try
+                {
+                    await AuditLogsCol.InsertOneAsync(new AuditLog
+                    {
+                        AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                        Timestamp = now,
+                        UserId = operatorUserId ?? collectorId ?? "ANONYMOUS",
+                        UserName = collectorName ?? operatorUserId ?? "ANONYMOUS",
+                        UserRole = "Lab",
+                        Action = "RECORD_SAMPLE_COLLECTION_TIME",
+                        Category = "SPECIMEN_TRACKING",
+                        Severity = "INFO",
+                        Status = "SUCCESS",
+                        IpAddress = "127.0.0.1",
+                        TargetEntity = "Sample",
+                        EntityId = sample.Id,
+                        Details = $"Recorded initial collection time for sample {sample.Id} (Barcode: {sample.Barcode}, Patient: {sample.PatientId}) at {collectedAt:yyyy-MM-dd HH:mm:ss} UTC. System CreatedAt: {now:yyyy-MM-dd HH:mm:ss} UTC."
+                    }, cancellationToken: ct);
+                }
+                catch { /* Skip audit failure */ }
+            }
         }
         else
         {
-            var prevStatus = sample!.StatusString;
+            var oldCollectedAt = sample!.CollectedAt;
+            var prevStatus = sample.StatusString;
             sample.CollectedAt = collectedAt;
             if (!string.IsNullOrWhiteSpace(collectorId)) sample.CollectedBy = collectorId;
             if (!string.IsNullOrWhiteSpace(collectorName)) sample.CollectorName = collectorName;
@@ -437,6 +561,30 @@ public class LabQueueService : ILabQueueService
             });
 
             await PersistSampleUpdateAsync(sample, ct);
+
+            if (AuditLogsCol != null)
+            {
+                try
+                {
+                    await AuditLogsCol.InsertOneAsync(new AuditLog
+                    {
+                        AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                        Timestamp = now,
+                        UserId = operatorUserId ?? collectorId ?? "ANONYMOUS",
+                        UserName = collectorName ?? operatorUserId ?? "ANONYMOUS",
+                        UserRole = "Lab",
+                        Action = "UPDATE_SAMPLE_COLLECTION_TIME",
+                        Category = "SPECIMEN_TRACKING",
+                        Severity = "INFO",
+                        Status = "SUCCESS",
+                        IpAddress = "127.0.0.1",
+                        TargetEntity = "Sample",
+                        EntityId = sample.Id,
+                        Details = $"Updated collection time for sample {sample.Id} (Barcode: {sample.Barcode}) from {oldCollectedAt:yyyy-MM-dd HH:mm:ss} UTC to {collectedAt:yyyy-MM-dd HH:mm:ss} UTC. System UpdatedAt: {now:yyyy-MM-dd HH:mm:ss} UTC."
+                    }, cancellationToken: ct);
+                }
+                catch { /* Skip audit failure */ }
+            }
         }
 
         // Update linked appointment status to SampleCollected if currently CheckedIn/Pending
@@ -533,13 +681,16 @@ public class LabQueueService : ILabQueueService
         }
 
         // Rejection requires a non-empty clinical rejection reason (ISO 15189 pre-analytical control)
-        if (targetStatus == SampleStatus.Rejected &&
-            string.IsNullOrWhiteSpace(dto.RejectionReason) &&
-            string.IsNullOrWhiteSpace(sample.RejectionReason))
+        var rejectionReason = !string.IsNullOrWhiteSpace(dto.RejectionReason)
+            ? dto.RejectionReason.Trim()
+            : (!string.IsNullOrWhiteSpace(dto.Notes) ? dto.Notes.Trim() : null);
+
+        // Rejection requires a non-empty clinical rejection reason (ISO 15189 pre-analytical control)
+        if (targetStatus == SampleStatus.Rejected && string.IsNullOrWhiteSpace(rejectionReason))
         {
             throw new DomainValidationException(
                 "REJECTION_REASON_REQUIRED",
-                "Khi từ chối mẫu bệnh phẩm (Rejected), bắt buộc phải cung cấp lý do từ chối (RejectionReason) như: Mẫu vỡ hồng cầu (Hemolysis), Mẫu đông (Clotted), Không đủ thể tích.");
+                "Khi từ chối mẫu bệnh phẩm (Rejected), bắt buộc phải cung cấp lý do từ chối (RejectionReason) như: Mẫu vỡ hồng cầu (Hemolysis), Mẫu đông (Clotted), Không đủ thể tích, Sai định danh ống nghiệm.");
         }
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -588,8 +739,14 @@ public class LabQueueService : ILabQueueService
 
             case SampleStatus.Received:
                 sample.ReceivedAt = transitionTime;
-                if (!string.IsNullOrWhiteSpace(techId)) sample.ReceivedBy = techId;
+                if (!string.IsNullOrWhiteSpace(techId))
+                {
+                    sample.ReceivedBy = techId;
+                    sample.AssignedTechnicianId = techId;
+                }
                 if (!string.IsNullOrWhiteSpace(techName)) sample.AssignedTechnicianName = techName;
+                if (!string.IsNullOrWhiteSpace(dto.HandoverBy)) sample.HandoverBy = dto.HandoverBy.Trim();
+                if (!string.IsNullOrWhiteSpace(dto.HandoverById)) sample.HandoverById = dto.HandoverById.Trim();
                 break;
 
             case SampleStatus.Processing:
@@ -610,8 +767,8 @@ public class LabQueueService : ILabQueueService
 
             case SampleStatus.Rejected:
                 sample.RejectedAt = transitionTime;
-                if (!string.IsNullOrWhiteSpace(dto.RejectionReason))
-                    sample.RejectionReason = dto.RejectionReason.Trim();
+                sample.RejectionReason = rejectionReason;
+                sample.RejectedBy = techId;
                 break;
 
             case SampleStatus.RerunRequested:
@@ -636,10 +793,48 @@ public class LabQueueService : ILabQueueService
             ChangedAt = transitionTime,
             ChangedBy = techId,
             OperatorName = techName,
-            Notes = dto.RejectionReason ?? dto.Notes
+            Notes = rejectionReason ?? dto.Notes
         });
 
         await PersistSampleUpdateAsync(sample, ct);
+
+        // ISO 27789 Audit Trail Logging for specimen lifecycle transition
+        if (AuditLogsCol != null)
+        {
+            try
+            {
+                var action = targetStatus == SampleStatus.Rejected
+                    ? "REJECT_SAMPLE"
+                    : "UPDATE_SAMPLE_STATUS";
+                var severity = targetStatus == SampleStatus.Rejected
+                    ? "WARNING"
+                    : "INFO";
+                var handoverSuffix = targetStatus == SampleStatus.Received && !string.IsNullOrWhiteSpace(sample.HandoverBy)
+                    ? $" (Người bàn giao: {sample.HandoverBy})"
+                    : string.Empty;
+                var details = targetStatus == SampleStatus.Rejected
+                    ? $"Mẫu {sample.Id} (Barcode: {sample.Barcode}) bị TỪ CHỐI bởi {techName ?? techId}. Lý do: '{rejectionReason}'. Trạng thái trước: {prevStatusString}."
+                    : $"Cập nhật trạng thái mẫu {sample.Id} (Barcode: {sample.Barcode}) từ '{prevStatusString}' sang '{sample.StatusString}' bởi {techName ?? techId}{handoverSuffix}.";
+
+                await AuditLogsCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = techId ?? operatorUserId ?? "ANONYMOUS",
+                    UserName = techName ?? operatorUserId ?? "ANONYMOUS",
+                    UserRole = "Lab",
+                    Action = action,
+                    Category = "SPECIMEN_TRACKING",
+                    Severity = severity,
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "Sample",
+                    EntityId = sample.Id,
+                    Details = details
+                }, cancellationToken: ct);
+            }
+            catch { /* Skip audit failure */ }
+        }
 
         _logger?.LogInformation(
             "Sample {SampleId} status transitioned: {From} -> {To} at {Time:O} by {Tech}",
@@ -814,6 +1009,268 @@ public class LabQueueService : ILabQueueService
         };
     }
 
+    /// <inheritdoc />
+    public async Task<List<LabStaffMemberDto>> GetStaffDirectoryAsync(CancellationToken ct = default)
+    {
+        var staffById = new Dictionary<string, LabStaffMemberDto>(StringComparer.OrdinalIgnoreCase);
+
+        if (RawAccountsCol != null)
+        {
+            try
+            {
+                var labProfileMap = new Dictionary<string, (string FullName, string? AssignedRoom)>(StringComparer.OrdinalIgnoreCase);
+                if (LabUserProfilesCol != null)
+                {
+                    var profiles = await LabUserProfilesCol.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(ct);
+                    foreach (var p in profiles)
+                    {
+                        var pid = ExtractBsonId(p);
+                        if (string.IsNullOrWhiteSpace(pid)) continue;
+                        var pName = GetBsonString(p, "full_name", "fullName", "FullName");
+                        var pRoom = GetBsonString(p, "assigned_room", "assignedRoom", "AssignedRoom");
+                        labProfileMap[pid] = (pName, string.IsNullOrWhiteSpace(pRoom) ? null : pRoom);
+                    }
+                }
+
+                var doctorMap = new Dictionary<string, (string FullName, string? Specialty, string? RoomId)>(StringComparer.OrdinalIgnoreCase);
+                if (DoctorsCol != null)
+                {
+                    var doctors = await DoctorsCol.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(ct);
+                    foreach (var d in doctors)
+                    {
+                        var did = ExtractBsonId(d);
+                        if (string.IsNullOrWhiteSpace(did)) continue;
+                        var dName = GetBsonString(d, "full_name", "fullName", "FullName");
+                        var dSpec = GetBsonString(d, "specialty", "Specialty");
+                        var dRoom = GetBsonString(d, "room_id", "roomId", "RoomId");
+                        doctorMap[did] = (dName, string.IsNullOrWhiteSpace(dSpec) ? null : dSpec, string.IsNullOrWhiteSpace(dRoom) ? null : dRoom);
+                    }
+                }
+
+                var fb = Builders<BsonDocument>.Filter;
+                var activeFilter = fb.And(
+                    fb.Ne("isDeleted", true),
+                    fb.Ne("is_deleted", true),
+                    fb.Ne("isActive", false),
+                    fb.Ne("Status", 0),
+                    fb.Ne("status", 0));
+
+                var accountDocs = await RawAccountsCol.Find(activeFilter).ToListAsync(ct);
+
+                foreach (var doc in accountDocs)
+                {
+                    var id = ExtractBsonId(doc);
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+
+                    var username = GetBsonString(doc, "Username", "username");
+                    var fullName = GetBsonString(doc, "FullName", "fullName", "full_name");
+                    var storedEmpCode = GetBsonString(doc, "employeeCode", "EmployeeCode", "employee_code");
+                    var storedDepartment = GetBsonString(doc, "department", "Department", "specialty", "Specialty");
+
+                    var canonicalRole = ResolveCanonicalStaffRole(doc, id, username, labProfileMap, doctorMap);
+                    if (canonicalRole == null || string.Equals(canonicalRole, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string? assignedRoom = null;
+                    if (labProfileMap.TryGetValue(id, out var labProf))
+                    {
+                        if (string.IsNullOrWhiteSpace(fullName)) fullName = labProf.FullName;
+                        assignedRoom = labProf.AssignedRoom;
+                    }
+                    else if (doctorMap.TryGetValue(id, out var docProf))
+                    {
+                        if (string.IsNullOrWhiteSpace(fullName)) fullName = docProf.FullName;
+                        if (string.IsNullOrWhiteSpace(storedDepartment)) storedDepartment = docProf.Specialty ?? string.Empty;
+                        assignedRoom = docProf.RoomId;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(fullName))
+                        fullName = username;
+                    if (string.IsNullOrWhiteSpace(fullName))
+                        continue;
+
+                    var empCode = !string.IsNullOrWhiteSpace(storedEmpCode)
+                        ? storedEmpCode
+                        : BuildDefaultEmployeeCode(canonicalRole, id, username);
+
+                    var department = !string.IsNullOrWhiteSpace(storedDepartment)
+                        ? storedDepartment
+                        : ResolveDefaultDepartment(canonicalRole);
+
+                    staffById[id] = new LabStaffMemberDto
+                    {
+                        Id = id,
+                        EmployeeCode = empCode,
+                        Username = username,
+                        FullName = fullName,
+                        Role = canonicalRole,
+                        Department = department,
+                        AssignedRoom = assignedRoom
+                    };
+                }
+
+                // Ensure lab_user_profiles entries appear even if their account document is missing.
+                foreach (var (pid, prof) in labProfileMap)
+                {
+                    if (staffById.ContainsKey(pid) || string.IsNullOrWhiteSpace(prof.FullName)) continue;
+                    staffById[pid] = new LabStaffMemberDto
+                    {
+                        Id = pid,
+                        EmployeeCode = BuildDefaultEmployeeCode(RoleNames.Lab, pid, pid),
+                        Username = pid,
+                        FullName = prof.FullName,
+                        Role = RoleNames.Lab,
+                        Department = "Khoa Xét Nghiệm",
+                        AssignedRoom = prof.AssignedRoom
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to query staff directory from MongoDB accounts collection.");
+            }
+        }
+
+        // In-memory fallback only when MongoDB is unavailable (unit tests / offline dev).
+        if (staffById.Count == 0 && _db == null)
+        {
+            foreach (var u in _context.Users.Where(u => u.IsActive && u.Role != UserRole.Patient))
+            {
+                var roleName = RoleNames.FromRoleId(u.RoleId) ?? u.Role.ToString();
+                staffById[u.Id] = new LabStaffMemberDto
+                {
+                    Id = u.Id,
+                    EmployeeCode = !string.IsNullOrWhiteSpace(u.EmployeeCode)
+                        ? u.EmployeeCode
+                        : BuildDefaultEmployeeCode(roleName, u.Id, u.Username),
+                    Username = u.Username,
+                    FullName = !string.IsNullOrWhiteSpace(u.FullName) ? u.FullName : u.Username,
+                    Role = roleName,
+                    Department = !string.IsNullOrWhiteSpace(u.Department)
+                        ? u.Department
+                        : ResolveDefaultDepartment(roleName)
+                };
+            }
+        }
+
+        return staffById.Values
+            .OrderBy(s => GetRoleDisplayOrder(s.Role))
+            .ThenBy(s => s.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string? ResolveCanonicalStaffRole(
+        BsonDocument doc,
+        string id,
+        string username,
+        IReadOnlyDictionary<string, (string FullName, string? AssignedRoom)> labProfiles,
+        IReadOnlyDictionary<string, (string FullName, string? Specialty, string? RoomId)> doctors)
+    {
+        // Prefer explicit role string on the account document (handles legacy seeded accounts accurately).
+        var explicitRole = GetBsonString(doc, "Role", "role", "roleName", "RoleName");
+        if (!string.IsNullOrWhiteSpace(explicitRole))
+        {
+            return RoleNames.Normalize(explicitRole);
+        }
+
+        if (labProfiles.ContainsKey(id))
+            return RoleNames.Lab;
+
+        if (doctors.ContainsKey(id))
+            return RoleNames.Doctor;
+
+        var roleId = GetBsonInt(doc, "RoleId", "roleId", "role_id");
+        if (!roleId.HasValue)
+            return null;
+
+        if (roleId.Value == User.LegacyPatientRoleId || roleId.Value == (int)UserRole.Patient)
+            return RoleNames.Patient;
+
+        // Legacy self-registered patient documents had RoleId = 6 alongside patientCode/bloodType fields.
+        if (roleId.Value == (int)UserRole.Manager)
+        {
+            var hasPatientSchema = doc.Contains("patientCode") || doc.Contains("bloodType") ||
+                username.StartsWith("patient", StringComparison.OrdinalIgnoreCase);
+            return hasPatientSchema ? RoleNames.Patient : RoleNames.Manager;
+        }
+
+        return RoleNames.FromRoleId(roleId.Value);
+    }
+
+    private static string BuildDefaultEmployeeCode(string canonicalRole, string id, string username)
+    {
+        var suffix = id.Length >= 3 ? id[^3..] : (!string.IsNullOrWhiteSpace(username) ? username : "001");
+        return canonicalRole switch
+        {
+            RoleNames.Receptionist => $"NV-REC-{suffix}",
+            RoleNames.Doctor => $"BS-{suffix}",
+            RoleNames.Lab => $"KTV-{suffix}",
+            RoleNames.Manager => $"QL-{suffix}",
+            RoleNames.Admin => $"QT-{suffix}",
+            _ => suffix
+        };
+    }
+
+    private static string ResolveDefaultDepartment(string canonicalRole) => canonicalRole switch
+    {
+        RoleNames.Lab or RoleNames.Manager => "Khoa Xét Nghiệm",
+        RoleNames.Doctor => "Khoa Khám Bệnh",
+        RoleNames.Receptionist => "Khoa Khám Bệnh / Tiếp Đón",
+        RoleNames.Admin => "Quản Trị Hệ Thống",
+        _ => "Bệnh Viện BMS"
+    };
+
+    private static int GetRoleDisplayOrder(string canonicalRole) => canonicalRole switch
+    {
+        RoleNames.Lab => 1,
+        RoleNames.Receptionist => 2,
+        RoleNames.Manager => 3,
+        RoleNames.Doctor => 4,
+        RoleNames.Admin => 5,
+        _ => 9
+    };
+
+    private static string ExtractBsonId(BsonDocument doc)
+    {
+        if (!doc.TryGetValue("_id", out var idVal) || idVal.IsBsonNull)
+            return string.Empty;
+        return idVal.IsObjectId ? idVal.AsObjectId.ToString() : idVal.ToString() ?? string.Empty;
+    }
+
+    private static string GetBsonString(BsonDocument doc, params string[] fields)
+    {
+        foreach (var field in fields)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull && val.IsString && !string.IsNullOrWhiteSpace(val.AsString))
+                return val.AsString.Trim();
+        }
+        return string.Empty;
+    }
+
+    private static int? GetBsonInt(BsonDocument doc, params string[] fields)
+    {
+        foreach (var field in fields)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsInt32) return val.AsInt32;
+                if (val.IsInt64) return (int)val.AsInt64;
+                if (val.IsString && int.TryParse(val.AsString, out var parsed)) return parsed;
+            }
+        }
+        return null;
+    }
+
+    private static double? GetBsonDouble(BsonDocument doc, params string[] fields)
+    {
+        foreach (var field in fields)
+        {
+            if (doc.TryGetValue(field, out var val) && !val.IsBsonNull && val.IsNumeric)
+                return val.ToDouble();
+        }
+        return null;
+    }
+
     private async Task<Sample?> FindSampleAsync(string idOrBarcode, CancellationToken ct = default)
     {
         if (SamplesCol != null)
@@ -986,10 +1443,26 @@ public class LabQueueService : ILabQueueService
 
             if (collectorIds.Count > 0 && AccountsCol != null)
             {
-                var users = await AccountsCol
-                    .Find(Builders<User>.Filter.In(u => u.Id, collectorIds))
-                    .ToListAsync(ct);
-                var uMap = users.ToDictionary(u => u.Id, u => u.FullName, StringComparer.OrdinalIgnoreCase);
+                var staffList = await GetStaffDirectoryAsync(ct);
+                var uMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var st in staffList)
+                {
+                    if (!string.IsNullOrWhiteSpace(st.Id)) uMap.TryAdd(st.Id, st.FullName);
+                    if (!string.IsNullOrWhiteSpace(st.EmployeeCode)) uMap.TryAdd(st.EmployeeCode, st.FullName);
+                    if (!string.IsNullOrWhiteSpace(st.Username)) uMap.TryAdd(st.Username, st.FullName);
+                }
+
+                var unresolvedIds = collectorIds.Where(cid => !uMap.ContainsKey(cid)).ToList();
+                if (unresolvedIds.Count > 0)
+                {
+                    var users = await AccountsCol
+                        .Find(Builders<User>.Filter.In(u => u.Id, unresolvedIds))
+                        .ToListAsync(ct);
+                    foreach (var u in users)
+                    {
+                        uMap.TryAdd(u.Id, u.FullName);
+                    }
+                }
 
                 foreach (var s in samples)
                 {
@@ -998,6 +1471,352 @@ public class LabQueueService : ILabQueueService
                         uMap.TryGetValue(s.CollectedBy, out var cName))
                     {
                         s.CollectorName = cName;
+                    }
+                }
+            }
+
+            // Enrich TestPackageName, PackageId, and exact PackageParameters from linked Appointment / ServicePackage / TestOrder.
+            var samplesNeedingPkg = samples
+                .Where(s => string.IsNullOrWhiteSpace(s.TestPackageName) || s.PackageParameters == null || s.PackageParameters.Count == 0)
+                .ToList();
+            if (samplesNeedingPkg.Count > 0)
+            {
+                var pkgDocByKey = new Dictionary<string, BsonDocument>(StringComparer.OrdinalIgnoreCase);
+                var pkgNameByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var pkgCanonicalIdByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                // Load service_packages first so Admin-configured Tests and Names take priority, then test_packages.
+                foreach (var pkgCol in new[] { ServicePackagesCol, TestPackagesCol })
+                {
+                    if (pkgCol == null) continue;
+                    try
+                    {
+                        var pkgDocs = await pkgCol.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(ct);
+                        foreach (var pd in pkgDocs)
+                        {
+                            var name = GetBsonString(pd, "package_name", "Name", "service_name", "name");
+                            var pid = ExtractBsonId(pd);
+                            var keys = new List<string>();
+                            if (!string.IsNullOrWhiteSpace(pid)) keys.Add(pid);
+                            foreach (var codeField in new[] { "Code", "package_code", "service_code", "code" })
+                            {
+                                var codeVal = GetBsonString(pd, codeField);
+                                if (!string.IsNullOrWhiteSpace(codeVal)) keys.Add(codeVal);
+                            }
+                            if (!string.IsNullOrWhiteSpace(name)) keys.Add(name);
+
+                            var hasTests = (pd.TryGetValue("Tests", out var t1) && t1.IsBsonArray && t1.AsBsonArray.Count > 0)
+                                        || (pd.TryGetValue("tests", out var t2) && t2.IsBsonArray && t2.AsBsonArray.Count > 0);
+
+                            foreach (var k in keys)
+                            {
+                                if (!string.IsNullOrWhiteSpace(name)) pkgNameByKey.TryAdd(k, name);
+                                if (!string.IsNullOrWhiteSpace(pid)) pkgCanonicalIdByKey.TryAdd(k, pid);
+                                if (!pkgDocByKey.TryGetValue(k, out var existingDoc))
+                                {
+                                    pkgDocByKey[k] = pd;
+                                }
+                                else if (hasTests)
+                                {
+                                    var existingHasTests = (existingDoc.TryGetValue("Tests", out var et1) && et1.IsBsonArray && et1.AsBsonArray.Count > 0)
+                                                        || (existingDoc.TryGetValue("tests", out var et2) && et2.IsBsonArray && et2.AsBsonArray.Count > 0);
+                                    if (!existingHasTests) pkgDocByKey[k] = pd;
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Non-fatal
+                    }
+                }
+
+                // Load master test_criteria (preferring canonical active documents with ranges/panic thresholds).
+                var criteriaByCode = new Dictionary<string, SampleExpectedParameter>(StringComparer.OrdinalIgnoreCase);
+                var criteriaCodeById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (TestCriteriaCol != null)
+                {
+                    try
+                    {
+                        var critDocs = await TestCriteriaCol.Find(
+                            Builders<BsonDocument>.Filter.Ne("isDeleted", true) &
+                            Builders<BsonDocument>.Filter.Ne("is_deleted", true)).ToListAsync(ct);
+
+                        foreach (var cd in critDocs)
+                        {
+                            var cid = ExtractBsonId(cd);
+                            var code = GetBsonString(cd, "criterionCode", "criterion_code", "code");
+                            if (string.IsNullOrWhiteSpace(code)) continue;
+                            if (!string.IsNullOrWhiteSpace(cid)) criteriaCodeById[cid] = code;
+
+                            var isActive = !cd.TryGetValue("isActive", out var actVal) || !actVal.IsBoolean || actVal.AsBoolean;
+                            if (!isActive) continue;
+
+                            var isCanonical = cd.Contains("criterionCode") || cd.Contains("normalMin") || cd.Contains("normalMax");
+                            var candidate = new SampleExpectedParameter
+                            {
+                                Code = code.ToUpperInvariant(),
+                                Name = GetBsonString(cd, "criterionName", "criterion_name", "name"),
+                                Unit = GetBsonString(cd, "unit"),
+                                NormalMin = GetBsonDouble(cd, "normalMin", "normal_min"),
+                                NormalMax = GetBsonDouble(cd, "normalMax", "normal_max"),
+                                NormalText = string.IsNullOrWhiteSpace(GetBsonString(cd, "normalText", "normal_text", "reference_range"))
+                                    ? null
+                                    : GetBsonString(cd, "normalText", "normal_text", "reference_range"),
+                                PanicLow = GetBsonDouble(cd, "panicLow", "panic_low"),
+                                PanicHigh = GetBsonDouble(cd, "panicHigh", "panic_high"),
+                                ValueType = string.IsNullOrWhiteSpace(GetBsonString(cd, "valueType", "value_type"))
+                                    ? "Numeric"
+                                    : GetBsonString(cd, "valueType", "value_type")
+                            };
+                            if (string.IsNullOrWhiteSpace(candidate.Name)) candidate.Name = candidate.Code;
+
+                            if (!criteriaByCode.ContainsKey(code) || isCanonical)
+                            {
+                                criteriaByCode[code] = candidate;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Non-fatal
+                    }
+                }
+
+                // Load test_package_criteria lookup (package_id -> list of criterion codes).
+                var mappedCodesByPkgId = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                if (TestPackageCriteriaCol != null)
+                {
+                    try
+                    {
+                        var maps = await TestPackageCriteriaCol.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(ct);
+                        foreach (var m in maps)
+                        {
+                            var mapPkgId = GetBsonString(m, "package_id", "packageId");
+                            var mapCritId = GetBsonString(m, "criteria_id", "criteriaId", "criterion_id");
+                            if (string.IsNullOrWhiteSpace(mapPkgId) || string.IsNullOrWhiteSpace(mapCritId)) continue;
+                            var resolvedCode = criteriaCodeById.TryGetValue(mapCritId, out var cCode) ? cCode : mapCritId;
+                            if (!mappedCodesByPkgId.TryGetValue(mapPkgId, out var list))
+                            {
+                                list = [];
+                                mappedCodesByPkgId[mapPkgId] = list;
+                            }
+                            if (!list.Contains(resolvedCode, StringComparer.OrdinalIgnoreCase))
+                                list.Add(resolvedCode);
+                        }
+                    }
+                    catch
+                    {
+                        // Non-fatal
+                    }
+                }
+
+                // Map PatientId -> PatientCode so appointments stored under either key can be matched.
+                var patientCodeMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (PatientsCol != null)
+                {
+                    var pids = samplesNeedingPkg.Select(s => s.PatientId).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+                    if (pids.Count > 0)
+                    {
+                        try
+                        {
+                            var pts = await PatientsCol.Find(Builders<Patient>.Filter.In(p => p.Id, pids)).ToListAsync(ct);
+                            foreach (var pt in pts)
+                            {
+                                if (!string.IsNullOrWhiteSpace(pt.PatientCode))
+                                    patientCodeMap[pt.Id] = pt.PatientCode;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                foreach (var s in samplesNeedingPkg)
+                {
+                    string? resolvedPkgId = s.PackageId;
+                    string? resolvedPkgName = string.IsNullOrWhiteSpace(s.TestPackageName) ? null : s.TestPackageName;
+                    var rawParams = new List<(string Code, string Name)>();
+
+                    if (AppointmentsCol != null)
+                    {
+                        try
+                        {
+                            var af = Builders<BsonDocument>.Filter;
+                            BsonDocument? apptDoc = null;
+                            if (!string.IsNullOrWhiteSpace(s.TestOrderId))
+                            {
+                                var apptFilters = new List<FilterDefinition<BsonDocument>>
+                                {
+                                    af.Eq("_id", s.TestOrderId),
+                                    af.Eq("appointmentCode", s.TestOrderId),
+                                    af.Eq("appointment_code", s.TestOrderId)
+                                };
+                                if (ObjectId.TryParse(s.TestOrderId, out var apptOid))
+                                    apptFilters.Add(af.Eq("_id", apptOid));
+
+                                apptDoc = await AppointmentsCol.Find(af.Or(apptFilters))
+                                    .FirstOrDefaultAsync(ct);
+                            }
+
+                            if (apptDoc == null && !string.IsNullOrWhiteSpace(s.PatientId))
+                            {
+                                var pKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { s.PatientId };
+                                if (patientCodeMap.TryGetValue(s.PatientId, out var pCode)) pKeys.Add(pCode);
+
+                                apptDoc = await AppointmentsCol.Find(af.And(
+                                        af.Or(af.In("patientId", pKeys), af.In("patient_id", pKeys), af.In("PatientId", pKeys)),
+                                        af.Nin("status", new BsonValue[] { "Cancelled", "cancelled", 5 }),
+                                        af.Nin("Status", new BsonValue[] { "Cancelled", "cancelled", 5 })))
+                                    .Sort(Builders<BsonDocument>.Sort.Descending("createdAt").Descending("created_at").Descending("CreatedAt"))
+                                    .FirstOrDefaultAsync(ct);
+                            }
+
+                            if (apptDoc != null)
+                            {
+                                var pkgId = GetBsonString(apptDoc, "packageId", "package_id", "PackageId");
+                                if (!string.IsNullOrWhiteSpace(pkgId)) resolvedPkgId = pkgId;
+
+                                var inlinePkgName = GetBsonString(apptDoc, "packageName", "package_name");
+                                if (!string.IsNullOrWhiteSpace(inlinePkgName))
+                                {
+                                    resolvedPkgName ??= inlinePkgName;
+                                }
+                                else if (!string.IsNullOrWhiteSpace(pkgId))
+                                {
+                                    resolvedPkgName ??= pkgNameByKey.TryGetValue(pkgId, out var mappedName) ? mappedName : pkgId;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // 1. Try package.Tests from service_packages
+                    var lookupKeys = new[] { resolvedPkgId, s.PackageCode, resolvedPkgName }
+                        .Where(k => !string.IsNullOrWhiteSpace(k))
+                        .Select(k => k!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    BsonDocument? matchedPkgDoc = null;
+                    foreach (var lk in lookupKeys)
+                    {
+                        if (pkgDocByKey.TryGetValue(lk, out matchedPkgDoc)) break;
+                    }
+
+                    if (matchedPkgDoc != null)
+                    {
+                        var testsArray = matchedPkgDoc.TryGetValue("Tests", out var tv1) && tv1.IsBsonArray ? tv1.AsBsonArray
+                            : (matchedPkgDoc.TryGetValue("tests", out var tv2) && tv2.IsBsonArray ? tv2.AsBsonArray : null);
+                        if (testsArray != null)
+                        {
+                            foreach (var tItem in testsArray.Where(x => x.IsBsonDocument).Select(x => x.AsBsonDocument))
+                            {
+                                var tc = GetBsonString(tItem, "Code", "code", "criterionCode");
+                                var tn = GetBsonString(tItem, "Name", "name", "criterionName");
+                                if (!string.IsNullOrWhiteSpace(tc))
+                                    rawParams.Add((tc, tn));
+                            }
+                        }
+                    }
+
+                    // 2. Fallback to test_package_criteria mappings (e.g. PKG-CBC-01 -> CRT-RBC, CRT-HGB, ...)
+                    if (rawParams.Count == 0)
+                    {
+                        var candidatePkgIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var lk in lookupKeys)
+                        {
+                            candidatePkgIds.Add(lk);
+                            if (pkgCanonicalIdByKey.TryGetValue(lk, out var cid)) candidatePkgIds.Add(cid);
+                        }
+                        foreach (var cpid in candidatePkgIds)
+                        {
+                            if (mappedCodesByPkgId.TryGetValue(cpid, out var mappedCodes) && mappedCodes.Count > 0)
+                            {
+                                foreach (var mc in mappedCodes)
+                                    rawParams.Add((mc, string.Empty));
+                                break;
+                            }
+                        }
+                    }
+
+                    // 3. Fallback to UC32 test_orders items
+                    if (TestOrdersCol != null && (string.IsNullOrWhiteSpace(resolvedPkgName) || rawParams.Count == 0))
+                    {
+                        try
+                        {
+                            var of = Builders<BsonDocument>.Filter;
+                            BsonDocument? orderDoc = null;
+                            if (!string.IsNullOrWhiteSpace(s.TestOrderId))
+                            {
+                                var orderFilters = new List<FilterDefinition<BsonDocument>>
+                                {
+                                    of.Eq("_id", s.TestOrderId),
+                                    of.Eq("order_number", s.TestOrderId),
+                                    of.Eq("OrderNumber", s.TestOrderId)
+                                };
+                                if (ObjectId.TryParse(s.TestOrderId, out var orderOid))
+                                    orderFilters.Add(of.Eq("_id", orderOid));
+
+                                orderDoc = await TestOrdersCol.Find(of.Or(orderFilters))
+                                    .FirstOrDefaultAsync(ct);
+                            }
+                            if (orderDoc != null && orderDoc.TryGetValue("items", out var itemsVal) && itemsVal.IsBsonArray)
+                            {
+                                var names = new List<string>();
+                                foreach (var itemDoc in itemsVal.AsBsonArray.Where(x => x.IsBsonDocument).Select(x => x.AsBsonDocument))
+                                {
+                                    var tName = GetBsonString(itemDoc, "test_name", "testName", "TestName");
+                                    var tCode = GetBsonString(itemDoc, "test_code", "testCode", "TestCode");
+                                    if (!string.IsNullOrWhiteSpace(tName)) names.Add(tName);
+                                    if (rawParams.Count == 0 && !string.IsNullOrWhiteSpace(tCode))
+                                        rawParams.Add((tCode, tName));
+                                }
+                                if (string.IsNullOrWhiteSpace(resolvedPkgName) && names.Count > 0)
+                                    resolvedPkgName = string.Join(", ", names.Distinct());
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(resolvedPkgId)) s.PackageId = resolvedPkgId;
+                    if (!string.IsNullOrWhiteSpace(resolvedPkgName)) s.TestPackageName = resolvedPkgName;
+
+                    if (rawParams.Count > 0)
+                    {
+                        var enrichedParams = new List<SampleExpectedParameter>();
+                        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var (code, fallbackName) in rawParams)
+                        {
+                            var normCode = code.Trim().ToUpperInvariant();
+                            if (string.IsNullOrWhiteSpace(normCode) || !seen.Add(normCode)) continue;
+
+                            if (criteriaByCode.TryGetValue(normCode, out var master))
+                            {
+                                enrichedParams.Add(new SampleExpectedParameter
+                                {
+                                    Code = master.Code,
+                                    Name = !string.IsNullOrWhiteSpace(master.Name) ? master.Name : (!string.IsNullOrWhiteSpace(fallbackName) ? fallbackName : master.Code),
+                                    Unit = master.Unit,
+                                    NormalMin = master.NormalMin,
+                                    NormalMax = master.NormalMax,
+                                    NormalText = master.NormalText,
+                                    PanicLow = master.PanicLow,
+                                    PanicHigh = master.PanicHigh,
+                                    ValueType = master.ValueType
+                                });
+                            }
+                            else
+                            {
+                                enrichedParams.Add(new SampleExpectedParameter
+                                {
+                                    Code = normCode,
+                                    Name = !string.IsNullOrWhiteSpace(fallbackName) ? fallbackName : normCode,
+                                    Unit = string.Empty,
+                                    ValueType = "Numeric"
+                                });
+                            }
+                        }
+                        s.PackageParameters = enrichedParams;
                     }
                 }
             }
@@ -1015,8 +1834,22 @@ public class LabQueueService : ILabQueueService
 
         try
         {
-            var user = await AccountsCol.Find(u => u.Id == userId.Trim()).FirstOrDefaultAsync(ct);
-            return user?.FullName;
+            var key = userId.Trim();
+            var fb = Builders<User>.Filter;
+            var user = await AccountsCol.Find(fb.Or(
+                fb.Eq(u => u.Id, key),
+                fb.Eq(u => u.EmployeeCode, key),
+                fb.Eq(u => u.Username, key))).FirstOrDefaultAsync(ct);
+
+            if (user != null)
+                return user.FullName;
+
+            var staff = await GetStaffDirectoryAsync(ct);
+            var matched = staff.FirstOrDefault(s =>
+                string.Equals(s.Id, key, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.EmployeeCode, key, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.Username, key, StringComparison.OrdinalIgnoreCase));
+            return matched?.FullName;
         }
         catch
         {
@@ -1038,6 +1871,18 @@ public class LabQueueService : ILabQueueService
         TestPackageName = s.TestPackageName,
         PackageId = s.PackageId,
         PackageCode = s.PackageCode,
+        PackageParameters = (s.PackageParameters ?? []).Select(p => new SampleExpectedParameterDto
+        {
+            Code = p.Code,
+            Name = p.Name,
+            Unit = p.Unit,
+            NormalMin = p.NormalMin,
+            NormalMax = p.NormalMax,
+            NormalText = p.NormalText,
+            PanicLow = p.PanicLow,
+            PanicHigh = p.PanicHigh,
+            ValueType = p.ValueType
+        }).ToList(),
         SampleType = s.SampleType,
         TubeColor = s.TubeColor,
         Anticoagulant = s.Anticoagulant,
@@ -1049,6 +1894,9 @@ public class LabQueueService : ILabQueueService
         CollectorName = s.CollectorName,
         AssignedTechnicianId = s.AssignedTechnicianId,
         AssignedTechnicianName = s.AssignedTechnicianName,
+        ReceivedBy = s.ReceivedBy,
+        HandoverBy = s.HandoverBy,
+        HandoverById = s.HandoverById,
         RejectionReason = s.RejectionReason,
         RerunReason = s.RerunReason,
         CollectedAt = s.CollectedAt,
@@ -1057,6 +1905,7 @@ public class LabQueueService : ILabQueueService
         ProcessedAt = s.ProcessedAt,
         CompletedAt = s.CompletedAt,
         RejectedAt = s.RejectedAt,
+        RejectedBy = s.RejectedBy,
         Notes = s.Notes,
         StatusHistory = (s.StatusHistory ?? []).Select(h => new SampleStatusHistoryDto
         {

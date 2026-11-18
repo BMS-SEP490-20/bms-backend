@@ -37,7 +37,8 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
     private static BsonDocument PatientFilter(List<string>? scope) => scope is null ? new() : new("$expr", new BsonDocument("$in", new BsonArray {
         Coalesce("patient_id", "patientId"), new BsonArray(scope.SelectMany(s => new BsonValue[] { s, Id(s) })) }));
     public async Task<List<string>> OwnPatientsAsync(string accountId, CancellationToken ct = default) =>
-        (await _db.GetCollection<BsonDocument>("patients").Find(new BsonDocumentFilterDefinition<BsonDocument>(Active) & Identity("AccountId", accountId))
+        (await _db.GetCollection<BsonDocument>("patients")
+            .Find(new BsonDocumentFilterDefinition<BsonDocument>(Active) & (Identity("AccountId", accountId) | Identity("accountId", accountId)))
             .Project(new BsonDocument("_id", 1)).ToListAsync(ct)).Select(x => Text(x, "_id")).ToList();
 
     public async Task<(List<TestHistorySummary> Items, long Total)> ListAsync(TestHistorySearch search, List<string>? scope, CancellationToken ct = default)
@@ -101,6 +102,14 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
                     Builders<BsonDocument>.Filter.Or(Identity("_id", packageId), Builders<BsonDocument>.Filter.Eq("code", packageId), Builders<BsonDocument>.Filter.Eq("package_code", packageId)))
                 .Project(new BsonDocument { { "_id", 0 }, { "package_name", 1 }, { "name", 1 } }).FirstOrDefaultAsync(ct);
         var packageName = package is null ? "" : (Text(package, "package_name").Length > 0 ? Text(package, "package_name") : Text(package, "name"));
+        if (string.IsNullOrWhiteSpace(packageName) && !string.IsNullOrWhiteSpace(packageId))
+        {
+            var sp = await _db.GetCollection<BsonDocument>("service_packages")
+                .Find(Builders<BsonDocument>.Filter.Or(Identity("_id", packageId), Builders<BsonDocument>.Filter.Eq("Code", packageId), Builders<BsonDocument>.Filter.Eq("code", packageId)))
+                .Project(new BsonDocument { { "_id", 0 }, { "Name", 1 }, { "name", 1 } }).FirstOrDefaultAsync(ct);
+            if (sp is not null)
+                packageName = Text(sp, "Name", "name");
+        }
         if (string.IsNullOrWhiteSpace(packageName) && sample is not null)
             packageName = Text(sample, "testPackageName", "test_package_name");
         if (string.IsNullOrWhiteSpace(packageName) && !string.IsNullOrWhiteSpace(packageId))

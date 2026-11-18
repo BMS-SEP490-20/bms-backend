@@ -18,6 +18,8 @@ public sealed class WalkInService(
         string? receptionistUserId,
         CancellationToken ct = default)
     {
+        PatientIdentityRules.Validate(request.IdentityNumber, request.Phone, request.DateOfBirth);
+
         var ageYears = CalculateAgeYears(request.DateOfBirth);
         var priority = string.IsNullOrWhiteSpace(request.Priority)
             ? "NORMAL"
@@ -68,6 +70,10 @@ public sealed class WalkInService(
             Phone = dto.PhoneNumber ?? request.Phone,
             Gender = dto.Gender,
             DateOfBirth = dto.DateOfBirth,
+            Email = dto.Email ?? request.Email,
+            PortalUsername = dto.PortalUsername,
+            TemporaryPassword = dto.TemporaryPassword,
+            AccountAutoCreated = dto.AccountAutoCreated,
             IsGuest = dto.IsGuest,
             Priority = priority,
             Message = "Walk-in guest profile created successfully."

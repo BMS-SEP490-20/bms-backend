@@ -65,7 +65,76 @@ public class TestPackageRepository : ITestPackageRepository
             .ToListAsync(cancellationToken);
 
         await ApplyListedPricesAsync(result, cancellationToken);
-        return result;
+
+        // Merge active Admin-managed service_packages (e.g. PKG-GEN-01, PKG-DIAB-01...) so they appear in booking catalog.
+        try
+        {
+            var existingCodes = new HashSet<string>(
+                result.Select(p => p.PackageCode).Where(c => !string.IsNullOrWhiteSpace(c)),
+                StringComparer.OrdinalIgnoreCase);
+            var existingIds = new HashSet<string>(
+                result.Select(p => p.Id).Where(i => !string.IsNullOrWhiteSpace(i)),
+                StringComparer.OrdinalIgnoreCase);
+            var existingNames = new HashSet<string>(
+                result.Select(p => p.PackageName).Where(n => !string.IsNullOrWhiteSpace(n)),
+                StringComparer.OrdinalIgnoreCase);
+
+            var spFilter = Builders<ServicePackage>.Filter.And(
+                Builders<ServicePackage>.Filter.Eq(p => p.IsDeleted, false),
+                Builders<ServicePackage>.Filter.Eq(p => p.IsActive, true));
+            var servicePackages = await _servicePackagesCollection.Find(spFilter).ToListAsync(cancellationToken);
+
+            foreach (var sp in servicePackages)
+            {
+                if (string.IsNullOrWhiteSpace(sp.Name)) continue;
+                var code = !string.IsNullOrWhiteSpace(sp.Code) ? sp.Code.Trim() : sp.Id;
+                if (existingIds.Contains(sp.Id) || existingCodes.Contains(code) || existingNames.Contains(sp.Name.Trim()))
+                    continue;
+
+                var cat = !string.IsNullOrWhiteSpace(sp.Category) ? sp.Category.Trim() : "Tổng quát";
+                if (!string.IsNullOrWhiteSpace(category) && !cat.Equals(category.Trim(), StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var kw = search.Trim();
+                    var matchesText =
+                        sp.Name.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                        code.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                        (sp.Description?.Contains(kw, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        cat.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                        (sp.Tests?.Any(t =>
+                            t.Code.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                            t.Name.Contains(kw, StringComparison.OrdinalIgnoreCase)) ?? false);
+                    if (!matchesText) continue;
+                }
+
+                result.Add(new TestPackage
+                {
+                    Id = sp.Id,
+                    PackageCode = code,
+                    PackageName = sp.Name.Trim(),
+                    Category = cat,
+                    Price = sp.DiscountPrice ?? sp.Price,
+                    Description = sp.Description ?? string.Empty,
+                    SampleTube = "EDTA / Serum",
+                    SampleVolumeMl = 3.0,
+                    IsActive = sp.IsActive
+                });
+                existingIds.Add(sp.Id);
+                existingCodes.Add(code);
+                existingNames.Add(sp.Name.Trim());
+            }
+        }
+        catch
+        {
+            // Non-fatal if service_packages collection is unavailable
+        }
+
+        return result
+            .OrderBy(p => p.Category, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.PackageName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <inheritdoc />
@@ -247,8 +316,8 @@ public class TestPackageRepository : ITestPackageRepository
                 .Find(Builders<BsonDocument>.Filter.In("package_id", ids))
                 .ToListAsync(cancellationToken);
 
-            if (maps.Count == 0)
-                return result;
+            if (maps.Count > 0)
+            {
 
             var criterionIds = maps
                 .Select(m => m.GetValue("criteria_id", BsonNull.Value).ToString() ?? string.Empty)
@@ -326,6 +395,72 @@ public class TestPackageRepository : ITestPackageRepository
                     }
                 }
                 result[group.Key] = list.OrderBy(x => x.DisplayOrder).ToList();
+            }
+            }
+
+            // Enrich criteria from service_packages.Tests for Admin-managed service packages not mapped in test_package_criteria.
+            var missingIds = ids.Where(id => !result.ContainsKey(id) || result[id].Count == 0).ToList();
+            if (missingIds.Count > 0)
+            {
+                var spList = await _servicePackagesCollection
+                    .Find(Builders<ServicePackage>.Filter.And(
+                        Builders<ServicePackage>.Filter.Eq(p => p.IsDeleted, false),
+                        Builders<ServicePackage>.Filter.Or(
+                            Builders<ServicePackage>.Filter.In(p => p.Id, missingIds),
+                            Builders<ServicePackage>.Filter.In(p => p.Code, missingIds))))
+                    .ToListAsync(cancellationToken);
+
+                var allCritDocs = await _criteriaCollection.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(cancellationToken);
+                var critByCode = new Dictionary<string, BsonDocument>(StringComparer.OrdinalIgnoreCase);
+                foreach (var cd in allCritDocs)
+                {
+                    var c = cd.Contains("criterionCode") && cd["criterionCode"].IsString ? cd["criterionCode"].AsString
+                          : cd.Contains("code") && cd["code"].IsString ? cd["code"].AsString
+                          : string.Empty;
+                    if (string.IsNullOrWhiteSpace(c)) continue;
+                    var isCanonical = cd.Contains("criterionCode") || cd.Contains("normalMin");
+                    if (!critByCode.ContainsKey(c) || isCanonical) critByCode[c] = cd;
+                }
+
+                foreach (var sp in spList)
+                {
+                    if (sp.Tests == null || sp.Tests.Count == 0) continue;
+                    var list = new List<TestPackageCriterionSummaryDto>();
+                    var order = 1;
+                    foreach (var t in sp.Tests)
+                    {
+                        if (string.IsNullOrWhiteSpace(t.Code)) continue;
+                        var unit = string.Empty;
+                        string? refRange = null;
+                        if (critByCode.TryGetValue(t.Code.Trim(), out var cd))
+                        {
+                            if (cd.TryGetValue("unit", out var uVal) && uVal.IsString) unit = uVal.AsString;
+                            var min = cd.TryGetValue("normalMin", out var mn) && !mn.IsBsonNull
+                                ? (mn.IsNumeric ? Math.Round(mn.ToDouble(), 4).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) : mn.ToString())
+                                : null;
+                            var max = cd.TryGetValue("normalMax", out var mx) && !mx.IsBsonNull
+                                ? (mx.IsNumeric ? Math.Round(mx.ToDouble(), 4).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) : mx.ToString())
+                                : null;
+                            if (min != null && max != null) refRange = $"{min} – {max}";
+                            else if (min != null) refRange = $">= {min}";
+                            else if (max != null) refRange = $"<= {max}";
+                        }
+                        list.Add(new TestPackageCriterionSummaryDto
+                        {
+                            CriterionId = t.Code.Trim(),
+                            Code = t.Code.Trim(),
+                            Name = !string.IsNullOrWhiteSpace(t.Name) ? t.Name.Trim() : t.Code.Trim(),
+                            Unit = unit,
+                            ReferenceRange = refRange,
+                            DisplayOrder = order++
+                        });
+                    }
+                    if (list.Count > 0)
+                    {
+                        result[sp.Id] = list;
+                        if (!string.IsNullOrWhiteSpace(sp.Code)) result[sp.Code] = list;
+                    }
+                }
             }
         }
         catch

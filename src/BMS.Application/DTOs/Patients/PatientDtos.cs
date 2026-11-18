@@ -173,7 +173,11 @@ public sealed class PatientInformationDto
     public string Id { get; set; } = string.Empty;
     public string PatientCode { get; set; } = string.Empty;
     public string? AccountId { get; set; }
+    public string? PortalUsername { get; set; }
+    public string? TemporaryPassword { get; set; }
+    public bool AccountAutoCreated { get; set; }
     public bool IsGuest { get; set; }
+    public string ProfileType => IsGuest ? "Guest" : "Registered";
     public string FullName { get; set; } = string.Empty;
     public DateTime? DateOfBirth { get; set; }
     public int? Age { get; set; }

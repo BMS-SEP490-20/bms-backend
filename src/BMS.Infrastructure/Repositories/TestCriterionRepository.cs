@@ -1,6 +1,8 @@
 
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using BMS.Core.Entities;
+using MongoDB.Bson;
 using BMS.Core.Interfaces;
 using BMS.Infrastructure.Data;
 using BMS.Infrastructure.Mongo;
@@ -144,26 +146,105 @@ public sealed class TestCriterionRepository :
 
     public async Task<TestCriterionEntity?> GetByCodeAsync(string code, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(code)) return null;
         var upperCode = code.Trim().ToUpperInvariant();
 
-        if (_context.TestCriteria != null)
+        var found = await FindCriterionByCodeCoreAsync(upperCode, ct);
+        if (found != null) return found;
+
+        // Ensure core WHO/ISO 15189 criteria (including HCT, MCV, K, NA) are seeded on first miss.
+        if (!_seeded)
         {
-            try
-            {
-                var filter = Builders<TestCriterionEntity>.Filter.And(
-                    Builders<TestCriterionEntity>.Filter.Eq(c => c.CriterionCode, upperCode),
-                    Builders<TestCriterionEntity>.Filter.Eq(c => c.IsDeleted, false)
-                );
-                return await _context.TestCriteria.Find(filter).FirstOrDefaultAsync(ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to query criterion by code from MongoDB. Falling back to memory store.");
-            }
+            await EnsureDefaultCriteriaSeededAsync(ct);
+            found = await FindCriterionByCodeCoreAsync(upperCode, ct);
+            if (found != null) return found;
         }
 
         return _memoryCriteria.Values.FirstOrDefault(c =>
             !c.IsDeleted && c.CriterionCode.Equals(upperCode, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<TestCriterionEntity?> FindCriterionByCodeCoreAsync(string upperCode, CancellationToken ct)
+    {
+        if (_context.TestCriteria != null)
+        {
+            try
+            {
+                var codeRegex = new BsonRegularExpression($"^{Regex.Escape(upperCode)}$", "i");
+                var fb = Builders<TestCriterionEntity>.Filter;
+                var filter = fb.And(
+                    fb.Regex(c => c.CriterionCode, codeRegex),
+                    fb.Ne(c => c.IsDeleted, true)
+                );
+                var matches = await _context.TestCriteria.Find(filter).ToListAsync(ct);
+                var canonical = matches.FirstOrDefault(c => c.IsActive) ?? matches.FirstOrDefault();
+                if (canonical != null) return canonical;
+
+                // Fallback to legacy snake_case / string-_id documents (e.g. { _id: "CRT-HCT", code: "HCT" }).
+                if (_context.Database != null)
+                {
+                    var rawCol = _context.Database.GetCollection<BsonDocument>("test_criteria");
+                    var rf = Builders<BsonDocument>.Filter;
+                    var rawDoc = await rawCol.Find(rf.And(
+                        rf.Or(
+                            rf.Regex("criterionCode", codeRegex),
+                            rf.Regex("criterion_code", codeRegex),
+                            rf.Regex("code", codeRegex)),
+                        rf.Ne("isDeleted", true),
+                        rf.Ne("is_deleted", true))).FirstOrDefaultAsync(ct);
+
+                    if (rawDoc != null)
+                    {
+                        var isActive = rawDoc.TryGetValue("isActive", out var actVal) && actVal.IsBoolean
+                            ? actVal.AsBoolean
+                            : (rawDoc.TryGetValue("is_active", out var actSnake) && actSnake.IsBoolean ? actSnake.AsBoolean : true);
+                        return new TestCriterionEntity
+                        {
+                            Id = rawDoc.GetValue("_id", BsonNull.Value).ToString() ?? upperCode,
+                            CriterionCode = upperCode,
+                            CriterionName = GetRawString(rawDoc, "criterionName", "criterion_name", "name") ?? upperCode,
+                            EnglishName = GetRawString(rawDoc, "englishName", "english_name") ?? string.Empty,
+                            Category = GetRawString(rawDoc, "category") ?? "Biochemistry",
+                            Unit = GetRawString(rawDoc, "unit") ?? string.Empty,
+                            ValueType = GetRawString(rawDoc, "valueType", "value_type") ?? "Numeric",
+                            NormalMin = GetRawDouble(rawDoc, "normalMin", "normal_min"),
+                            NormalMax = GetRawDouble(rawDoc, "normalMax", "normal_max"),
+                            NormalText = GetRawString(rawDoc, "normalText", "normal_text"),
+                            PanicLow = GetRawDouble(rawDoc, "panicLow", "panic_low"),
+                            PanicHigh = GetRawDouble(rawDoc, "panicHigh", "panic_high"),
+                            IsActive = isActive,
+                            IsDeleted = false
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to query criterion by code {Code} from MongoDB. Falling back to memory store.", upperCode);
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetRawString(BsonDocument doc, params string[] names)
+    {
+        foreach (var n in names)
+        {
+            if (doc.TryGetValue(n, out var v) && !v.IsBsonNull && v.IsString && !string.IsNullOrWhiteSpace(v.AsString))
+                return v.AsString.Trim();
+        }
+        return null;
+    }
+
+    private static double? GetRawDouble(BsonDocument doc, params string[] names)
+    {
+        foreach (var n in names)
+        {
+            if (doc.TryGetValue(n, out var v) && !v.IsBsonNull && v.IsNumeric)
+                return v.ToDouble();
+        }
+        return null;
     }
 
     public async Task CreateAsync(TestCriterionEntity entity, CancellationToken ct = default)
@@ -373,12 +454,68 @@ public sealed class TestCriterionRepository :
                 PanicLow = null,
                 PanicHigh = 10.0,
                 IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "HCT",
+                CriterionName = "Dung tích hồng cầu (Hematocrit)",
+                EnglishName = "Hematocrit",
+                Category = "Hematology",
+                Unit = "%",
+                ValueType = "Numeric",
+                NormalMin = 35.0,
+                NormalMax = 50.0,
+                PanicLow = 20.0,
+                PanicHigh = 60.0,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "MCV",
+                CriterionName = "Thể tích trung bình hồng cầu (MCV)",
+                EnglishName = "Mean Corpuscular Volume",
+                Category = "Hematology",
+                Unit = "fL",
+                ValueType = "Numeric",
+                NormalMin = 80.0,
+                NormalMax = 100.0,
+                PanicLow = 60.0,
+                PanicHigh = 120.0,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "K",
+                CriterionName = "Kali máu (Serum Potassium - K+)",
+                EnglishName = "Serum Potassium (K+)",
+                Category = "BloodGas",
+                Unit = "mmol/L",
+                ValueType = "Numeric",
+                NormalMin = 3.5,
+                NormalMax = 5.0,
+                PanicLow = 2.5,
+                PanicHigh = 6.5,
+                IsActive = true
+            },
+            new()
+            {
+                CriterionCode = "NA",
+                CriterionName = "Natri máu (Serum Sodium - Na+)",
+                EnglishName = "Serum Sodium (Na+)",
+                Category = "BloodGas",
+                Unit = "mmol/L",
+                ValueType = "Numeric",
+                NormalMin = 135.0,
+                NormalMax = 145.0,
+                PanicLow = 120.0,
+                PanicHigh = 160.0,
+                IsActive = true
             }
         };
 
         foreach (var c in defaultCriteria)
         {
-            var existing = await GetByCodeAsync(c.CriterionCode, ct);
+            var existing = await FindCriterionByCodeCoreAsync(c.CriterionCode, ct);
             if (existing == null)
             {
                 await CreateAsync(c, ct);
