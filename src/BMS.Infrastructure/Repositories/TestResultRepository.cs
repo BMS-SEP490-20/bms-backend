@@ -106,6 +106,16 @@ namespace BMS.Infrastructure.Repositories
             if (c.ApprovedAt is not null) updates.Add(u.Set(x => x.ApprovedAt, c.ApprovedAt));
             if (c.IsPanic.HasValue) updates.Add(u.Set(x => x.IsPanic, c.IsPanic.Value));
             if (c.DigitalSignature is not null) updates.Add(u.Set(x => x.DigitalSignature, c.DigitalSignature));
+            if (c.ClinicalComment is not null)
+            {
+                updates.Add(u.Set(x => x.ClinicalComment, c.ClinicalComment));
+                updates.Add(u.Set("conclusion_notes", c.ClinicalComment));
+            }
+            if (c.Icd10Code is not null) updates.Add(u.Set(x => x.Icd10Code, c.Icd10Code));
+            if (c.FinalDiagnosis is not null) updates.Add(u.Set(x => x.FinalDiagnosis, c.FinalDiagnosis));
+            if (c.DoctorConclusion is not null) updates.Add(u.Set(x => x.DoctorConclusion, c.DoctorConclusion));
+            if (c.TreatmentAdvice is not null) updates.Add(u.Set(x => x.TreatmentAdvice, c.TreatmentAdvice));
+            if (c.FollowUpDate is not null) updates.Add(u.Set(x => x.FollowUpDate, c.FollowUpDate));
 
             var result = await _results.UpdateOneAsync(ById(id) & NotSigned, u.Combine(updates), cancellationToken: ct);
             return result.MatchedCount > 0;
@@ -136,6 +146,33 @@ namespace BMS.Infrastructure.Repositories
             var results = await _results.Find(link & Active).SortBy(x => x.CreatedAt).Limit(200).ToListAsync(ct);
             await HydrateLegacyParametersAsync(results, ct);
             return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> UpdateClinicalConsultationAsync(
+            string id,
+            string? icd10Code,
+            string? finalDiagnosis,
+            string? doctorConclusion,
+            string? treatmentAdvice,
+            string? followUpDate,
+            CancellationToken ct = default)
+        {
+            var u = Builders<TestResult>.Update;
+            var updates = new List<UpdateDefinition<TestResult>> { u.Set(x => x.UpdatedAt, DateTime.UtcNow) };
+            if (icd10Code is not null) updates.Add(u.Set(x => x.Icd10Code, icd10Code));
+            if (finalDiagnosis is not null) updates.Add(u.Set(x => x.FinalDiagnosis, finalDiagnosis));
+            if (doctorConclusion is not null)
+            {
+                updates.Add(u.Set(x => x.DoctorConclusion, doctorConclusion));
+                updates.Add(u.Set(x => x.ClinicalComment, doctorConclusion));
+                updates.Add(u.Set("conclusion_notes", doctorConclusion));
+            }
+            if (treatmentAdvice is not null) updates.Add(u.Set(x => x.TreatmentAdvice, treatmentAdvice));
+            if (followUpDate is not null) updates.Add(u.Set(x => x.FollowUpDate, followUpDate));
+
+            var result = await _results.UpdateOneAsync(ById(id), u.Combine(updates), cancellationToken: ct);
+            return result.MatchedCount > 0;
         }
     }
 }

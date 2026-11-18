@@ -135,7 +135,142 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
             await _db.GetCollection<BsonDocument>("test_parameters").Find(Identity("result_id", summary.Id)).Sort(new BsonDocument("_id", 1)).ToListAsync(ct);
         var items = docs.Select(x => new TestHistoryItem(Text(x, "code", "criterionCode"), Text(x, "name", "criterionName"), Measurement(x),
             Text(x, "unit"), Text(x, "referenceInterval", "reference_display"), Text(x, "flag"))).ToList();
-        return new(summary, items, Text(d, "conclusion_notes", "clinicalComment"));
+
+        var icd10Code = NullIfEmpty(Text(d, "icd10Code", "icd10_code"));
+        var finalDiagnosis = NullIfEmpty(Text(d, "finalDiagnosis", "final_diagnosis"));
+        var doctorConclusion = NullIfEmpty(Text(d, "doctorConclusion", "doctor_conclusion"));
+        var treatmentAdvice = NullIfEmpty(Text(d, "treatmentAdvice", "treatment_advice"));
+        var followUpDate = NullIfEmpty(Text(d, "followUpDate", "follow_up_date"));
+        var approvingDoctor = CleanDoctorName(Text(d, "reviewedBy", "reviewed_by"));
+        var digitalSignature = NullIfEmpty(Text(d, "digitalSignature", "digital_signature"));
+
+        var appointmentId = Text(d, "appointmentId", "appointment_id");
+        var patientId = summary.PatientId;
+
+        // Fallback 1: linked finalized MedicalAssessment (UC50) for this encounter or patient
+        if (string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(icd10Code))
+        {
+            var assessment = await FindLinkedAssessmentAsync(appointmentId, patientId, summary.CreatedAt, ct);
+            if (assessment is not null)
+            {
+                icd10Code ??= NullIfEmpty(Text(assessment, "icd10_code", "icd10Code"));
+                var asmDiag = NullIfEmpty(Text(assessment, "final_diagnosis", "finalDiagnosis"))
+                    ?? NullIfEmpty(Text(assessment, "icd10_name", "icd10Name"));
+                finalDiagnosis ??= asmDiag;
+                doctorConclusion ??= NullIfEmpty(Text(assessment, "clinical_impression", "clinicalImpression"));
+                treatmentAdvice ??= NullIfEmpty(Text(assessment, "treatment_plan", "treatmentPlan"))
+                    ?? NullIfEmpty(Text(assessment, "prescription_notes", "prescriptionNotes"));
+                if (followUpDate is null && assessment.TryGetValue("follow_up_date", out var fup) && fup.IsBsonDateTime)
+                    followUpDate = fup.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                approvingDoctor ??= CleanDoctorName(Text(assessment, "doctor_name", "doctorName"));
+            }
+        }
+
+        // Fallback 2: doctor consultation summary saved on linked appointment notes (for previously approved records)
+        if ((string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(doctorConclusion)) && !string.IsNullOrWhiteSpace(appointmentId))
+        {
+            var appt = await _db.GetCollection<BsonDocument>("appointments")
+                .Find(Builders<BsonDocument>.Filter.Or(
+                    Identity("_id", appointmentId),
+                    Builders<BsonDocument>.Filter.Eq("appointmentCode", appointmentId),
+                    Builders<BsonDocument>.Filter.Eq("appointment_code", appointmentId)))
+                .Project(new BsonDocument { { "_id", 0 }, { "notes", 1 }, { "Notes", 1 } })
+                .FirstOrDefaultAsync(ct);
+
+            var apptNotes = appt is not null ? Text(appt, "notes", "Notes") : string.Empty;
+            if (!string.IsNullOrWhiteSpace(apptNotes))
+            {
+                var (parsedIcd, parsedDiag, parsedConcl, parsedDoc) = ParseConsultationNote(apptNotes);
+                icd10Code ??= parsedIcd;
+                finalDiagnosis ??= parsedDiag;
+                doctorConclusion ??= parsedConcl;
+                approvingDoctor ??= parsedDoc;
+            }
+        }
+
+        var rawConclusion = NullIfEmpty(Text(d, "conclusion_notes", "clinicalComment"));
+        var effectiveConclusion = doctorConclusion ?? rawConclusion;
+
+        return new(
+            summary,
+            items,
+            effectiveConclusion,
+            icd10Code,
+            finalDiagnosis,
+            doctorConclusion,
+            treatmentAdvice,
+            followUpDate,
+            approvingDoctor,
+            digitalSignature);
+    }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string? CleanDoctorName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var trimmed = raw.Trim();
+        if (trimmed.EndsWith(" (Doctor)", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[..^" (Doctor)".Length].Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static (string? Icd, string? Diagnosis, string? Conclusion, string? Doctor) ParseConsultationNote(string notes)
+    {
+        string? doc = null;
+        string? icd = null;
+        string? diag = null;
+        string? concl = null;
+
+        var docMatch = Regex.Match(notes, @"TƯ VẤN XÉT NGHIỆM HOÀN TẤT\s*[—\-–]\s*([^\]]+)\]", RegexOptions.IgnoreCase);
+        if (docMatch.Success) doc = NullIfEmpty(docMatch.Groups[1].Value);
+
+        var diagMatch = Regex.Match(notes, @"Chẩn đoán\s+ICD-10\s+([A-Z][0-9]{2}(?:\.[0-9A-Z]+)?)\s*\((.+?)\)\s*(?:\.\s*Kết luận:|$)", RegexOptions.IgnoreCase);
+        if (diagMatch.Success)
+        {
+            icd = NullIfEmpty(diagMatch.Groups[1].Value);
+            diag = NullIfEmpty(diagMatch.Groups[2].Value);
+        }
+
+        var conclMatch = Regex.Match(notes, @"Kết luận:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (conclMatch.Success)
+            concl = NullIfEmpty(conclMatch.Groups[1].Value);
+
+        return (icd, diag, concl, doc);
+    }
+
+    private async Task<BsonDocument?> FindLinkedAssessmentAsync(string appointmentId, string patientId, DateTime? resultDate, CancellationToken ct)
+    {
+        try
+        {
+            var col = _db.GetCollection<BsonDocument>("medical_assessments");
+            var f = Builders<BsonDocument>.Filter;
+            var notDeleted = f.Ne("is_deleted", true) & f.Ne("isDeleted", true);
+
+            if (!string.IsNullOrWhiteSpace(appointmentId))
+            {
+                var byEncounter = await col.Find(notDeleted & f.Or(
+                        Identity("encounter_id", appointmentId),
+                        Identity("order_id", appointmentId),
+                        Identity("appointment_id", appointmentId)))
+                    .Sort(new BsonDocument("created_at", -1))
+                    .FirstOrDefaultAsync(ct);
+                if (byEncounter is not null) return byEncounter;
+            }
+
+            if (!string.IsNullOrWhiteSpace(patientId))
+            {
+                var byPatient = await col.Find(notDeleted
+                        & f.Or(Identity("patient_id", patientId), Identity("patient_code", patientId))
+                        & f.Or(f.Eq("is_finalized", true), f.Eq("status", "Finalized")))
+                    .Sort(new BsonDocument("created_at", -1))
+                    .FirstOrDefaultAsync(ct);
+                if (byPatient is not null) return byPatient;
+            }
+        }
+        catch { /* non-fatal */ }
+
+        return null;
     }
     public Task AuditAsync(TestHistoryViewer viewer, string action, string? target, DateTime at, CancellationToken ct = default) =>
         _db.GetCollection<BsonDocument>("audit_logs").InsertOneAsync(new BsonDocument { { "AccountId", Id(viewer.AccountId) }, { "Action", action }, { "Module", "UC76" },

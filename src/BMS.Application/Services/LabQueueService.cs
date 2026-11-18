@@ -1494,6 +1494,11 @@ public class LabQueueService : ILabQueueService
                         var pkgDocs = await pkgCol.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(ct);
                         foreach (var pd in pkgDocs)
                         {
+                            var isDeleted = (pd.TryGetValue("IsDeleted", out var d1) && d1.IsBoolean && d1.AsBoolean)
+                                         || (pd.TryGetValue("isDeleted", out var d2) && d2.IsBoolean && d2.AsBoolean)
+                                         || (pd.TryGetValue("is_deleted", out var d3) && d3.IsBoolean && d3.AsBoolean);
+                            if (isDeleted) continue;
+
                             var name = GetBsonString(pd, "package_name", "Name", "service_name", "name");
                             var pid = ExtractBsonId(pd);
                             var keys = new List<string>();

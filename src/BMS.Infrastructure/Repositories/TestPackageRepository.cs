@@ -64,11 +64,63 @@ public class TestPackageRepository : ITestPackageRepository
             .ThenBy(p => p.PackageName)
             .ToListAsync(cancellationToken);
 
-        await ApplyListedPricesAsync(result, cancellationToken);
-
-        // Merge active Admin-managed service_packages (e.g. PKG-GEN-01, PKG-DIAB-01...) so they appear in booking catalog.
+        // Synchronize with Admin-managed service_packages (Quản Lý Danh Mục Gói Dịch Vụ & Bảng Giá Viện Phí):
+        // Admin's price, name, category, preparation notes, active status, and newly created packages take priority.
         try
         {
+            var allServicePackages = await _servicePackagesCollection
+                .Find(FilterDefinition<ServicePackage>.Empty)
+                .ToListAsync(cancellationToken);
+
+            var activeServicePackages = allServicePackages
+                .Where(sp => !sp.IsDeleted && sp.IsActive && !string.IsNullOrWhiteSpace(sp.Name))
+                .ToList();
+
+            var activeById = new Dictionary<string, ServicePackage>(StringComparer.OrdinalIgnoreCase);
+            var activeByCode = new Dictionary<string, ServicePackage>(StringComparer.OrdinalIgnoreCase);
+            var activeByName = new Dictionary<string, ServicePackage>(StringComparer.OrdinalIgnoreCase);
+            foreach (var sp in activeServicePackages)
+            {
+                if (!string.IsNullOrWhiteSpace(sp.Id)) activeById[sp.Id.Trim()] = sp;
+                if (!string.IsNullOrWhiteSpace(sp.Code)) activeByCode[sp.Code.Trim()] = sp;
+                activeByName[sp.Name.Trim()] = sp;
+            }
+
+            var blockedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var blockedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var sp in allServicePackages.Where(sp => sp.IsDeleted || !sp.IsActive))
+            {
+                if (!string.IsNullOrWhiteSpace(sp.Id) && !activeById.ContainsKey(sp.Id.Trim()))
+                    blockedIds.Add(sp.Id.Trim());
+                if (!string.IsNullOrWhiteSpace(sp.Code) && !activeByCode.ContainsKey(sp.Code.Trim()))
+                    blockedCodes.Add(sp.Code.Trim());
+            }
+
+            // Exclude stale test_packages that Admin deactivated or soft-deleted in service_packages.
+            result.RemoveAll(tp =>
+                (!string.IsNullOrWhiteSpace(tp.Id) && blockedIds.Contains(tp.Id.Trim())) ||
+                (!string.IsNullOrWhiteSpace(tp.PackageCode) && blockedCodes.Contains(tp.PackageCode.Trim())));
+
+            // Overlay latest Admin metadata/price onto matching test_packages entries.
+            foreach (var tp in result)
+            {
+                ServicePackage? sp = null;
+                if (!string.IsNullOrWhiteSpace(tp.Id)) activeById.TryGetValue(tp.Id.Trim(), out sp);
+                if (sp is null && !string.IsNullOrWhiteSpace(tp.PackageCode)) activeByCode.TryGetValue(tp.PackageCode.Trim(), out sp);
+                if (sp is null && !string.IsNullOrWhiteSpace(tp.PackageName)) activeByName.TryGetValue(tp.PackageName.Trim(), out sp);
+                if (sp is null) continue;
+
+                tp.PackageName = sp.Name.Trim();
+                tp.Price = sp.DiscountPrice ?? sp.Price;
+                if (!string.IsNullOrWhiteSpace(sp.Description)) tp.Description = sp.Description.Trim();
+                if (!string.IsNullOrWhiteSpace(sp.Category)) tp.Category = sp.Category.Trim();
+                if (!string.IsNullOrWhiteSpace(sp.SampleTube)) tp.SampleTube = sp.SampleTube.Trim();
+                if (sp.SampleVolumeMl is > 0) tp.SampleVolumeMl = sp.SampleVolumeMl.Value;
+                if (!string.IsNullOrWhiteSpace(sp.Tat)) tp.Tat = sp.Tat.Trim();
+                if (!string.IsNullOrWhiteSpace(sp.PreparationNotes)) tp.FastingRule = sp.PreparationNotes.Trim();
+                if (!string.IsNullOrWhiteSpace(sp.TargetAudience)) tp.TargetAudience = sp.TargetAudience.Trim();
+            }
+
             var existingCodes = new HashSet<string>(
                 result.Select(p => p.PackageCode).Where(c => !string.IsNullOrWhiteSpace(c)),
                 StringComparer.OrdinalIgnoreCase);
@@ -79,14 +131,8 @@ public class TestPackageRepository : ITestPackageRepository
                 result.Select(p => p.PackageName).Where(n => !string.IsNullOrWhiteSpace(n)),
                 StringComparer.OrdinalIgnoreCase);
 
-            var spFilter = Builders<ServicePackage>.Filter.And(
-                Builders<ServicePackage>.Filter.Eq(p => p.IsDeleted, false),
-                Builders<ServicePackage>.Filter.Eq(p => p.IsActive, true));
-            var servicePackages = await _servicePackagesCollection.Find(spFilter).ToListAsync(cancellationToken);
-
-            foreach (var sp in servicePackages)
+            foreach (var sp in activeServicePackages)
             {
-                if (string.IsNullOrWhiteSpace(sp.Name)) continue;
                 var code = !string.IsNullOrWhiteSpace(sp.Code) ? sp.Code.Trim() : sp.Id;
                 if (existingIds.Contains(sp.Id) || existingCodes.Contains(code) || existingNames.Contains(sp.Name.Trim()))
                     continue;
@@ -117,8 +163,11 @@ public class TestPackageRepository : ITestPackageRepository
                     Category = cat,
                     Price = sp.DiscountPrice ?? sp.Price,
                     Description = sp.Description ?? string.Empty,
-                    SampleTube = "EDTA / Serum",
-                    SampleVolumeMl = 3.0,
+                    SampleTube = !string.IsNullOrWhiteSpace(sp.SampleTube) ? sp.SampleTube.Trim() : "EDTA / Serum",
+                    SampleVolumeMl = sp.SampleVolumeMl is > 0 ? sp.SampleVolumeMl.Value : 3.0,
+                    Tat = sp.Tat,
+                    FastingRule = sp.PreparationNotes,
+                    TargetAudience = sp.TargetAudience,
                     IsActive = sp.IsActive
                 });
                 existingIds.Add(sp.Id);
@@ -128,7 +177,7 @@ public class TestPackageRepository : ITestPackageRepository
         }
         catch
         {
-            // Non-fatal if service_packages collection is unavailable
+            await ApplyListedPricesAsync(result, cancellationToken);
         }
 
         return result
@@ -151,10 +200,63 @@ public class TestPackageRepository : ITestPackageRepository
             return null;
 
         var trimmed = idOrCode.Trim();
+        var upper = trimmed.ToUpperInvariant();
+
+        // 1. Check Admin-managed service_packages first so edits/deactivations take immediate effect.
+        try
+        {
+            var sfb = Builders<ServicePackage>.Filter;
+            var sFilter = sfb.Or(
+                sfb.Eq(p => p.Id, trimmed),
+                sfb.Eq(p => p.Code, upper));
+
+            var spCandidates = await _servicePackagesCollection.Find(sFilter).ToListAsync(cancellationToken);
+            var sp = spCandidates.FirstOrDefault(p => !p.IsDeleted && p.IsActive)
+                  ?? spCandidates.FirstOrDefault(p => !p.IsDeleted)
+                  ?? spCandidates.FirstOrDefault();
+
+            if (sp is not null)
+            {
+                if (!includeInactive && (sp.IsDeleted || !sp.IsActive))
+                    return null;
+
+                TestPackage? legacy = null;
+                try
+                {
+                    var lfb = Builders<TestPackage>.Filter;
+                    legacy = await _collection.Find(lfb.Or(
+                        lfb.Eq(p => p.Id, sp.Id),
+                        lfb.Eq(p => p.PackageCode, sp.Code.ToUpperInvariant()))).FirstOrDefaultAsync(cancellationToken);
+                }
+                catch { }
+
+                return new TestPackage
+                {
+                    Id = sp.Id,
+                    PackageCode = sp.Code,
+                    PackageName = sp.Name,
+                    Category = !string.IsNullOrWhiteSpace(sp.Category) ? sp.Category.Trim() : (legacy?.Category ?? "Tổng quát"),
+                    Price = sp.DiscountPrice ?? sp.Price,
+                    Description = !string.IsNullOrWhiteSpace(sp.Description) ? sp.Description.Trim() : (legacy?.Description ?? string.Empty),
+                    SampleTube = !string.IsNullOrWhiteSpace(sp.SampleTube) ? sp.SampleTube.Trim() : (legacy?.SampleTube ?? "Serum / EDTA"),
+                    SampleVolumeMl = sp.SampleVolumeMl is > 0 ? sp.SampleVolumeMl.Value : (legacy?.SampleVolumeMl is > 0 ? legacy.SampleVolumeMl : 2.0),
+                    Tat = !string.IsNullOrWhiteSpace(sp.Tat) ? sp.Tat.Trim() : legacy?.Tat,
+                    FastingRule = !string.IsNullOrWhiteSpace(sp.PreparationNotes) ? sp.PreparationNotes.Trim() : legacy?.FastingRule,
+                    TargetAudience = !string.IsNullOrWhiteSpace(sp.TargetAudience) ? sp.TargetAudience.Trim() : legacy?.TargetAudience,
+                    IsActive = sp.IsActive && !sp.IsDeleted
+                };
+            }
+        }
+        catch
+        {
+            // Fall through to test_packages
+        }
+
+        // 2. Fallback to test_packages collection.
         var fb = Builders<TestPackage>.Filter;
         var filter = fb.Or(
             fb.Eq(p => p.Id, trimmed),
-            fb.Eq(p => p.PackageCode, trimmed.ToUpperInvariant()));
+            fb.Eq(p => p.PackageCode, upper));
 
         if (!includeInactive)
         {
@@ -166,41 +268,6 @@ public class TestPackageRepository : ITestPackageRepository
         {
             await ApplyListedPricesAsync([found], cancellationToken);
             return found;
-        }
-
-        try
-        {
-            var sfb = Builders<ServicePackage>.Filter;
-            var sFilter = sfb.And(
-                sfb.Eq(p => p.IsDeleted, false),
-                sfb.Or(
-                    sfb.Eq(p => p.Id, trimmed),
-                    sfb.Eq(p => p.Code, trimmed.ToUpperInvariant())));
-            if (!includeInactive)
-            {
-                sFilter = sfb.And(sFilter, sfb.Eq(p => p.IsActive, true));
-            }
-
-            var sp = await _servicePackagesCollection.Find(sFilter).FirstOrDefaultAsync(cancellationToken);
-            if (sp is not null)
-            {
-                return new TestPackage
-                {
-                    Id = sp.Id,
-                    PackageCode = sp.Code,
-                    PackageName = sp.Name,
-                    Category = sp.Category ?? "Biochemistry",
-                    Price = sp.DiscountPrice ?? sp.Price,
-                    Description = sp.Description ?? string.Empty,
-                    SampleTube = "Serum / EDTA",
-                    SampleVolumeMl = 2.0,
-                    IsActive = sp.IsActive
-                };
-            }
-        }
-        catch
-        {
-            // Non-fatal fallback
         }
 
         return null;
@@ -312,104 +379,73 @@ public class TestPackageRepository : ITestPackageRepository
 
         try
         {
-            var maps = await _mapCollection
-                .Find(Builders<BsonDocument>.Filter.In("package_id", ids))
-                .ToListAsync(cancellationToken);
+            // Build alias maps between test_packages._id and package_code (e.g. PKG-PKG-GEN-01 <-> PKG-GEN-01, PKG-CBC-01 <-> CBC-01).
+            var requestedIdToCodes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var codeToRequestedIds = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var lookupKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (maps.Count > 0)
+            void AddAlias(string reqId, string alias)
             {
-
-            var criterionIds = maps
-                .Select(m => m.GetValue("criteria_id", BsonNull.Value).ToString() ?? string.Empty)
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct()
-                .ToList();
-
-            var bsonIds = new List<BsonValue>();
-            foreach (var id in criterionIds)
-            {
-                bsonIds.Add(new BsonString(id));
-                if (ObjectId.TryParse(id, out var oid))
+                if (string.IsNullOrWhiteSpace(alias)) return;
+                var a = alias.Trim();
+                lookupKeys.Add(a);
+                if (!requestedIdToCodes.TryGetValue(reqId, out var cList))
                 {
-                    bsonIds.Add(new BsonObjectId(oid));
+                    cList = new List<string>();
+                    requestedIdToCodes[reqId] = cList;
                 }
+                if (!cList.Contains(a, StringComparer.OrdinalIgnoreCase)) cList.Add(a);
+
+                if (!codeToRequestedIds.TryGetValue(a, out var rList))
+                {
+                    rList = new List<string>();
+                    codeToRequestedIds[a] = rList;
+                }
+                if (!rList.Contains(reqId, StringComparer.OrdinalIgnoreCase)) rList.Add(reqId);
             }
 
-            var criteriaDocs = await _criteriaCollection
-                .Find(Builders<BsonDocument>.Filter.In("_id", bsonIds))
+            foreach (var id in ids)
+            {
+                AddAlias(id, id);
+                AddAlias(id, id.ToUpperInvariant());
+            }
+
+            var tpMatches = await _collection
+                .Find(Builders<TestPackage>.Filter.Or(
+                    Builders<TestPackage>.Filter.In(p => p.Id, ids),
+                    Builders<TestPackage>.Filter.In(p => p.PackageCode, ids.Select(x => x.ToUpperInvariant()))))
                 .ToListAsync(cancellationToken);
 
-            var criteriaById = criteriaDocs.ToDictionary(
-                c => c.GetValue("_id", BsonNull.Value).ToString() ?? string.Empty,
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var group in maps.GroupBy(m => m.GetValue("package_id", BsonNull.Value).ToString() ?? string.Empty))
+            foreach (var tp in tpMatches)
             {
-                if (string.IsNullOrWhiteSpace(group.Key)) continue;
-                var list = new List<TestPackageCriterionSummaryDto>();
-                var idx = 1;
-                foreach (var map in group)
+                foreach (var reqId in ids)
                 {
-                    var critId = map.GetValue("criteria_id", BsonNull.Value).ToString() ?? string.Empty;
-                    var displayOrder = map.Contains("display_order") && map["display_order"].IsInt32
-                        ? map["display_order"].AsInt32
-                        : idx++;
-
-                    if (criteriaById.TryGetValue(critId, out var crit))
+                    if (reqId.Equals(tp.Id, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrWhiteSpace(tp.PackageCode) && reqId.Equals(tp.PackageCode, StringComparison.OrdinalIgnoreCase)))
                     {
-                        var code = crit.Contains("code") ? crit["code"].AsString :
-                                   crit.Contains("criterionCode") ? crit["criterionCode"].AsString :
-                                   crit.Contains("criterion_code") ? crit["criterion_code"].AsString : string.Empty;
-                        var name = crit.Contains("name") ? crit["name"].AsString :
-                                   crit.Contains("criterionName") ? crit["criterionName"].AsString :
-                                   crit.Contains("criterion_name") ? crit["criterion_name"].AsString : string.Empty;
-                        var unit = crit.Contains("unit") && !crit["unit"].IsBsonNull ? crit["unit"].AsString : string.Empty;
-
-                        string? refRange = null;
-                        if (crit.Contains("reference_range") && !crit["reference_range"].IsBsonNull)
+                        AddAlias(reqId, tp.Id);
+                        if (!string.IsNullOrWhiteSpace(tp.PackageCode))
                         {
-                            refRange = crit["reference_range"].AsString;
+                            AddAlias(reqId, tp.PackageCode);
+                            AddAlias(reqId, tp.PackageCode.ToUpperInvariant());
                         }
-                        else if (crit.Contains("referenceRange") && !crit["referenceRange"].IsBsonNull)
-                        {
-                            refRange = crit["referenceRange"].AsString;
-                        }
-                        else if (crit.Contains("normalMin") || crit.Contains("normalMax"))
-                        {
-                            var min = crit.Contains("normalMin") && !crit["normalMin"].IsBsonNull ? crit["normalMin"].ToString() : null;
-                            var max = crit.Contains("normalMax") && !crit["normalMax"].IsBsonNull ? crit["normalMax"].ToString() : null;
-                            if (min != null && max != null) refRange = $"{min} – {max}";
-                            else if (min != null) refRange = $">= {min}";
-                            else if (max != null) refRange = $"<= {max}";
-                        }
-
-                        list.Add(new TestPackageCriterionSummaryDto
-                        {
-                            CriterionId = critId,
-                            Code = code,
-                            Name = name,
-                            Unit = unit,
-                            ReferenceRange = refRange,
-                            DisplayOrder = displayOrder
-                        });
                     }
                 }
-                result[group.Key] = list.OrderBy(x => x.DisplayOrder).ToList();
-            }
             }
 
-            // Enrich criteria from service_packages.Tests for Admin-managed service packages not mapped in test_package_criteria.
-            var missingIds = ids.Where(id => !result.ContainsKey(id) || result[id].Count == 0).ToList();
-            if (missingIds.Count > 0)
+            // Priority 1: Admin-managed service_packages.Tests (authoritative when non-empty).
+            var allLookupList = lookupKeys.ToList();
+            var spList = await _servicePackagesCollection
+                .Find(Builders<ServicePackage>.Filter.And(
+                    Builders<ServicePackage>.Filter.Eq(p => p.IsDeleted, false),
+                    Builders<ServicePackage>.Filter.Or(
+                        Builders<ServicePackage>.Filter.In(p => p.Id, allLookupList),
+                        Builders<ServicePackage>.Filter.In(p => p.Code, allLookupList))))
+                .ToListAsync(cancellationToken);
+
+            var spWithTests = spList.Where(sp => sp.Tests != null && sp.Tests.Count > 0).ToList();
+            if (spWithTests.Count > 0)
             {
-                var spList = await _servicePackagesCollection
-                    .Find(Builders<ServicePackage>.Filter.And(
-                        Builders<ServicePackage>.Filter.Eq(p => p.IsDeleted, false),
-                        Builders<ServicePackage>.Filter.Or(
-                            Builders<ServicePackage>.Filter.In(p => p.Id, missingIds),
-                            Builders<ServicePackage>.Filter.In(p => p.Code, missingIds))))
-                    .ToListAsync(cancellationToken);
-
                 var allCritDocs = await _criteriaCollection.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(cancellationToken);
                 var critByCode = new Dictionary<string, BsonDocument>(StringComparer.OrdinalIgnoreCase);
                 foreach (var cd in allCritDocs)
@@ -422,9 +458,8 @@ public class TestPackageRepository : ITestPackageRepository
                     if (!critByCode.ContainsKey(c) || isCanonical) critByCode[c] = cd;
                 }
 
-                foreach (var sp in spList)
+                foreach (var sp in spWithTests)
                 {
-                    if (sp.Tests == null || sp.Tests.Count == 0) continue;
                     var list = new List<TestPackageCriterionSummaryDto>();
                     var order = 1;
                     foreach (var t in sp.Tests)
@@ -459,6 +494,114 @@ public class TestPackageRepository : ITestPackageRepository
                     {
                         result[sp.Id] = list;
                         if (!string.IsNullOrWhiteSpace(sp.Code)) result[sp.Code] = list;
+                        if (codeToRequestedIds.TryGetValue(sp.Id, out var rById))
+                            foreach (var r in rById) result[r] = list;
+                        if (!string.IsNullOrWhiteSpace(sp.Code) && codeToRequestedIds.TryGetValue(sp.Code, out var rByCode))
+                            foreach (var r in rByCode) result[r] = list;
+                    }
+                }
+            }
+
+            // Priority 2: Fallback to legacy test_package_criteria mappings for packages whose service_packages.Tests is empty.
+            var remainingIds = ids.Where(id => !result.ContainsKey(id) || result[id].Count == 0).ToList();
+            if (remainingIds.Count > 0)
+            {
+                var mapLookupKeys = remainingIds
+                    .SelectMany(id => requestedIdToCodes.TryGetValue(id, out var aliases) ? aliases : new List<string> { id })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var maps = await _mapCollection
+                    .Find(Builders<BsonDocument>.Filter.In("package_id", mapLookupKeys))
+                    .ToListAsync(cancellationToken);
+
+                if (maps.Count > 0)
+                {
+                    var criterionIds = maps
+                        .Select(m => m.GetValue("criteria_id", BsonNull.Value).ToString() ?? string.Empty)
+                        .Where(id => !string.IsNullOrWhiteSpace(id))
+                        .Distinct()
+                        .ToList();
+
+                    var bsonIds = new List<BsonValue>();
+                    foreach (var id in criterionIds)
+                    {
+                        bsonIds.Add(new BsonString(id));
+                        if (ObjectId.TryParse(id, out var oid))
+                        {
+                            bsonIds.Add(new BsonObjectId(oid));
+                        }
+                    }
+
+                    var criteriaDocs = await _criteriaCollection
+                        .Find(Builders<BsonDocument>.Filter.In("_id", bsonIds))
+                        .ToListAsync(cancellationToken);
+
+                    var criteriaById = criteriaDocs.ToDictionary(
+                        c => c.GetValue("_id", BsonNull.Value).ToString() ?? string.Empty,
+                        StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var group in maps.GroupBy(m => m.GetValue("package_id", BsonNull.Value).ToString() ?? string.Empty))
+                    {
+                        if (string.IsNullOrWhiteSpace(group.Key)) continue;
+                        var list = new List<TestPackageCriterionSummaryDto>();
+                        var idx = 1;
+                        foreach (var map in group)
+                        {
+                            var critId = map.GetValue("criteria_id", BsonNull.Value).ToString() ?? string.Empty;
+                            var displayOrder = map.Contains("display_order") && map["display_order"].IsInt32
+                                ? map["display_order"].AsInt32
+                                : idx++;
+
+                            if (criteriaById.TryGetValue(critId, out var crit))
+                            {
+                                var code = crit.Contains("code") ? crit["code"].AsString :
+                                           crit.Contains("criterionCode") ? crit["criterionCode"].AsString :
+                                           crit.Contains("criterion_code") ? crit["criterion_code"].AsString : string.Empty;
+                                var name = crit.Contains("name") ? crit["name"].AsString :
+                                           crit.Contains("criterionName") ? crit["criterionName"].AsString :
+                                           crit.Contains("criterion_name") ? crit["criterion_name"].AsString : string.Empty;
+                                var unit = crit.Contains("unit") && !crit["unit"].IsBsonNull ? crit["unit"].AsString : string.Empty;
+
+                                string? refRange = null;
+                                if (crit.Contains("reference_range") && !crit["reference_range"].IsBsonNull)
+                                {
+                                    refRange = crit["reference_range"].AsString;
+                                }
+                                else if (crit.Contains("referenceRange") && !crit["referenceRange"].IsBsonNull)
+                                {
+                                    refRange = crit["referenceRange"].AsString;
+                                }
+                                else if (crit.Contains("normalMin") || crit.Contains("normalMax"))
+                                {
+                                    var min = crit.Contains("normalMin") && !crit["normalMin"].IsBsonNull ? crit["normalMin"].ToString() : null;
+                                    var max = crit.Contains("normalMax") && !crit["normalMax"].IsBsonNull ? crit["normalMax"].ToString() : null;
+                                    if (min != null && max != null) refRange = $"{min} – {max}";
+                                    else if (min != null) refRange = $">= {min}";
+                                    else if (max != null) refRange = $"<= {max}";
+                                }
+
+                                list.Add(new TestPackageCriterionSummaryDto
+                                {
+                                    CriterionId = critId,
+                                    Code = code,
+                                    Name = name,
+                                    Unit = unit,
+                                    ReferenceRange = refRange,
+                                    DisplayOrder = displayOrder
+                                });
+                            }
+                        }
+                        var ordered = list.OrderBy(x => x.DisplayOrder).ToList();
+                        result[group.Key] = ordered;
+                        if (codeToRequestedIds.TryGetValue(group.Key, out var reqs))
+                        {
+                            foreach (var r in reqs)
+                            {
+                                if (!result.ContainsKey(r) || result[r].Count == 0)
+                                    result[r] = ordered;
+                            }
+                        }
                     }
                 }
             }

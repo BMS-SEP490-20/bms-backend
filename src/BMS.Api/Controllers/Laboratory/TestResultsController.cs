@@ -38,6 +38,7 @@ public class TestResultsController : ControllerBase
     private readonly IMongoCollection<BsonDocument>? _samplesCol;
     private readonly IMongoCollection<BsonDocument>? _patientsCol;
     private readonly IMongoCollection<BsonDocument>? _packagesCol;
+    private readonly IMongoCollection<BsonDocument>? _servicePackagesCol;
 
     public TestResultsController(
         IPatientResultExportService patientResultExportService,
@@ -56,6 +57,7 @@ public class TestResultsController : ControllerBase
                 _samplesCol = database.GetCollection<BsonDocument>("blood_samples");
                 _patientsCol = database.GetCollection<BsonDocument>("patients");
                 _packagesCol = database.GetCollection<BsonDocument>("test_packages");
+                _servicePackagesCol = database.GetCollection<BsonDocument>("service_packages");
             }
             catch { }
         }
@@ -665,18 +667,37 @@ public class TestResultsController : ControllerBase
             }
         }
 
-        // Enrich package info
+        // Enrich package info (prefer Admin service_packages, fallback to test_packages)
         string packageName = "Xét nghiệm sinh hóa / huyết học";
-        if (_packagesCol != null && !string.IsNullOrWhiteSpace(packageId))
+        if (!string.IsNullOrWhiteSpace(packageId))
         {
-            var pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Or(
-                Builders<BsonDocument>.Filter.Eq("_id", packageId),
-                Builders<BsonDocument>.Filter.Eq("package_code", packageId),
-                Builders<BsonDocument>.Filter.Eq("code", packageId)
-            )).FirstOrDefaultAsync();
+            BsonDocument? pkgDoc = null;
+            var pkgTrim = packageId.Trim();
+            var pkgUpper = pkgTrim.ToUpperInvariant();
+            if (_servicePackagesCol != null)
+            {
+                var spFilters = new List<FilterDefinition<BsonDocument>>
+                {
+                    Builders<BsonDocument>.Filter.Eq("_id", pkgTrim),
+                    Builders<BsonDocument>.Filter.Eq("Code", pkgUpper),
+                    Builders<BsonDocument>.Filter.Eq("code", pkgUpper),
+                    Builders<BsonDocument>.Filter.Eq("package_code", pkgUpper)
+                };
+                if (ObjectId.TryParse(pkgTrim, out var pkgOid))
+                    spFilters.Add(Builders<BsonDocument>.Filter.Eq("_id", pkgOid));
+                pkgDoc = await _servicePackagesCol.Find(Builders<BsonDocument>.Filter.Or(spFilters)).FirstOrDefaultAsync();
+            }
+            if (pkgDoc == null && _packagesCol != null)
+            {
+                pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("_id", pkgTrim),
+                    Builders<BsonDocument>.Filter.Eq("package_code", pkgUpper),
+                    Builders<BsonDocument>.Filter.Eq("code", pkgUpper)
+                )).FirstOrDefaultAsync();
+            }
             if (pkgDoc != null)
             {
-                packageName = ReadString(pkgDoc, "package_name", "name", "packageName");
+                packageName = ReadString(pkgDoc, "Name", "package_name", "name", "packageName");
                 if (string.IsNullOrWhiteSpace(packageName)) packageName = "Xét nghiệm sinh hóa / huyết học";
             }
             else if (packageId.Contains("CBC", StringComparison.OrdinalIgnoreCase))
@@ -702,7 +723,74 @@ public class TestResultsController : ControllerBase
             approvedAt = doc["approved_at"].ToUniversalTime();
 
         var digitalSignature = ReadString(doc, "digitalSignature", "digital_signature");
-        var conclusionNotes = ReadString(doc, "clinicalComment", "conclusion_notes", "conclusionNotes");
+        var conclusionNotes = ReadString(doc, "doctorConclusion", "doctor_conclusion", "clinicalComment", "conclusion_notes", "conclusionNotes");
+        var icd10Code = ReadString(doc, "icd10Code", "icd10_code");
+        var finalDiagnosis = ReadString(doc, "finalDiagnosis", "final_diagnosis");
+        var doctorConclusion = ReadString(doc, "doctorConclusion", "doctor_conclusion");
+        var treatmentAdvice = ReadString(doc, "treatmentAdvice", "treatment_advice");
+        var followUpDate = ReadString(doc, "followUpDate", "follow_up_date");
+        var approvingDoctorName = ReadString(doc, "reviewedBy", "reviewed_by");
+        if (approvingDoctorName.EndsWith(" (Doctor)", StringComparison.OrdinalIgnoreCase))
+            approvingDoctorName = approvingDoctorName[..^" (Doctor)".Length].Trim();
+
+        if (_database != null && (string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(icd10Code)))
+        {
+            try
+            {
+                var asmCol = _database.GetCollection<BsonDocument>("medical_assessments");
+                var af = Builders<BsonDocument>.Filter;
+                var notDel = af.Ne("is_deleted", true) & af.Ne("isDeleted", true);
+                BsonDocument? asmDoc = null;
+                if (!string.IsNullOrWhiteSpace(orderId))
+                {
+                    asmDoc = await asmCol.Find(notDel & af.Or(
+                        af.Eq("encounter_id", orderId),
+                        af.Eq("order_id", orderId),
+                        af.Eq("appointment_id", orderId)))
+                        .Sort(new BsonDocument("created_at", -1)).FirstOrDefaultAsync();
+                }
+                if (asmDoc == null && !string.IsNullOrWhiteSpace(patientId))
+                {
+                    asmDoc = await asmCol.Find(notDel
+                        & af.Or(af.Eq("patient_id", patientId), af.Eq("patient_code", patientId))
+                        & af.Or(af.Eq("is_finalized", true), af.Eq("status", "Finalized")))
+                        .Sort(new BsonDocument("created_at", -1)).FirstOrDefaultAsync();
+                }
+                if (asmDoc != null)
+                {
+                    if (string.IsNullOrWhiteSpace(icd10Code)) icd10Code = ReadString(asmDoc, "icd10_code", "icd10Code");
+                    if (string.IsNullOrWhiteSpace(finalDiagnosis)) finalDiagnosis = ReadString(asmDoc, "final_diagnosis", "finalDiagnosis", "icd10_name", "icd10Name");
+                    if (string.IsNullOrWhiteSpace(doctorConclusion)) doctorConclusion = ReadString(asmDoc, "clinical_impression", "clinicalImpression");
+                    if (string.IsNullOrWhiteSpace(treatmentAdvice)) treatmentAdvice = ReadString(asmDoc, "treatment_plan", "treatmentPlan", "prescription_notes");
+                    if (string.IsNullOrWhiteSpace(followUpDate) && asmDoc.TryGetValue("follow_up_date", out var fup) && fup.IsBsonDateTime)
+                        followUpDate = fup.ToUniversalTime().ToString("yyyy-MM-dd");
+                    if (string.IsNullOrWhiteSpace(approvingDoctorName)) approvingDoctorName = ReadString(asmDoc, "doctor_name", "doctorName");
+                }
+
+                if ((string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(doctorConclusion)) && !string.IsNullOrWhiteSpace(orderId))
+                {
+                    var apptCol = _database.GetCollection<BsonDocument>("appointments");
+                    var apptDoc = await apptCol.Find(Builders<BsonDocument>.Filter.Or(
+                        Builders<BsonDocument>.Filter.Eq("_id", orderId),
+                        Builders<BsonDocument>.Filter.Eq("appointmentCode", orderId))).FirstOrDefaultAsync();
+                    var apptNotes = apptDoc != null ? ReadString(apptDoc, "notes", "Notes") : "";
+                    if (!string.IsNullOrWhiteSpace(apptNotes))
+                    {
+                        var diagMatch = System.Text.RegularExpressions.Regex.Match(apptNotes, @"Chẩn đoán\s+ICD-10\s+([A-Z][0-9]{2}(?:\.[0-9A-Z]+)?)\s*\((.+?)\)\s*(?:\.\s*Kết luận:|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (diagMatch.Success)
+                        {
+                            if (string.IsNullOrWhiteSpace(icd10Code)) icd10Code = diagMatch.Groups[1].Value.Trim();
+                            if (string.IsNullOrWhiteSpace(finalDiagnosis)) finalDiagnosis = diagMatch.Groups[2].Value.Trim();
+                        }
+                        var conclMatch = System.Text.RegularExpressions.Regex.Match(apptNotes, @"Kết luận:\s*(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+                        if (conclMatch.Success && string.IsNullOrWhiteSpace(doctorConclusion))
+                            doctorConclusion = conclMatch.Groups[1].Value.Trim();
+                    }
+                }
+            }
+            catch { /* non-fatal */ }
+        }
+        if (!string.IsNullOrWhiteSpace(doctorConclusion)) conclusionNotes = doctorConclusion;
         var status = ReadString(doc, "status");
         if (string.IsNullOrWhiteSpace(status)) status = "Approved";
         var isApproved = IsResultApproved(doc);
@@ -735,6 +823,12 @@ public class TestResultsController : ControllerBase
             parentResultId = parentResultId,
             digitalSignature = string.IsNullOrWhiteSpace(digitalSignature) ? null : digitalSignature,
             approvedAt = approvedAt,
+            approvingDoctorName = string.IsNullOrWhiteSpace(approvingDoctorName) ? null : approvingDoctorName,
+            icd10Code = string.IsNullOrWhiteSpace(icd10Code) ? null : icd10Code,
+            finalDiagnosis = string.IsNullOrWhiteSpace(finalDiagnosis) ? null : finalDiagnosis,
+            doctorConclusion = string.IsNullOrWhiteSpace(doctorConclusion) ? null : doctorConclusion,
+            treatmentAdvice = string.IsNullOrWhiteSpace(treatmentAdvice) ? null : treatmentAdvice,
+            followUpDate = string.IsNullOrWhiteSpace(followUpDate) ? null : followUpDate,
             conclusionNotes = conclusionNotes,
             rerunRequested = (doc.Contains("rerun_requested") && doc["rerun_requested"].AsBoolean)
                 || (doc.Contains("rerunRequested") && doc["rerunRequested"].AsBoolean),
@@ -811,15 +905,35 @@ public class TestResultsController : ControllerBase
         }
 
         string packageName = packageId;
-        if (_packagesCol != null && !string.IsNullOrWhiteSpace(packageId))
+        if (!string.IsNullOrWhiteSpace(packageId))
         {
-            var pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Or(
-                Builders<BsonDocument>.Filter.Eq("_id", packageId),
-                Builders<BsonDocument>.Filter.Eq("code", packageId)
-            )).FirstOrDefaultAsync();
+            BsonDocument? pkgDoc = null;
+            var pkgTrim = packageId.Trim();
+            var pkgUpper = pkgTrim.ToUpperInvariant();
+            if (_servicePackagesCol != null)
+            {
+                var spFilters = new List<FilterDefinition<BsonDocument>>
+                {
+                    Builders<BsonDocument>.Filter.Eq("_id", pkgTrim),
+                    Builders<BsonDocument>.Filter.Eq("Code", pkgUpper),
+                    Builders<BsonDocument>.Filter.Eq("code", pkgUpper),
+                    Builders<BsonDocument>.Filter.Eq("package_code", pkgUpper)
+                };
+                if (ObjectId.TryParse(pkgTrim, out var pkgOid))
+                    spFilters.Add(Builders<BsonDocument>.Filter.Eq("_id", pkgOid));
+                pkgDoc = await _servicePackagesCol.Find(Builders<BsonDocument>.Filter.Or(spFilters)).FirstOrDefaultAsync();
+            }
+            if (pkgDoc == null && _packagesCol != null)
+            {
+                pkgDoc = await _packagesCol.Find(Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.Eq("_id", pkgTrim),
+                    Builders<BsonDocument>.Filter.Eq("package_code", pkgUpper),
+                    Builders<BsonDocument>.Filter.Eq("code", pkgUpper)
+                )).FirstOrDefaultAsync();
+            }
             if (pkgDoc != null)
             {
-                packageName = ReadString(pkgDoc, "package_name", "name", "packageName");
+                packageName = ReadString(pkgDoc, "Name", "package_name", "name", "packageName");
                 if (string.IsNullOrWhiteSpace(packageName)) packageName = packageId;
             }
         }

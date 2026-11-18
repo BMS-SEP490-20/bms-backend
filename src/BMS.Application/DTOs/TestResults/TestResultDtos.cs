@@ -53,6 +53,18 @@ public class TestResultDto
     public DateTime? ApprovedAt { get; set; }
     /// <summary>SHA-256 clinical seal required before patient portal release.</summary>
     public string? DigitalSignature { get; set; }
+    /// <summary>Clinical comment / conclusion stored on the result.</summary>
+    public string? ClinicalComment { get; set; }
+    /// <summary>Doctor's ICD-10 diagnosis code recorded at clinical approval.</summary>
+    public string? Icd10Code { get; set; }
+    /// <summary>Doctor's final clinical diagnosis shown to the patient.</summary>
+    public string? FinalDiagnosis { get; set; }
+    /// <summary>Doctor's clinical conclusion shown to the patient.</summary>
+    public string? DoctorConclusion { get; set; }
+    /// <summary>Doctor's treatment advice / lifestyle recommendation.</summary>
+    public string? TreatmentAdvice { get; set; }
+    /// <summary>Optional follow-up appointment date.</summary>
+    public string? FollowUpDate { get; set; }
     /// <summary>Creation time (UTC).</summary>
     public DateTime CreatedAt { get; set; }
     /// <summary>Last update time (UTC).</summary>
@@ -127,4 +139,26 @@ public class ApproveTestResultDto
     public string? DeviceId { get; set; }
     /// <summary>Optional reagent quantity to record (must be &gt; 0 to apply).</summary>
     public decimal? Quantity { get; set; }
+    /// <summary>Optional combined doctor conclusion note.</summary>
+    public string? Notes { get; set; }
+    /// <summary>WHO ICD-10 diagnosis code confirmed by the attending doctor.</summary>
+    public string? Icd10Code { get; set; }
+    /// <summary>Final clinical diagnosis written by the attending doctor.</summary>
+    public string? FinalDiagnosis { get; set; }
+    /// <summary>Doctor's detailed clinical conclusion for the patient.</summary>
+    public string? DoctorConclusion { get; set; }
+    /// <summary>Doctor's treatment plan / follow-up advice.</summary>
+    public string? TreatmentAdvice { get; set; }
+    /// <summary>Recommended follow-up date (ISO yyyy-MM-dd or display string).</summary>
+    public string? FollowUpDate { get; set; }
+}
+
+/// <summary>Payload allowing an attending doctor to add or update clinical consultation fields without altering signed lab measurements.</summary>
+public class UpdateClinicalConsultationDto
+{
+    public string? Icd10Code { get; set; }
+    public string? FinalDiagnosis { get; set; }
+    public string? DoctorConclusion { get; set; }
+    public string? TreatmentAdvice { get; set; }
+    public string? FollowUpDate { get; set; }
 }

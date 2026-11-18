@@ -265,6 +265,13 @@ namespace BMS.Application.Services
             var sealPayload = $"BMS-CLINICAL-APPROVE:{entity.Id}:{dto.ApproverId}:{now:yyyyMMddHHmmss}";
             var digitalSignature = "SHA256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sealPayload))).ToLowerInvariant();
 
+            var icd10Code = string.IsNullOrWhiteSpace(dto.Icd10Code) ? null : dto.Icd10Code.Trim();
+            var finalDiagnosis = string.IsNullOrWhiteSpace(dto.FinalDiagnosis) ? null : dto.FinalDiagnosis.Trim();
+            var doctorConclusion = string.IsNullOrWhiteSpace(dto.DoctorConclusion) ? null : dto.DoctorConclusion.Trim();
+            var treatmentAdvice = string.IsNullOrWhiteSpace(dto.TreatmentAdvice) ? null : dto.TreatmentAdvice.Trim();
+            var followUpDate = string.IsNullOrWhiteSpace(dto.FollowUpDate) ? null : dto.FollowUpDate.Trim();
+            var clinicalComment = doctorConclusion ?? (string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim());
+
             var changes = new TestResultFieldChanges(
                 Status: ApprovedStatus,
                 ReviewedBy: !string.IsNullOrWhiteSpace(dto.ApproverName)
@@ -276,7 +283,13 @@ namespace BMS.Application.Services
                 ValidationStatus: ResultValidationStatus.DoctorApproved,
                 ApprovedByDoctorId: dto.ApproverId,
                 ApprovedAt: now,
-                DigitalSignature: digitalSignature);
+                DigitalSignature: digitalSignature,
+                ClinicalComment: clinicalComment,
+                Icd10Code: icd10Code,
+                FinalDiagnosis: finalDiagnosis,
+                DoctorConclusion: doctorConclusion,
+                TreatmentAdvice: treatmentAdvice,
+                FollowUpDate: followUpDate);
 
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
                 throw await NotUpdatedAsync(entity.Id, $"Test result '{id}' was not found.", ct);
@@ -297,6 +310,25 @@ namespace BMS.Application.Services
 
             var approved = await _repo.GetByIdAsync(entity.Id, ct) ?? entity;
             return ToDto(approved);
+        }
+
+        /// <inheritdoc />
+        public async Task<TestResultDto> UpdateClinicalConsultationAsync(string id, UpdateClinicalConsultationDto dto, CancellationToken ct = default)
+        {
+            var entity = await _repo.GetByIdAsync(id, ct)
+                ?? throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
+
+            var icd10Code = string.IsNullOrWhiteSpace(dto.Icd10Code) ? null : dto.Icd10Code.Trim();
+            var finalDiagnosis = string.IsNullOrWhiteSpace(dto.FinalDiagnosis) ? null : dto.FinalDiagnosis.Trim();
+            var doctorConclusion = string.IsNullOrWhiteSpace(dto.DoctorConclusion) ? null : dto.DoctorConclusion.Trim();
+            var treatmentAdvice = string.IsNullOrWhiteSpace(dto.TreatmentAdvice) ? null : dto.TreatmentAdvice.Trim();
+            var followUpDate = string.IsNullOrWhiteSpace(dto.FollowUpDate) ? null : dto.FollowUpDate.Trim();
+
+            if (!await _repo.UpdateClinicalConsultationAsync(entity.Id, icd10Code, finalDiagnosis, doctorConclusion, treatmentAdvice, followUpDate, ct))
+                throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
+
+            var updated = await _repo.GetByIdAsync(entity.Id, ct) ?? entity;
+            return ToDto(updated);
         }
 
         /// <summary>Quy trình Đợt 3A Q5: a signed result is read-only (409 RESULT_SIGNED_READ_ONLY).</summary>
@@ -423,6 +455,12 @@ namespace BMS.Application.Services
             ApprovedByDoctorId = x.ApprovedByDoctorId,
             ApprovedAt = x.ApprovedAt,
             DigitalSignature = x.DigitalSignature,
+            ClinicalComment = x.ClinicalComment,
+            Icd10Code = x.Icd10Code,
+            FinalDiagnosis = x.FinalDiagnosis,
+            DoctorConclusion = x.DoctorConclusion,
+            TreatmentAdvice = x.TreatmentAdvice,
+            FollowUpDate = x.FollowUpDate,
             CreatedAt = x.CreatedAt,
             UpdatedAt = x.UpdatedAt,
             Parameters = x.Items.Select(i => new TestParameterDto
