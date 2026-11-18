@@ -317,12 +317,19 @@ namespace BMS.Infrastructure.Repositories
                 filterBuilder.Lt(x => x.AppointmentDate, endOfToday)
             );
 
+            if (!string.IsNullOrWhiteSpace(doctorId))
+            {
+                filter &= filterBuilder.Eq(x => x.DoctorId, doctorId);
+            }
+
+            // Room filter: exact match OR unassigned room (null/empty). Strict Eq hid InProgress after reload
+            // when Call-Next wrote a different/missing roomId than the Doctor console dropdown.
             if (!string.IsNullOrWhiteSpace(roomId))
             {
                 filter &= filterBuilder.Or(
                     filterBuilder.Eq(x => x.RoomId, roomId),
-                    filterBuilder.Eq(x => x.Status, AppointmentStatus.CheckedIn)
-                );
+                    filterBuilder.Eq(x => x.RoomId, null),
+                    filterBuilder.Eq(x => x.RoomId, string.Empty));
             }
 
             return await _collection.Find(filter)

@@ -53,6 +53,9 @@ public class QueueItemDto
     public string? RoomId { get; set; }
     public string? DoctorId { get; set; }
     public string? DoctorName { get; set; }
+    /// <summary>Gói xét nghiệm đã đặt/thanh toán — BS chỉ định phải dựa trên mã này.</summary>
+    public string? PackageId { get; set; }
+    public string? PackageName { get; set; }
     public int RecallCount { get; set; }
     public DateTime? ConsultationStartTime { get; set; }
     public DateTime CreatedAt { get; set; }

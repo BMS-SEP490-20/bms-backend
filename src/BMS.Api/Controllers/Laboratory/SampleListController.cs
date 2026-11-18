@@ -15,7 +15,8 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-// WHY: UC37: Lab (absorbs Phlebotomist). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+// WHY: UC37 Lab phlebotomy intake only. Admin denied (decision 10 — no clinical PHI beyond IAM).
+// FE `/laboratory/sample-list` is LAB-gated; do not re-open Admin/Doctor/Receptionist here.
 [Authorize(Roles = RoleNames.Lab)]
 public class SampleListController : ControllerBase
 {

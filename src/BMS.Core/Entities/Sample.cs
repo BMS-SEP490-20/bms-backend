@@ -114,6 +114,15 @@ public class Sample : ISupportInitialize
     [BsonIgnoreIfNull]
     public string TestPackageName { get; set; } = string.Empty;
 
+    /// <summary>Id gói catalog (vd. PKG-CBC-01) — dùng nạp criteria khi nhập KQ.</summary>
+    [BsonElement("package_id")]
+    [BsonIgnoreIfNull]
+    public string? PackageId { get; set; }
+
+    [BsonElement("package_code")]
+    [BsonIgnoreIfNull]
+    public string? PackageCode { get; set; }
+
     [BsonElement("sample_type")]
     public string SampleType { get; set; } = "Blood"; // Blood, Serum, Plasma, Urine
 

@@ -17,8 +17,8 @@ namespace BMS.Application.Services;
 public class LabQueueService : ILabQueueService
 {
     /// <summary>
-    /// Permitted ISO 15189 specimen lifecycle state machine transitions.
-    /// Note: Processing and Testing are clinical synonyms in BMS_Database.
+    /// Permitted ISO 15189 specimen lifecycle state machine transitions (Strict Forward-Only).
+    /// Prevents skipping stages (nhảy cóc) and prevents invalid backward loops.
     /// </summary>
     private static readonly IReadOnlyDictionary<SampleStatus, SampleStatus[]> AllowedTransitions =
         new Dictionary<SampleStatus, SampleStatus[]>
@@ -30,46 +30,35 @@ public class LabQueueService : ILabQueueService
             ],
             [SampleStatus.Collected] =
             [
-                SampleStatus.Collected, // idempotent collection time update
                 SampleStatus.InTransit,
                 SampleStatus.Received,
-                SampleStatus.Processing,
-                SampleStatus.Testing,
                 SampleStatus.Rejected
             ],
             [SampleStatus.InTransit] =
             [
                 SampleStatus.Received,
-                SampleStatus.Processing,
-                SampleStatus.Testing,
                 SampleStatus.Rejected
             ],
             [SampleStatus.Received] =
             [
                 SampleStatus.Processing,
                 SampleStatus.Testing,
-                SampleStatus.Completed,
                 SampleStatus.Rejected
             ],
             [SampleStatus.Processing] =
             [
                 SampleStatus.Testing,
-                SampleStatus.Completed,
-                SampleStatus.RerunRequested,
                 SampleStatus.Rejected
             ],
             [SampleStatus.Testing] =
             [
-                SampleStatus.Processing,
                 SampleStatus.Completed,
                 SampleStatus.RerunRequested,
                 SampleStatus.Rejected
             ],
             [SampleStatus.RerunRequested] =
             [
-                SampleStatus.Processing,
                 SampleStatus.Testing,
-                SampleStatus.Completed,
                 SampleStatus.Rejected
             ],
             [SampleStatus.Completed] =
@@ -344,13 +333,13 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Validate sample is not already in a terminal/post-collection state that forbids re-recording collection time
-        if (sample != null && sample.Status is SampleStatus.Completed or SampleStatus.Rejected)
+        // Validate sample is not already in a post-collection or processing state (Record Sample Time is only valid for PendingCollection)
+        if (sample != null && sample.Status != SampleStatus.PendingCollection)
         {
             throw new InvalidSampleStatusTransitionException(
-                sample.Status.ToString(),
+                sample.StatusString,
                 SampleStatus.Collected.ToString(),
-                $"Mẫu đã ở trạng thái '{sample.Status}'. Các trạng thái đích hợp lệ: {string.Join(", ", AllowedTransitions[sample.Status].Select(x => x.ToString()))}");
+                $"Mẫu '{sample.Barcode}' đã được ghi nhận lấy mẫu lúc {sample.CollectedAt:dd/MM/yyyy HH:mm} và đang ở trạng thái '{sample.StatusString}'. Không thể ghi nhận lại thời gian lấy mẫu cho mẫu đã chuyển vào quy trình Lab.");
         }
 
         var collectorId = !string.IsNullOrWhiteSpace(request.CollectedBy)
@@ -526,13 +515,21 @@ public class LabQueueService : ILabQueueService
         var currentStatus = sample.Status;
         var allowed = AllowedTransitions.TryGetValue(currentStatus, out var nextStates) ? nextStates : [];
 
-        // Validate permitted status transition (allow idempotent update if same status or Processing <-> Testing)
-        if (currentStatus != targetStatus && !allowed.Contains(targetStatus))
+        // Validate permitted status transition (strictly forward-only; reject same-status loops)
+        if (currentStatus == targetStatus)
         {
             throw new InvalidSampleStatusTransitionException(
                 sample.StatusString,
                 targetStatus.ToString(),
-                $"Các trạng thái đích hợp lệ từ '{sample.StatusString}': {string.Join(", ", allowed.Select(s => s.ToString()))}");
+                $"Mẫu '{sample.Barcode}' hiện đã ở trạng thái '{sample.StatusString}'. Vui lòng chọn trạng thái chuyển tiếp tiếp theo: {string.Join(", ", allowed.Select(s => s.ToString()))}.");
+        }
+
+        if (!allowed.Contains(targetStatus))
+        {
+            throw new InvalidSampleStatusTransitionException(
+                sample.StatusString,
+                targetStatus.ToString(),
+                $"Không thể chuyển trạng thái mẫu từ '{sample.StatusString}' sang '{targetStatus}'. Các trạng thái hợp lệ theo ISO 15189: {string.Join(", ", allowed.Select(s => s.ToString()))}.");
         }
 
         // Rejection requires a non-empty clinical rejection reason (ISO 15189 pre-analytical control)
@@ -824,15 +821,21 @@ public class LabQueueService : ILabQueueService
             try
             {
                 var fb = Builders<Sample>.Filter;
-                var dbSample = await SamplesCol
+                // Exact Id match first (UUID / sample PK) — unambiguous.
+                var byId = await SamplesCol.Find(fb.Eq(s => s.Id, idOrBarcode)).FirstOrDefaultAsync(ct);
+                if (byId != null)
+                    return byId;
+
+                // Barcode/RFID can collide after reject+recollect. Prefer the active
+                // lifecycle specimen so Lab check-in / result entry are not stuck on Rejected.
+                var barcodeMatches = await SamplesCol
                     .Find(fb.Or(
-                        fb.Eq(s => s.Id, idOrBarcode),
                         fb.Eq(s => s.Barcode, idOrBarcode),
                         fb.Eq(s => s.RfidTag, idOrBarcode)))
-                    .FirstOrDefaultAsync(ct);
+                    .ToListAsync(ct);
 
-                if (dbSample != null)
-                    return dbSample;
+                if (barcodeMatches.Count > 0)
+                    return PreferActiveSample(barcodeMatches);
             }
             catch (Exception ex)
             {
@@ -840,9 +843,47 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        return _context.Samples.FirstOrDefault(x =>
-            x.Id.Equals(idOrBarcode, StringComparison.OrdinalIgnoreCase) ||
-            x.Barcode.Equals(idOrBarcode, StringComparison.OrdinalIgnoreCase));
+        var memMatches = _context.Samples
+            .Where(x =>
+                x.Id.Equals(idOrBarcode, StringComparison.OrdinalIgnoreCase) ||
+                x.Barcode.Equals(idOrBarcode, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return PreferActiveSample(memMatches);
+    }
+
+    /// <summary>
+    /// When multiple specimens share a barcode, pick Id-exact or non-terminal first.
+    /// Terminal statuses (Rejected/Completed) lose to PendingCollection…Testing/RerunRequested.
+    /// </summary>
+    private static Sample? PreferActiveSample(IReadOnlyList<Sample> matches)
+    {
+        if (matches == null || matches.Count == 0)
+            return null;
+        if (matches.Count == 1)
+            return matches[0];
+
+        static int Rank(Sample s)
+        {
+            var status = (s.StatusString ?? s.Status.ToString() ?? string.Empty).Trim();
+            return status switch
+            {
+                nameof(SampleStatus.PendingCollection) => 0,
+                nameof(SampleStatus.Collected) => 1,
+                nameof(SampleStatus.InTransit) => 2,
+                nameof(SampleStatus.Received) => 3,
+                nameof(SampleStatus.Processing) => 4,
+                nameof(SampleStatus.Testing) => 5,
+                nameof(SampleStatus.RerunRequested) => 6,
+                nameof(SampleStatus.Completed) => 80,
+                nameof(SampleStatus.Rejected) => 90,
+                _ => 50
+            };
+        }
+
+        return matches
+            .OrderBy(Rank)
+            .ThenByDescending(s => s.UpdatedAt == default ? s.CollectedAt : s.UpdatedAt)
+            .First();
     }
 
     private async Task PersistSampleUpdateAsync(Sample sample, CancellationToken ct = default)
@@ -995,6 +1036,8 @@ public class LabQueueService : ILabQueueService
         PatientGender = s.PatientGender,
         PatientAge = s.PatientAge,
         TestPackageName = s.TestPackageName,
+        PackageId = s.PackageId,
+        PackageCode = s.PackageCode,
         SampleType = s.SampleType,
         TubeColor = s.TubeColor,
         Anticoagulant = s.Anticoagulant,

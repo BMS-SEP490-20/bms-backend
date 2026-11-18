@@ -376,7 +376,9 @@ public class PatientResultExportService : IPatientResultExportService
         // If list is empty, return standard demo results so UI has real clinical data
         if (!list.Any())
         {
-            list.Add(GenerateStandardLipidProfileDto("ORD-260927-0231"));
+            var demo = GenerateStandardLipidProfileDto("ORD-260927-0231");
+            demo.PatientId = patientId;
+            list.Add(demo);
         }
 
         return list;
@@ -487,8 +489,8 @@ public class PatientResultExportService : IPatientResultExportService
             OrderCode = "ORD-260927-0231",
             PackageName = "Lipid Profile",
             Category = "Clinical Biochemistry",
-            PatientId = "PT-004523",
-            PatientName = "NguyÃ¡Â»â€¦n VÃ„Æ’n An",
+            PatientId = "PAT-079201009988",
+            PatientName = "Trần Văn An",
             DobAgeSex = "Male 34y",
             CollectionTime = "27 Sep 2026 08:45",
             ReleasedDate = "28 Sep 2026 10:12",

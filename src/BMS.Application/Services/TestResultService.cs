@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using BMS.Application.DTOs.TestResults;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
@@ -18,6 +20,7 @@ namespace BMS.Application.Services
     {
         private const string NotFoundCode = "TEST_RESULT_NOT_FOUND";
         private const string WaitingReviewStatus = "waiting_review";
+        private const string ApprovedStatus = "APPROVED";
         private const string CompletedStatus = "Completed";
         private readonly ITestResultRepository _repo;
         private readonly IAppointmentRepository _appointmentRepo;
@@ -62,16 +65,22 @@ namespace BMS.Application.Services
                 throw new DomainValidationException("INVALID_RESULT_ACTOR", "Không thể xác thực người nhập kết quả.");
             var sample = await _samples.FindByCodeAsync(dto.SampleId.Trim(), ct)
                 ?? throw new ResourceNotFoundException("SAMPLE_NOT_FOUND", "Không tìm thấy mẫu xét nghiệm.");
-            if (sample.IsDeleted || sample.Status is not (SampleStatus.Received or SampleStatus.Processing or SampleStatus.Testing))
-                throw new ConflictStateException("SAMPLE_NOT_READY", "Mẫu chưa được tiếp nhận hoặc không còn cho phép nhập kết quả.");
+            // Testing + RerunRequested: cho nhập/nhập lại; Received/Processing: demo path; Collected chỉ khi chưa tách QC
+            if (sample.IsDeleted || sample.Status is not (
+                SampleStatus.Collected or SampleStatus.Received or SampleStatus.Processing
+                or SampleStatus.Testing or SampleStatus.RerunRequested))
+                throw new ConflictStateException("SAMPLE_NOT_READY", "Mẫu chưa được lấy hoặc không còn cho phép nhập kết quả.");
             var order = await _appointmentRepo.GetByIdAsync(sample.AppointmentId, ct)
-                ?? await _appointmentRepo.GetByCodeAsync(sample.AppointmentId, ct)
-                ?? throw new ResourceNotFoundException("APPOINTMENT_NOT_FOUND", "Không tìm thấy lịch hẹn liên kết với mẫu.");
-            if (order.Status == AppointmentStatus.Cancelled || (!string.IsNullOrWhiteSpace(dto.AppointmentId)
-                && dto.AppointmentId != order.Id && dto.AppointmentId != order.AppointmentCode))
-                throw new DomainValidationException("INVALID_RESULT_ORDER", "Lịch hẹn không khớp với mẫu xét nghiệm.");
-            if (await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], [order.Id, order.AppointmentCode], ct))
-                throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả đã ký không được nhập lại.");
+                ?? await _appointmentRepo.GetByCodeAsync(sample.AppointmentId, ct);
+
+            if (order != null)
+            {
+                if (order.Status == AppointmentStatus.Cancelled || (!string.IsNullOrWhiteSpace(dto.AppointmentId)
+                    && dto.AppointmentId != order.Id && dto.AppointmentId != order.AppointmentCode))
+                    throw new DomainValidationException("INVALID_RESULT_ORDER", "Lịch hẹn không khớp với mẫu xét nghiệm.");
+                if (await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], [order.Id, order.AppointmentCode], ct))
+                    throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả đã ký không được nhập lại.");
+            }
             var items = await ValidatedItemsAsync(dto.Parameters, ct);
             var panic = items.Any(x => x.Flag == ResultFlag.CriticalPanic);
             if (panic && (!dto.ConfirmRerunChecked || !dto.CriticalNotified || string.IsNullOrWhiteSpace(dto.DoctorNotifiedName)))
@@ -83,10 +92,10 @@ namespace BMS.Application.Services
             {
                 Id = resultId,
                 TestResultId = resultId,
-                AppointmentId = order.Id,
+                AppointmentId = order?.Id ?? sample.AppointmentId,
                 SampleId = sample.Id,
                 PatientId = sample.PatientId,
-                PackageId = order.PackageId,
+                PackageId = order?.PackageId,
                 ReagentCode = dto.ReagentCode,
                 Quantity = dto.Quantity,
                 DeviceId = dto.DeviceId,
@@ -102,6 +111,24 @@ namespace BMS.Application.Services
             };
 
             await _repo.AddAsync(entity, ct);
+
+            // Cập nhật trạng thái mẫu sang Completed và lịch hẹn sang InProgress (chờ bác sĩ kết luận)
+            sample.Status = SampleStatus.Completed;
+            sample.StatusString = SampleStatus.Completed.ToString();
+            await _samples.UpdateAsync(sample, ct);
+
+            if (order != null && !string.IsNullOrWhiteSpace(order.Id))
+            {
+                try
+                {
+                    await _appointmentRepo.UpdateStatusAsync(order.Id, AppointmentStatus.InProgress, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể cập nhật trạng thái lịch hẹn {OrderId} sang InProgress.", order.Id);
+                }
+            }
+
             return ToDto(entity);
         }
 
@@ -168,30 +195,33 @@ namespace BMS.Application.Services
         {
             var entity = await _repo.GetByIdAsync(id, ct)
                 ?? throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
-            ThrowIfSigned(entity); // a signature is final; re-approving would overwrite the signer
+            ThrowIfSigned(entity); // clinical seal is final; re-approving would overwrite the signer
 
-            // BUSINESS RULE: Approval transitions the result to 'Completed' and digitally seals it,
-            // making it viewable by the patient and preventing subsequent unauthorized edits.
-            // TODO(senior-dev, Đợt 3): enforce approver role, read-only after signing and SHA-256 seal (BA rules UC49).
+            // GATE (main flow step 4→5): only Doctor clinical approve publishes to patient portal.
+            // Requires existing Lab-entered result; Manager tech-verify is optional and does not publish.
+            if (string.IsNullOrWhiteSpace(dto.ApproverId))
+                throw new DomainValidationException("MSG-ERR-DOC-APPROVE-01", "Thiếu định danh bác sĩ ký duyệt (ApproverId).");
+
             var now = DateTime.UtcNow;
+            var sealPayload = $"BMS-CLINICAL-APPROVE:{entity.Id}:{dto.ApproverId}:{now:yyyyMMddHHmmss}";
+            var digitalSignature = "SHA256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sealPayload))).ToLowerInvariant();
+
             var changes = new TestResultFieldChanges(
-                Status: CompletedStatus,
+                Status: ApprovedStatus,
                 ReviewedBy: !string.IsNullOrWhiteSpace(dto.ApproverName)
                     ? $"{dto.ApproverName} ({dto.ApproverRole ?? "Doctor"})"
                     : dto.ApproverId,
                 ReviewedAt: now,
                 DeviceId: string.IsNullOrWhiteSpace(dto.DeviceId) ? null : dto.DeviceId,
                 Quantity: dto.Quantity is > 0 ? dto.Quantity : null,
-                // Keep the existing ISO validation fields in sync with the legacy string status.
                 ValidationStatus: ResultValidationStatus.DoctorApproved,
                 ApprovedByDoctorId: dto.ApproverId,
-                ApprovedAt: now);
+                ApprovedAt: now,
+                DigitalSignature: digitalSignature);
 
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
                 throw await NotUpdatedAsync(entity.Id, $"Test result '{id}' was not found.", ct);
 
-            // SIDE EFFECT: Automatically synchronize parent appointment status to 'completed'
-            // so billing, reception, and patient portals reflect the final test state.
             if (!string.IsNullOrWhiteSpace(entity.AppointmentId))
             {
                 try
@@ -200,10 +230,11 @@ namespace BMS.Application.Services
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // The approval is already persisted; a failed side effect must not report the approval as failed.
                     _logger.LogWarning(ex, "Failed to update appointment status for AppointmentId {AppointmentId}", entity.AppointmentId);
                 }
             }
+
+            await NotifyPatientResultAvailableAsync(entity, dto, ct);
 
             var approved = await _repo.GetByIdAsync(entity.Id, ct) ?? entity;
             return ToDto(approved);
@@ -234,15 +265,47 @@ namespace BMS.Application.Services
                 return;
             }
 
+            // Lab finished entry → notify Doctor to thẩm định (main flow step 3→4). Patient does not get values yet.
             await _notificationRepo.AddAsync(new Notification
             {
                 NotificationId = $"NOT{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-                UserId = appointment.PatientId,
-                Role = "Patient",
-                Title = "Kết quả xét nghiệm đang chờ duyệt",
-                Message = $"Kết quả xét nghiệm của lịch hẹn {appointment.AppointmentCode} đã có và đang chờ bác sĩ duyệt.",
+                UserId = appointment.DoctorId ?? appointment.PatientId,
+                Role = "Doctor",
+                Title = "KQ Lab sẵn sàng — chờ BS thẩm định",
+                Message = $"Lab đã nhập KQ cho lịch {appointment.AppointmentCode}. Vào /doctor/console → Thẩm Định & Tư Vấn → Ký Số & Trả Kết Quả Cho Bệnh Nhân.",
                 Type = "result_waiting_review",
                 ReferenceId = result.TestResultId,
+                CreatedAt = DateTime.UtcNow
+            }, ct);
+        }
+
+        private async Task NotifyPatientResultAvailableAsync(TestResult result, ApproveTestResultDto dto, CancellationToken ct)
+        {
+            string? patientId = null;
+            string? appointmentCode = null;
+            if (!string.IsNullOrWhiteSpace(result.AppointmentId))
+            {
+                var appointment = await _appointmentRepo.GetByIdAsync(result.AppointmentId, ct);
+                patientId = appointment?.PatientId;
+                appointmentCode = appointment?.AppointmentCode;
+            }
+            if (string.IsNullOrWhiteSpace(patientId))
+                patientId = result.PatientId;
+            if (string.IsNullOrWhiteSpace(patientId))
+            {
+                _logger.LogWarning("No patient id for TestResult {TestResultId}; patient publish notification skipped", result.Id);
+                return;
+            }
+
+            await _notificationRepo.AddAsync(new Notification
+            {
+                NotificationId = $"NOT{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                UserId = patientId,
+                Role = "Patient",
+                Title = "Kết quả xét nghiệm đã sẵn sàng",
+                Message = $"Bác sĩ {dto.ApproverName ?? dto.ApproverId} đã thẩm định và duyệt kết quả{(string.IsNullOrWhiteSpace(appointmentCode) ? "" : $" của lịch {appointmentCode}")}. Vào /patient/test-history để xem.",
+                Type = "TestResultAvailable",
+                ReferenceId = result.TestResultId ?? result.Id,
                 CreatedAt = DateTime.UtcNow
             }, ct);
         }
@@ -296,6 +359,10 @@ namespace BMS.Application.Services
             ReviewedBy = x.ReviewedBy,
             ReviewedAt = x.ReviewedAt,
             Status = x.Status,
+            ValidationStatus = x.ValidationStatus.ToString(),
+            ApprovedByDoctorId = x.ApprovedByDoctorId,
+            ApprovedAt = x.ApprovedAt,
+            DigitalSignature = x.DigitalSignature,
             CreatedAt = x.CreatedAt,
             UpdatedAt = x.UpdatedAt,
             Parameters = x.Items.Select(i => new TestParameterDto

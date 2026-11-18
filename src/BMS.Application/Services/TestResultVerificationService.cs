@@ -118,47 +118,53 @@ public class TestResultVerificationService : ITestResultVerificationService
 
         await _repository.UpsertVerificationAsync(entity);
 
-        // 3. Atomically persist & lock test result in real MongoDB collections
+        // 3. Technical verification only — does NOT publish to patient portal.
+        // Main clinical gate: Doctor must still approve (DoctorApproved + APPROVED + clinical signature).
         if (_database != null)
         {
             try
             {
-                // 3a. Lock test_results collection
+                // 3a. Mark test_results as TechnicianVerified / waiting_doctor_review (editable by Doctor).
                 var testResultsCol = _database.GetCollection<BsonDocument>("test_results");
                 var resultFilter = Builders<BsonDocument>.Filter.Or(
                     Builders<BsonDocument>.Filter.Eq("sample_id", specimenId),
+                    Builders<BsonDocument>.Filter.Eq("sampleId", specimenId),
                     Builders<BsonDocument>.Filter.Eq("_id", specimenId)
                 );
                 var resultUpdate = Builders<BsonDocument>.Update
-                    .Set("status", "Approved")
-                    .Set("digital_signature", digitalSignature)
-                    .Set("is_locked", true)
+                    .Set("status", "waiting_doctor_review")
+                    .Set("validationStatus", (int)ResultValidationStatus.TechnicianVerified)
+                    .Set("tech_signature", digitalSignature)
                     .Set("reviewed_by", normalizedVerifier)
-                    .Set("approved_at", verifyTime)
-                    .Set("conclusion_notes", request.VerifierComment);
+                    .Set("reviewed_at", verifyTime)
+                    .Set("conclusion_notes", request.VerifierComment)
+                    .Unset("approved_at")
+                    .Unset("digital_signature")
+                    .Unset("digitalSignature")
+                    .Set("is_locked", false);
 
                 var updateResult = await testResultsCol.UpdateOneAsync(resultFilter, resultUpdate);
                 if (updateResult.MatchedCount == 0)
                 {
-                    // Create new locked record in test_results
                     var newResultDoc = new BsonDocument
                     {
                         { "_id", $"RES-{verifyTime:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}" },
                         { "sample_id", specimenId },
                         { "patient_id", entity.PatientId },
                         { "package_id", entity.PackageName },
-                        { "status", "Approved" },
-                        { "digital_signature", digitalSignature },
-                        { "is_locked", true },
+                        { "status", "waiting_doctor_review" },
+                        { "validationStatus", (int)ResultValidationStatus.TechnicianVerified },
+                        { "tech_signature", digitalSignature },
+                        { "is_locked", false },
                         { "reviewed_by", normalizedVerifier },
-                        { "approved_at", verifyTime },
+                        { "reviewed_at", verifyTime },
                         { "conclusion_notes", request.VerifierComment },
                         { "created_at", verifyTime }
                     };
                     await testResultsCol.InsertOneAsync(newResultDoc);
                 }
 
-                // 3b. Update blood_samples status to Completed
+                // 3b. Sample stays Completed after Lab entry; do not reopen patient portal.
                 var samplesCol = _database.GetCollection<BsonDocument>("blood_samples");
                 var sampleFilter = Builders<BsonDocument>.Filter.Or(
                     Builders<BsonDocument>.Filter.Eq("_id", specimenId),
@@ -170,39 +176,26 @@ public class TestResultVerificationService : ITestResultVerificationService
                     .Set("updated_at", verifyTime);
                 await samplesCol.UpdateOneAsync(sampleFilter, sampleUpdate);
 
-                // 3c. Insert domain notification records into notifications collection for Doctor and Patient
+                // 3c. Notify Doctor only — Patient learns results after Doctor clinical approve.
                 var notifCol = _database.GetCollection<BsonDocument>("notifications");
                 var docNotif = new BsonDocument
                 {
                     { "notification_id", $"NOT-{Guid.NewGuid().ToString("N")[..8].ToUpper()}" },
                     { "user_id", entity.PatientId },
                     { "role", "Doctor" },
-                    { "title", $"[KẾT QUẢ ĐÃ DUYỆT] Mẫu {specimenId} - Đơn {entity.OrderId}" },
-                    { "message", $"Trưởng Khoa {normalizedVerifier} đã ký số thẩm định kết quả xét nghiệm {entity.PackageName} của bệnh nhân {entity.PatientName} ({entity.PatientId}). Hồ sơ đã sẵn sàng để bác sĩ kết luận điều trị." },
-                    { "type", "TestResultApproved" },
+                    { "title", $"[CHỜ BS THẨM ĐỊNH] Mẫu {specimenId} - Đơn {entity.OrderId}" },
+                    { "message", $"Trưởng Khoa {normalizedVerifier} đã thẩm định kỹ thuật {entity.PackageName} của BN {entity.PatientName}. Vào /doctor/console → Thẩm Định & Tư Vấn → Ký Số & Trả Kết Quả Cho Bệnh Nhân." },
+                    { "type", "TestResultReadyForDoctor" },
                     { "reference_id", specimenId },
                     { "is_read", false },
                     { "created_at", verifyTime }
                 };
 
-                var patNotif = new BsonDocument
-                {
-                    { "notification_id", $"NOT-{Guid.NewGuid().ToString("N")[..8].ToUpper()}" },
-                    { "user_id", entity.PatientId },
-                    { "role", "Patient" },
-                    { "title", "Kết quả xét nghiệm đã hoàn tất và được ký duyệt" },
-                    { "message", $"Kính gửi {entity.PatientName}, kết quả xét nghiệm {entity.PackageName} của quý khách đã được Trưởng Khoa ký số thẩm định y khoa." },
-                    { "type", "TestResultAvailable" },
-                    { "reference_id", specimenId },
-                    { "is_read", false },
-                    { "created_at", verifyTime }
-                };
-
-                await notifCol.InsertManyAsync(new[] { docNotif, patNotif });
+                await notifCol.InsertOneAsync(docNotif);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to persist locked test results or notifications for specimen {SpecimenId}", specimenId);
+                _logger?.LogError(ex, "Failed to persist technician verification or doctor notification for specimen {SpecimenId}", specimenId);
             }
         }
 

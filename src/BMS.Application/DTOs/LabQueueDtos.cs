@@ -24,6 +24,9 @@ public class LabQueueItemDto
     public string? PatientGender { get; set; }
     public int? PatientAge { get; set; }
     public string TestPackageName { get; set; } = string.Empty;
+    /// <summary>Id gói catalog để FE nạp criteria (PKG-CBC-01…).</summary>
+    public string? PackageId { get; set; }
+    public string? PackageCode { get; set; }
     public string SampleType { get; set; } = "Blood"; // Blood, Serum, Plasma...
     public string? TubeColor { get; set; }
     public string? Anticoagulant { get; set; }

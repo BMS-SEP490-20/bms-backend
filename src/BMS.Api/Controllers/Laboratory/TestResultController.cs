@@ -12,6 +12,7 @@ namespace BMS.Api.Controllers.Laboratory
     /// no exception details are returned to the client.
     /// </summary>
     [Route("TestOrder/[controller]")]
+    [Route("api/TestOrder/[controller]")]
     [ApiController]
 // WHY: UC46/UC49: enter Lab; view Lab, Doctor, Manager; approve Manager only (decision 1). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
 [Authorize]
@@ -128,8 +129,8 @@ namespace BMS.Api.Controllers.Laboratory
         /// <param name="dto">Approval payload containing approver info and digital stamp.</param>
         /// <param name="ct">Request cancellation token.</param>
         /// <returns>HTTP response containing approval status and updated result.</returns>
-        // WHY: only the Manager signs results (decision 30/10 #1, UC49 "QL duy nhất").
-        [Authorize(Roles = RoleNames.Manager)]
+        // Bác sĩ khám lâm sàng hoặc Trưởng Lab/Quản lý đều có thẩm quyền ký duyệt kết quả để trả cho bệnh nhân.
+        [Authorize(Roles = RoleNames.Doctor + "," + RoleNames.Manager)]
         [HttpPost("{id}/approve")]
         [HttpPut("{id}/approve")]
         public async Task<IActionResult> Approve(string id, [FromBody] ApproveTestResultDto dto, CancellationToken ct)
@@ -146,10 +147,11 @@ namespace BMS.Api.Controllers.Laboratory
                 });
             }
 
-            // WHY (BR-APP-02): the signature must name the signed-in Manager, not whoever the body claims.
+            // WHY (BR-APP-02): the signature must name the signed-in Doctor/Manager, not whoever the body claims.
             dto.ApproverId = User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
             dto.ApproverName = User.FindFirst("name")?.Value ?? dto.ApproverId;
-            dto.ApproverRole = RoleNames.Manager;
+            var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? RoleNames.Doctor;
+            dto.ApproverRole = userRole;
             var result = await _service.ApproveAsync(id, dto, ct);
             return Ok(new
             {

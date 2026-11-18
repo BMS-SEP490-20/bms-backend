@@ -215,7 +215,14 @@ public class PatientReceptionService : IPatientReceptionService
             if (p != null) patientDict[pid] = p;
         }
 
-        var inProgress = appointments.FirstOrDefault(a => a.Status == AppointmentStatus.InProgress && (roomId == null || a.RoomId == roomId));
+        // Prefer this doctor's InProgress in the selected room; if room filter empty, any own InProgress.
+        // Also accept missing RoomId so reload after call-next still restores currentServing.
+        var inProgress = appointments.FirstOrDefault(a =>
+            a.Status == AppointmentStatus.InProgress
+            && (string.IsNullOrWhiteSpace(doctorId) || a.DoctorId == doctorId)
+            && (string.IsNullOrWhiteSpace(roomId)
+                || string.IsNullOrWhiteSpace(a.RoomId)
+                || a.RoomId == roomId));
         QueueItemDto? currentServing = null;
         if (inProgress != null)
         {
@@ -233,6 +240,8 @@ public class PatientReceptionService : IPatientReceptionService
                 RoomId = inProgress.RoomId,
                 DoctorId = inProgress.DoctorId,
                 DoctorName = doc?.FullName ?? "Bác sĩ phụ trách",
+                PackageId = inProgress.PackageId,
+                PackageName = inProgress.Notes,
                 RecallCount = inProgress.RecallCount,
                 ConsultationStartTime = inProgress.ConsultationStartTime,
                 CreatedAt = inProgress.CreatedAt
@@ -255,6 +264,8 @@ public class PatientReceptionService : IPatientReceptionService
                 RoomId = a.RoomId,
                 DoctorId = a.DoctorId,
                 DoctorName = doc?.FullName,
+                PackageId = a.PackageId,
+                PackageName = a.Notes,
                 RecallCount = a.RecallCount,
                 ConsultationStartTime = a.ConsultationStartTime,
                 CreatedAt = a.CreatedAt
