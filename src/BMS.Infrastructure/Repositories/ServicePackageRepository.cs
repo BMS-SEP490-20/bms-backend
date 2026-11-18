@@ -105,6 +105,11 @@ public sealed class ServicePackageRepository : IServicePackageRepository
             // 1. Kiểm tra trong danh sách lịch hẹn đang xử lý
             var appointments = _db.GetCollection<BsonDocument>("appointments");
             var packageMatch = fb.Or(
+                fb.Eq("packageId", id),
+                fb.Eq("packageId", code),
+                fb.Eq("package_id", id),
+                fb.Eq("package_id", code),
+                fb.Eq("packageCode", code),
                 fb.Eq("service_package_id", id),
                 fb.Eq("service_package_code", code),
                 fb.AnyEq("test_packages", id),

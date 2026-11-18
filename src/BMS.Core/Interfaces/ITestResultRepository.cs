@@ -35,6 +35,19 @@ namespace BMS.Core.Interfaces
 
         /// <summary>Returns all results of one appointment / test order.</summary>
         Task<IReadOnlyList<TestResult>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default);
+
+        /// <summary>
+        /// Updates only the attending doctor's clinical consultation fields (diagnosis, conclusion, treatment advice, follow-up)
+        /// without modifying laboratory measurements, status, or digital signature.
+        /// </summary>
+        Task<bool> UpdateClinicalConsultationAsync(
+            string id,
+            string? icd10Code,
+            string? finalDiagnosis,
+            string? doctorConclusion,
+            string? treatmentAdvice,
+            string? followUpDate,
+            CancellationToken ct = default);
     }
 
     /// <summary>Optional field changes for <see cref="ITestResultRepository.UpdateFieldsAsync"/>; null means unchanged.</summary>
@@ -51,5 +64,11 @@ namespace BMS.Core.Interfaces
         DateTime? ApprovedAt = null,
         bool? IsPanic = null,
         /// <summary>SHA-256 clinical seal written only when the Doctor publishes results to the patient.</summary>
-        string? DigitalSignature = null);
+        string? DigitalSignature = null,
+        string? ClinicalComment = null,
+        string? Icd10Code = null,
+        string? FinalDiagnosis = null,
+        string? DoctorConclusion = null,
+        string? TreatmentAdvice = null,
+        string? FollowUpDate = null);
 }

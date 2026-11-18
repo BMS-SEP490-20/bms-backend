@@ -159,5 +159,25 @@ namespace BMS.Api.Controllers.Laboratory
                 data = result
             });
         }
+
+        /// <summary>
+        /// Allows the attending doctor to save or update clinical diagnosis, conclusion, treatment advice, and follow-up date
+        /// without modifying signed laboratory measurements.
+        /// </summary>
+        [Authorize(Roles = RoleNames.Doctor + "," + RoleNames.Manager)]
+        [HttpPut("{id}/clinical-consultation")]
+        [HttpPatch("{id}/clinical-consultation")]
+        public async Task<IActionResult> UpdateClinicalConsultation(string id, [FromBody] UpdateClinicalConsultationDto dto, CancellationToken ct)
+        {
+            if (dto == null)
+                return BadRequest(new { message = "Consultation payload cannot be null." });
+
+            var result = await _service.UpdateClinicalConsultationAsync(id, dto, ct);
+            return Ok(new
+            {
+                message = "Clinical consultation updated successfully.",
+                data = result
+            });
+        }
     }
 }

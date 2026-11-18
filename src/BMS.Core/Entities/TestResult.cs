@@ -186,6 +186,26 @@ public class TestResult : ISupportInitialize
     [BsonElement("clinicalComment")]
     public string? ClinicalComment { get; set; }
 
+    [BsonElement("icd10Code")]
+    [BsonIgnoreIfNull]
+    public string? Icd10Code { get; set; }
+
+    [BsonElement("finalDiagnosis")]
+    [BsonIgnoreIfNull]
+    public string? FinalDiagnosis { get; set; }
+
+    [BsonElement("doctorConclusion")]
+    [BsonIgnoreIfNull]
+    public string? DoctorConclusion { get; set; }
+
+    [BsonElement("treatmentAdvice")]
+    [BsonIgnoreIfNull]
+    public string? TreatmentAdvice { get; set; }
+
+    [BsonElement("followUpDate")]
+    [BsonIgnoreIfNull]
+    public string? FollowUpDate { get; set; }
+
     [BsonElement("isPanic")]
     public bool IsPanic { get; set; }
 

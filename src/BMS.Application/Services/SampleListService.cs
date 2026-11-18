@@ -113,10 +113,12 @@ public class SampleListService : ISampleListService
         {
             try
             {
-                var pkg = await _packagesCol.Find(p => p.Id == appt.PackageId || p.Code == appt.PackageId).FirstOrDefaultAsync();
+                var pkgKey = appt.PackageId.Trim();
+                var pkgUpper = pkgKey.ToUpperInvariant();
+                var pkg = await _packagesCol.Find(p => !p.IsDeleted && (p.Id == pkgKey || p.Code == pkgUpper)).FirstOrDefaultAsync();
                 if (pkg != null)
                 {
-                    var spec = TubeRules.For(pkg.Code, pkg.Name, pkg.Category);
+                    var spec = TubeRules.For(pkg.Code, pkg.Name, !string.IsNullOrWhiteSpace(pkg.Category) ? pkg.Category : pkg.SampleTube);
                     tubes.Add(TubePrintCode(spec.Color));
                 }
             }
@@ -221,7 +223,9 @@ public class SampleListService : ISampleListService
                     string packageName = !string.IsNullOrEmpty(a.Notes) ? a.Notes : string.Empty;
                     if (_packagesCol != null && !string.IsNullOrEmpty(a.PackageId))
                     {
-                        var pkg = await _packagesCol.Find(p => p.Id == a.PackageId || p.Code == a.PackageId).FirstOrDefaultAsync();
+                        var pkgKey = a.PackageId.Trim();
+                        var pkgUpper = pkgKey.ToUpperInvariant();
+                        var pkg = await _packagesCol.Find(p => !p.IsDeleted && (p.Id == pkgKey || p.Code == pkgUpper)).FirstOrDefaultAsync();
                         if (pkg != null && !string.IsNullOrEmpty(pkg.Name)) packageName = pkg.Name;
                     }
 
@@ -331,7 +335,9 @@ public class SampleListService : ISampleListService
             string? itemPackageCode = null;
             if (_packagesCol != null && !string.IsNullOrEmpty(apptDoc.PackageId))
             {
-                var pkg = await _packagesCol.Find(p => p.Id == apptDoc.PackageId || p.Code == apptDoc.PackageId).FirstOrDefaultAsync();
+                var pkgKey = apptDoc.PackageId.Trim();
+                var pkgUpper = pkgKey.ToUpperInvariant();
+                var pkg = await _packagesCol.Find(p => !p.IsDeleted && (p.Id == pkgKey || p.Code == pkgUpper)).FirstOrDefaultAsync();
                 if (pkg != null)
                 {
                     if (!string.IsNullOrEmpty(pkg.Name)) itemPackageName = pkg.Name;

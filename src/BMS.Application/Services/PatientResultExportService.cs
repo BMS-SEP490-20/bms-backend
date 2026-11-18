@@ -10,6 +10,9 @@ using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Configuration;
+using MongoDB.Bson;
+using MongoDB.Driver;
+using System.Text.RegularExpressions;
 
 namespace BMS.Application.Services;
 
@@ -23,17 +26,20 @@ public class PatientResultExportService : IPatientResultExportService
     private readonly ITestOrderRepository _orderRepository;
     private readonly BmsDbContext _dbContext;
     private readonly IConfiguration _config;
+    private readonly IMongoDatabase? _database;
 
     public PatientResultExportService(
         ITestReportRepository reportRepository,
         ITestOrderRepository orderRepository,
         BmsDbContext dbContext,
-        IConfiguration config)
+        IConfiguration config,
+        IMongoDatabase? database = null)
     {
         _reportRepository = reportRepository;
         _orderRepository = orderRepository;
         _dbContext = dbContext;
         _config = config;
+        _database = database;
     }
 
     public async Task<PatientTestResultDetailDto?> GetPatientResultDetailAsync(string orderId)
@@ -74,6 +80,13 @@ public class PatientResultExportService : IPatientResultExportService
         if (order != null)
         {
             return MapOrderToPatientDto(order);
+        }
+
+        // 3. Direct lookup from MongoDB test_results (supports TRE-... result IDs, sample barcodes, and appointment IDs)
+        if (_database != null)
+        {
+            var fromMongo = await TryLoadFromMongoTestResultAsync(orderId);
+            if (fromMongo != null) return fromMongo;
         }
 
         // Fallback for demo mock order ORD-260927-0231 (matches docs-output/screens/02-patient.html#uc62)
@@ -294,8 +307,11 @@ public class PatientResultExportService : IPatientResultExportService
     </div>
 
     <div class=""assessment-box"">
-        <div class=""assessment-title"">Doctor's Clinical Assessment</div>
-        <div style=""font-size:12.5px; line-height:1.6;"">{result.DoctorAssessment}</div>
+        <div class=""assessment-title"">Chẩn Đoán Cuối Cùng &amp; Kết Luận Lâm Sàng Của Bác Sĩ</div>
+        {(string.IsNullOrWhiteSpace(result.FinalDiagnosis) && string.IsNullOrWhiteSpace(result.Icd10Code) ? "" : $@"<div style=""font-size:13px; margin-bottom:6px;""><strong>Chẩn đoán cuối cùng:</strong> {(string.IsNullOrWhiteSpace(result.Icd10Code) ? "" : $@"<span style=""display:inline-block;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-weight:700;margin-right:6px;"">{System.Net.WebUtility.HtmlEncode(result.Icd10Code)}</span>")}{System.Net.WebUtility.HtmlEncode(result.FinalDiagnosis ?? "")}</div>")}
+        <div style=""font-size:12.5px; line-height:1.6;"">{System.Net.WebUtility.HtmlEncode(result.DoctorAssessment)}</div>
+        {(string.IsNullOrWhiteSpace(result.TreatmentAdvice) ? "" : $@"<div style=""margin-top:8px; font-size:12.5px;""><strong>Lời khuyên / Hướng điều trị:</strong> {System.Net.WebUtility.HtmlEncode(result.TreatmentAdvice)}</div>")}
+        {(string.IsNullOrWhiteSpace(result.FollowUpDate) ? "" : $@"<div style=""margin-top:4px; font-size:12px; color:#0369a1;""><strong>Hẹn tái khám:</strong> {System.Net.WebUtility.HtmlEncode(result.FollowUpDate)}</div>")}
         <div style=""margin-top:8px; font-size:11.5px; color:#64748b;"">Ã¢â‚¬â€ {result.ApprovedByDoctor} · {result.DoctorSpecialty} · {result.ReleasedDate}</div>
     </div>
 
@@ -528,6 +544,231 @@ public class PatientResultExportService : IPatientResultExportService
         if (paramName.Contains("HDL", StringComparison.OrdinalIgnoreCase)) return "+0.02";
         if (paramName.Contains("Triglycerides", StringComparison.OrdinalIgnoreCase)) return "-0.12";
         return "Ã¢â‚¬â€";
+    }
+
+    private async Task<PatientTestResultDetailDto?> TryLoadFromMongoTestResultAsync(string orderId)
+    {
+        if (_database == null || string.IsNullOrWhiteSpace(orderId)) return null;
+        try
+        {
+            var trimmed = orderId.Trim();
+            var col = _database.GetCollection<BsonDocument>("test_results");
+            var f = Builders<BsonDocument>.Filter;
+            var active = f.Ne("isDeleted", true) & f.Ne("is_deleted", true);
+            var doc = await col.Find(active & f.Or(
+                    f.Eq("_id", trimmed),
+                    f.Eq("testResultId", trimmed),
+                    f.Eq("resultCode", trimmed),
+                    f.Eq("result_code", trimmed),
+                    f.Eq("sampleId", trimmed),
+                    f.Eq("sample_id", trimmed),
+                    f.Eq("appointmentId", trimmed),
+                    f.Eq("appointment_id", trimmed)))
+                .Sort(new BsonDocument("createdAt", -1))
+                .FirstOrDefaultAsync();
+            if (doc == null) return null;
+
+            static string Str(BsonDocument d, params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    if (d.TryGetValue(k, out var v) && !v.IsBsonNull)
+                    {
+                        var s = v.IsString ? v.AsString : v.ToString();
+                        if (!string.IsNullOrWhiteSpace(s)) return s.Trim();
+                    }
+                }
+                return string.Empty;
+            }
+
+            var validation = Str(doc, "validationStatus");
+            var status = Str(doc, "status");
+            var sig = Str(doc, "digitalSignature", "digital_signature");
+            var isDoctorApproved = (validation is "3" or "DoctorApproved")
+                && (status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase) || status.Equals("Completed", StringComparison.OrdinalIgnoreCase))
+                && !string.IsNullOrWhiteSpace(sig);
+            if (!isDoctorApproved) return null;
+
+            var resultId = Str(doc, "testResultId", "_id");
+            var patientId = Str(doc, "patientId", "patient_id");
+            var sampleId = Str(doc, "sampleId", "sample_id");
+            var appointmentId = Str(doc, "appointmentId", "appointment_id");
+            var packageId = Str(doc, "packageId", "package_id");
+
+            // Patient metadata
+            var patientName = patientId;
+            var dobAgeSex = string.Empty;
+            if (!string.IsNullOrWhiteSpace(patientId))
+            {
+                var pDoc = await _database.GetCollection<BsonDocument>("patients").Find(f.Or(
+                    f.Eq("_id", patientId), f.Eq("patientCode", patientId), f.Eq("patient_code", patientId))).FirstOrDefaultAsync();
+                if (pDoc != null)
+                {
+                    var fn = Str(pDoc, "fullName", "FullName", "fullname", "full_name");
+                    if (!string.IsNullOrWhiteSpace(fn)) patientName = fn;
+                    var gender = Str(pDoc, "gender", "Gender");
+                    string dobStr = string.Empty;
+                    if (pDoc.TryGetValue("dateOfBirth", out var dob1) && dob1.IsBsonDateTime)
+                        dobStr = dob1.ToUniversalTime().ToString("dd/MM/yyyy");
+                    else if (pDoc.TryGetValue("dob", out var dob2) && dob2.IsBsonDateTime)
+                        dobStr = dob2.ToUniversalTime().ToString("dd/MM/yyyy");
+                    dobAgeSex = string.Join(" · ", new[] { dobStr, gender }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                }
+            }
+
+            // Package name (prefer service_packages)
+            var packageName = packageId;
+            if (!string.IsNullOrWhiteSpace(packageId))
+            {
+                var upper = packageId.ToUpperInvariant();
+                var sp = await _database.GetCollection<BsonDocument>("service_packages").Find(f.Or(
+                    f.Eq("_id", packageId), f.Eq("Code", upper), f.Eq("code", upper))).FirstOrDefaultAsync();
+                if (sp != null) packageName = Str(sp, "Name", "name", "package_name");
+                if (string.IsNullOrWhiteSpace(packageName) || packageName == packageId)
+                {
+                    var tp = await _database.GetCollection<BsonDocument>("test_packages").Find(f.Or(
+                        f.Eq("_id", packageId), f.Eq("package_code", upper), f.Eq("code", upper))).FirstOrDefaultAsync();
+                    if (tp != null) packageName = Str(tp, "package_name", "name");
+                }
+            }
+            if (string.IsNullOrWhiteSpace(packageName)) packageName = "Phiếu Kết Quả Xét Nghiệm";
+
+            // Parameters
+            var parameters = new List<PatientResultParameterDto>();
+            var itemsVal = doc.GetValue("items", BsonNull.Value);
+            var itemDocs = itemsVal.IsBsonArray && itemsVal.AsBsonArray.Count > 0
+                ? itemsVal.AsBsonArray.Where(x => x.IsBsonDocument).Select(x => x.AsBsonDocument).ToList()
+                : await _database.GetCollection<BsonDocument>("test_parameters").Find(f.Eq("result_id", resultId)).ToListAsync();
+
+            foreach (var x in itemDocs)
+            {
+                var code = Str(x, "criterionCode", "code");
+                var name = Str(x, "criterionName", "name");
+                var val = Str(x, "measuredValue", "value_numeric", "value_text");
+                var unit = Str(x, "unit");
+                var refRange = Str(x, "referenceInterval", "reference_display");
+                var rawFlag = Str(x, "flag");
+                var normFlag = rawFlag.ToUpperInvariant() switch
+                {
+                    "3" or "CRITICALPANIC" or "CRITICAL" or "PANIC" or "HH" => "HH",
+                    "2" or "HIGH" or "H" => "H",
+                    "1" or "LOW" or "L" => "L",
+                    "LL" => "LL",
+                    _ => "N"
+                };
+                var isAbn = normFlag != "N";
+                parameters.Add(new PatientResultParameterDto
+                {
+                    ParameterName = string.IsNullOrWhiteSpace(name) ? code : (string.IsNullOrWhiteSpace(code) || name.Contains(code, StringComparison.OrdinalIgnoreCase) ? name : $"{code} · {name}"),
+                    Value = val,
+                    Unit = unit,
+                    ReferenceRange = refRange,
+                    Flag = normFlag,
+                    IsAbnormal = isAbn,
+                    FlagSeverity = (normFlag is "HH" or "LL") ? "critical" : (isAbn ? "warning" : "normal")
+                });
+            }
+
+            // Doctor's final diagnosis (test_results -> medical_assessments -> appointment notes)
+            var icd10Code = Str(doc, "icd10Code", "icd10_code");
+            var finalDiagnosis = Str(doc, "finalDiagnosis", "final_diagnosis");
+            var doctorConclusion = Str(doc, "doctorConclusion", "doctor_conclusion");
+            var treatmentAdvice = Str(doc, "treatmentAdvice", "treatment_advice");
+            var followUpDate = Str(doc, "followUpDate", "follow_up_date");
+            var approvingDoctor = Str(doc, "reviewedBy", "reviewed_by");
+            if (approvingDoctor.EndsWith(" (Doctor)", StringComparison.OrdinalIgnoreCase))
+                approvingDoctor = approvingDoctor[..^" (Doctor)".Length].Trim();
+
+            if (string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(icd10Code))
+            {
+                var asmCol = _database.GetCollection<BsonDocument>("medical_assessments");
+                var notDel = f.Ne("is_deleted", true) & f.Ne("isDeleted", true);
+                BsonDocument? asm = null;
+                if (!string.IsNullOrWhiteSpace(appointmentId))
+                {
+                    asm = await asmCol.Find(notDel & f.Or(f.Eq("encounter_id", appointmentId), f.Eq("order_id", appointmentId), f.Eq("appointment_id", appointmentId)))
+                        .Sort(new BsonDocument("created_at", -1)).FirstOrDefaultAsync();
+                }
+                if (asm == null && !string.IsNullOrWhiteSpace(patientId))
+                {
+                    asm = await asmCol.Find(notDel & f.Or(f.Eq("patient_id", patientId), f.Eq("patient_code", patientId)) & f.Or(f.Eq("is_finalized", true), f.Eq("status", "Finalized")))
+                        .Sort(new BsonDocument("created_at", -1)).FirstOrDefaultAsync();
+                }
+                if (asm != null)
+                {
+                    if (string.IsNullOrWhiteSpace(icd10Code)) icd10Code = Str(asm, "icd10_code", "icd10Code");
+                    if (string.IsNullOrWhiteSpace(finalDiagnosis)) finalDiagnosis = Str(asm, "final_diagnosis", "finalDiagnosis", "icd10_name", "icd10Name");
+                    if (string.IsNullOrWhiteSpace(doctorConclusion)) doctorConclusion = Str(asm, "clinical_impression", "clinicalImpression");
+                    if (string.IsNullOrWhiteSpace(treatmentAdvice)) treatmentAdvice = Str(asm, "treatment_plan", "treatmentPlan", "prescription_notes");
+                    if (string.IsNullOrWhiteSpace(followUpDate) && asm.TryGetValue("follow_up_date", out var fup) && fup.IsBsonDateTime)
+                        followUpDate = fup.ToUniversalTime().ToString("yyyy-MM-dd");
+                    if (string.IsNullOrWhiteSpace(approvingDoctor)) approvingDoctor = Str(asm, "doctor_name", "doctorName");
+                }
+            }
+
+            if ((string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(doctorConclusion)) && !string.IsNullOrWhiteSpace(appointmentId))
+            {
+                var apptDoc = await _database.GetCollection<BsonDocument>("appointments").Find(f.Or(
+                    f.Eq("_id", appointmentId), f.Eq("appointmentCode", appointmentId))).FirstOrDefaultAsync();
+                var apptNotes = apptDoc != null ? Str(apptDoc, "notes", "Notes") : string.Empty;
+                if (!string.IsNullOrWhiteSpace(apptNotes))
+                {
+                    var diagMatch = Regex.Match(apptNotes, @"Chẩn đoán\s+ICD-10\s+([A-Z][0-9]{2}(?:\.[0-9A-Z]+)?)\s*\((.+?)\)\s*(?:\.\s*Kết luận:|$)", RegexOptions.IgnoreCase);
+                    if (diagMatch.Success)
+                    {
+                        if (string.IsNullOrWhiteSpace(icd10Code)) icd10Code = diagMatch.Groups[1].Value.Trim();
+                        if (string.IsNullOrWhiteSpace(finalDiagnosis)) finalDiagnosis = diagMatch.Groups[2].Value.Trim();
+                    }
+                    var conclMatch = Regex.Match(apptNotes, @"Kết luận:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                    if (conclMatch.Success && string.IsNullOrWhiteSpace(doctorConclusion))
+                        doctorConclusion = conclMatch.Groups[1].Value.Trim();
+                }
+            }
+
+            var assessmentText = !string.IsNullOrWhiteSpace(doctorConclusion)
+                ? doctorConclusion
+                : Str(doc, "clinicalComment", "conclusion_notes");
+
+            var createdAt = doc.TryGetValue("createdAt", out var c1) && c1.IsBsonDateTime ? c1.ToUniversalTime()
+                : doc.TryGetValue("created_at", out var c2) && c2.IsBsonDateTime ? c2.ToUniversalTime()
+                : DateTime.UtcNow;
+            var approvedAt = doc.TryGetValue("approvedAt", out var a1) && a1.IsBsonDateTime ? a1.ToUniversalTime()
+                : doc.TryGetValue("approved_at", out var a2) && a2.IsBsonDateTime ? a2.ToUniversalTime()
+                : createdAt;
+
+            var token = Convert.ToBase64String(Encoding.UTF8.GetBytes(resultId)).TrimEnd('=').Replace("+", "-");
+
+            return new PatientTestResultDetailDto
+            {
+                OrderId = resultId,
+                OrderCode = resultId,
+                PackageName = packageName,
+                Category = "Xét Nghiệm Lâm Sàng",
+                PatientId = patientId,
+                PatientName = patientName,
+                DobAgeSex = dobAgeSex,
+                CollectionTime = createdAt.ToString("O"),
+                ReleasedDate = approvedAt.ToString("O"),
+                ApprovedByDoctor = string.IsNullOrWhiteSpace(approvingDoctor) ? "Bác sĩ điều trị" : approvingDoctor,
+                DoctorSpecialty = "Chuyên khoa Lâm sàng",
+                Icd10Code = string.IsNullOrWhiteSpace(icd10Code) ? null : icd10Code,
+                FinalDiagnosis = string.IsNullOrWhiteSpace(finalDiagnosis) ? null : finalDiagnosis,
+                DoctorAssessment = assessmentText,
+                TreatmentAdvice = string.IsNullOrWhiteSpace(treatmentAdvice) ? null : treatmentAdvice,
+                FollowUpDate = string.IsNullOrWhiteSpace(followUpDate) ? null : followUpDate,
+                OverallStatus = "Released",
+                AbnormalCount = parameters.Count(p => p.IsAbnormal),
+                ReferenceIntervalNotes = "Khoảng tham chiếu sinh học theo chuẩn ISO 15189:2022",
+                Parameters = parameters,
+                VerificationHash = sig,
+                ShareToken = token,
+                ShareUrl = $"/results/share?orderId={resultId}&token={token}"
+            };
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string ComputeSha256(string raw)

@@ -34,7 +34,11 @@ public class PatientTestResultDetailDto
     public string ReleasedDate { get; set; } = string.Empty;
     public string ApprovedByDoctor { get; set; } = string.Empty;
     public string DoctorSpecialty { get; set; } = "Internal Medicine";
+    public string? Icd10Code { get; set; }
+    public string? FinalDiagnosis { get; set; }
     public string DoctorAssessment { get; set; } = string.Empty;
+    public string? TreatmentAdvice { get; set; }
+    public string? FollowUpDate { get; set; }
     public string OverallStatus { get; set; } = "Released";
     public int AbnormalCount { get; set; }
     public string ReferenceIntervalNotes { get; set; } = "Adult reference intervals · Fasting verified";

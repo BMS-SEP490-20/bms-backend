@@ -26,5 +26,8 @@ namespace BMS.Application.Interfaces
         /// <param name="ct">Cancellation token.</param>
         /// <returns>The approved test result data transfer object.</returns>
         Task<TestResultDto> ApproveAsync(string id, ApproveTestResultDto dto, CancellationToken ct = default);
+
+        /// <summary>Updates the attending doctor's clinical consultation fields without altering signed lab measurements.</summary>
+        Task<TestResultDto> UpdateClinicalConsultationAsync(string id, UpdateClinicalConsultationDto dto, CancellationToken ct = default);
     }
 }

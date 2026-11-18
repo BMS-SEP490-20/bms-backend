@@ -88,6 +88,13 @@ namespace BMS.Application.Services
             var type = ParseType(request.Type);
 
             var primaryPackage = request.PackageIds.FirstOrDefault();
+            var resolvedPackage = string.IsNullOrWhiteSpace(primaryPackage)
+                ? null
+                : await _packageRepository.GetByIdOrCodeAsync(primaryPackage, includeInactive: true, ct);
+            var canonicalPackageCode = !string.IsNullOrWhiteSpace(resolvedPackage?.PackageCode)
+                ? resolvedPackage.PackageCode.Trim().ToUpperInvariant()
+                : primaryPackage;
+
             var notes = request.Notes;
             if (request.PackageIds.Count > 1)
             {
@@ -102,7 +109,8 @@ namespace BMS.Application.Services
                 AppointmentCode = code,
                 PatientId = request.PatientId,
                 DoctorId = request.DoctorId,
-                PackageId = primaryPackage,
+                PackageId = canonicalPackageCode,
+                PackageCode = canonicalPackageCode,
                 AppointmentDate = clinicDate,
                 RoomId = string.IsNullOrWhiteSpace(duty.RoomId) ? null : duty.RoomId,
                 StartTime = startTime,
@@ -121,9 +129,7 @@ namespace BMS.Application.Services
             // Auto-create initial unpaid billing invoice for the booked package (allows Patient & Receptionist to track payment)
             try
             {
-                var pkg = string.IsNullOrWhiteSpace(primaryPackage)
-                    ? null
-                    : await _packageRepository.GetByIdOrCodeAsync(primaryPackage, includeInactive: true, ct);
+                var pkg = resolvedPackage;
                 var patient = await _patientRepository.GetByIdOrCodeAsync(appointment.PatientId, ct);
                 var pkgPrice = pkg?.Price ?? 0m;
                 var pkgName = pkg?.PackageName ?? "Gói xét nghiệm cận lâm sàng";
@@ -389,6 +395,8 @@ namespace BMS.Application.Services
                 }
             }
 
+            var packageNamesDict = await ResolvePackageNamesAsync(items.Select(a => a.PackageId), ct);
+
             var dtos = new List<AppointmentReadDto>();
             foreach (var a in items)
             {
@@ -397,6 +405,10 @@ namespace BMS.Application.Services
                 if (!string.IsNullOrEmpty(a.PatientId) && patientsDict.TryGetValue(a.PatientId, out var pName))
                 {
                     dto.PatientName = pName;
+                }
+                if (!string.IsNullOrWhiteSpace(a.PackageId) && packageNamesDict.TryGetValue(a.PackageId, out var pkgName))
+                {
+                    dto.TestPackageName = pkgName;
                 }
                 await FillDutyFromShiftAsync(a, dto, ct);
                 dtos.Add(dto);
@@ -424,6 +436,8 @@ namespace BMS.Application.Services
                 }
             }
 
+            var packageNamesDict = await ResolvePackageNamesAsync(list.Select(a => a.PackageId), ct);
+
             return list.Select(a =>
             {
                 doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
@@ -431,6 +445,10 @@ namespace BMS.Application.Services
                 if (!string.IsNullOrEmpty(a.PatientId) && patientsDict.TryGetValue(a.PatientId, out var pName))
                 {
                     dto.PatientName = pName;
+                }
+                if (!string.IsNullOrWhiteSpace(a.PackageId) && packageNamesDict.TryGetValue(a.PackageId, out var pkgName))
+                {
+                    dto.TestPackageName = pkgName;
                 }
                 return dto;
             });
@@ -451,6 +469,14 @@ namespace BMS.Application.Services
                 if (pat != null && !string.IsNullOrEmpty(pat.FullName))
                 {
                     dto.PatientName = pat.FullName;
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(a.PackageId))
+            {
+                var pkg = await _packageRepository.GetByIdOrCodeAsync(a.PackageId, includeInactive: true, ct);
+                if (pkg != null && !string.IsNullOrWhiteSpace(pkg.PackageName))
+                {
+                    dto.TestPackageName = pkg.PackageName;
                 }
             }
             await FillDutyFromShiftAsync(a, dto, ct);
@@ -545,13 +571,24 @@ namespace BMS.Application.Services
             {
                 try
                 {
+                    var pkg = string.IsNullOrWhiteSpace(entity.PackageId)
+                        ? null
+                        : await _packageRepository.GetByIdOrCodeAsync(entity.PackageId, includeInactive: true, ct);
+                    var pat = !string.IsNullOrWhiteSpace(entity.PatientId)
+                        ? await _patientRepository.GetByIdOrCodeAsync(entity.PatientId, ct)
+                        : null;
                     var random = new Random();
                     var sample = new Sample
                     {
                         Id = Guid.NewGuid().ToString(),
                         Barcode = $"SA{random.Next(0, 999999):D6}",
                         TestOrderId = entity.Id,
+                        AppointmentId = entity.Id,
                         PatientId = entity.PatientId,
+                        PatientName = pat?.FullName ?? string.Empty,
+                        PackageId = pkg?.Id ?? entity.PackageId,
+                        PackageCode = pkg?.PackageCode ?? entity.PackageCode ?? entity.PackageId,
+                        TestPackageName = pkg?.PackageName ?? string.Empty,
                         Status = SampleStatus.Received,
                         CollectedAt = DateTime.UtcNow,
                         ReceivedAt = DateTime.UtcNow,
@@ -774,6 +811,24 @@ namespace BMS.Application.Services
                 CollectionAddress = a.CollectionAddress,
                 RoomName = a.RoomId
             };
+        }
+
+        private async Task<Dictionary<string, string>> ResolvePackageNamesAsync(IEnumerable<string?> packageIds, CancellationToken ct)
+        {
+            var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rawId in packageIds.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var pkg = await _packageRepository.GetByIdOrCodeAsync(rawId, includeInactive: true, ct);
+                    if (pkg != null && !string.IsNullOrWhiteSpace(pkg.PackageName))
+                    {
+                        dict[rawId] = pkg.PackageName;
+                    }
+                }
+                catch { /* non-fatal */ }
+            }
+            return dict;
         }
 
         private async Task FillDutyFromShiftAsync(Appointment appointment, AppointmentReadDto dto, CancellationToken ct)
