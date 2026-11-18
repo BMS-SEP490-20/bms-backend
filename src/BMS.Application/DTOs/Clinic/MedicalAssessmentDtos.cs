@@ -21,6 +21,7 @@ public class CreateMedicalAssessmentDto : IValidatableObject
     public string? PatientGender { get; set; }
 
     public string? EncounterId { get; set; }
+    public string? OrderId { get; set; }
     public string EncounterType { get; set; } = "ClinicVisit"; // ClinicVisit, FollowUp, Emergency, RoutineCheckup
 
     public string? DoctorId { get; set; }
@@ -206,6 +207,7 @@ public class MedicalAssessmentDto
     public DateTime? PatientDob { get; set; }
     public string? PatientGender { get; set; }
     public string? EncounterId { get; set; }
+    public string? OrderId { get; set; }
     public string EncounterType { get; set; } = string.Empty;
     public DateTime? EncounterDate { get; set; }
     public string DoctorId { get; set; } = string.Empty;
@@ -235,4 +237,7 @@ public class MedicalAssessmentDto
     public bool CanEdit { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public int Version { get; set; } = 1;
+    public bool IsAutomatedDiagnosis { get; set; } = false;
+    public string AssessmentType { get; set; } = "ClinicalConsultation";
 }

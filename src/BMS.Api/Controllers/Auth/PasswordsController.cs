@@ -67,6 +67,10 @@ public sealed class PasswordsController : ControllerBase
 
         if (!result.Success)
         {
+            if (result.ErrorCode == "OTP_LOCKED")
+            {
+                return StatusCode(StatusCodes.Status423Locked, result);
+            }
             return BadRequest(result);
         }
 
@@ -156,7 +160,15 @@ public sealed class PasswordsController : ControllerBase
 
         if (!result.Success)
         {
-            return NotFound(result);
+            if (result.ErrorCode == "OTP_COOLDOWN")
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, result);
+            }
+            if (result.ErrorCode == "OTP_LOCKED")
+            {
+                return StatusCode(StatusCodes.Status423Locked, result);
+            }
+            return BadRequest(result);
         }
 
         return Ok(result);
@@ -183,6 +195,10 @@ public sealed class PasswordsController : ControllerBase
 
         if (!result.Success)
         {
+            if (result.ErrorCode == "OTP_LOCKED")
+            {
+                return StatusCode(StatusCodes.Status423Locked, result);
+            }
             return BadRequest(result);
         }
 

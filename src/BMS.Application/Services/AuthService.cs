@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using BMS.Application.DTOs;
 using BMS.Application.DTOs.Auth;
 using BMS.Application.Interfaces;
@@ -108,6 +110,30 @@ public class AuthService : IAuthService
         {
             _passwordHasher?.VerifyDummy(request.Password);
             _logger?.LogWarning("Login failed: unknown login {Login} from {Ip}", login, client.IpAddress);
+            if (_auditLogRepository != null)
+            {
+                try
+                {
+                    await _auditLogRepository.AddAsync(new AuditLog
+                    {
+                        AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                        Timestamp = now,
+                        UserId = "ANONYMOUS",
+                        UserName = login,
+                        UserRole = "Unknown",
+                        Action = "LOGIN_FAILED",
+                        Category = "SECURITY",
+                        Severity = "WARNING",
+                        Status = "FAILED",
+                        IpAddress = client.IpAddress ?? "127.0.0.1",
+                        Browser = client.UserAgent,
+                        TargetEntity = "User",
+                        EntityId = null,
+                        Details = $"Failed login attempt for unknown account: {login}"
+                    }, ct);
+                }
+                catch { }
+            }
             return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
@@ -1124,41 +1150,87 @@ public class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(dto.Email))
         {
-            return new AuthResponseDto { Success = false, Message = "Email không được để trống." };
+            return new AuthResponseDto { Success = false, Message = "Vui lòng nhập email hoặc tên đăng nhập." };
         }
 
-        var emailTrimmed = dto.Email.Trim();
+        var identifier = dto.Email.Trim();
+        var now = _clock.GetUtcNow().UtcDateTime;
 
         // 1. Look for user in MongoDB first, then fallback to in-memory context
         User? user = null;
         if (_userRepository != null)
         {
-            user = await _userRepository.FindByEmailAsync(emailTrimmed);
+            user = await _userRepository.FindByEmailAsync(identifier);
             if (user == null)
             {
-                user = await _userRepository.GetByEmailOrUsernameAsync(emailTrimmed);
+                user = await _userRepository.GetByEmailOrUsernameAsync(identifier);
             }
         }
 
         if (user == null)
         {
             user = _context.Users.FirstOrDefault(u =>
-                u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase) ||
-                u.Username.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+                u.Email.Equals(identifier, StringComparison.OrdinalIgnoreCase) ||
+                u.Username.Equals(identifier, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (user == null)
+        // 2. Anti-Enumeration: generic response when account does not exist or inactive (OWASP ASVS 5.0 §2.1.8)
+        if (user == null || !user.IsActive)
         {
-            return new AuthResponseDto { Success = false, Message = "Địa chỉ email không tồn tại trong hệ thống BMS." };
+            _passwordHasher?.VerifyDummy("dummy_password_for_timing_safety");
+            if (_auditLogRepository != null)
+            {
+                try
+                {
+                    await _auditLogRepository.AddAsync(new AuditLog
+                    {
+                        AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                        Timestamp = now,
+                        UserId = "ANONYMOUS",
+                        UserName = identifier,
+                        UserRole = "Unknown",
+                        Action = "PASSWORD_RESET_REQUESTED_UNKNOWN",
+                        Category = "SECURITY",
+                        Severity = "WARNING",
+                        Status = "FAILED",
+                        IpAddress = "127.0.0.1",
+                        TargetEntity = "User",
+                        EntityId = null,
+                        Details = $"Password reset requested for non-existent or inactive account: {identifier}"
+                    });
+                }
+                catch { }
+            }
+
+            return new AuthResponseDto
+            {
+                Success = true,
+                Message = "Nếu tài khoản tồn tại trong hệ thống, hướng dẫn và mã xác thực OTP 6 chữ số đã được gửi."
+            };
         }
 
-        // 2. Generate cryptographically random 6-digit OTP
-        var otp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
-        var expiresAt = DateTime.UtcNow.AddMinutes(15);
+        // 3. Resend Cooldown (60 seconds)
+        if (user.PasswordResetRequestedAt.HasValue && (now - user.PasswordResetRequestedAt.Value).TotalSeconds < 60)
+        {
+            var remaining = (int)Math.Ceiling(60 - (now - user.PasswordResetRequestedAt.Value).TotalSeconds);
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_COOLDOWN",
+                Message = $"Vui lòng chờ {remaining} giây trước khi yêu cầu gửi lại mã OTP."
+            };
+        }
+
+        // 4. Generate cryptographically random 6-digit OTP (5 minutes expiration)
+        var otp = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
+        var expiresAt = now.AddMinutes(5);
 
         user.PasswordResetOtp = otp;
         user.PasswordResetExpiresAt = expiresAt;
-        user.UpdatedAt = DateTime.UtcNow;
+        user.PasswordResetRequestedAt = now;
+        user.PasswordResetFailedAttempts = 0;
+        user.PasswordResetLockoutEnd = null;
+        user.UpdatedAt = now;
 
         if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
         {
@@ -1172,23 +1244,52 @@ public class AuthService : IAuthService
             }
         }
 
-        // 3. Dispatch live OTP email via Gmail SMTP service
-        bool sent = false;
+        // 5. Dispatch OTP via Email service (simulated or live)
         if (_emailService != null)
         {
-            sent = await _emailService.SendOtpEmailAsync(
-                user.Email,
-                otp,
-                "Khôi phục mật khẩu tài khoản BMS (Password Reset)",
-                15);
+            try
+            {
+                await _emailService.SendOtpEmailAsync(
+                    user.Email,
+                    otp,
+                    "Khôi phục mật khẩu tài khoản BMS (Password Reset)",
+                    5);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Could not send OTP email to {Email}", user.Email);
+            }
+        }
+
+        // 6. Security Audit Trail (ISO 27001 Control 8.15)
+        if (_auditLogRepository != null)
+        {
+            try
+            {
+                await _auditLogRepository.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = user.Id,
+                    UserName = user.FullName ?? user.Username,
+                    UserRole = RoleNames.FromRoleId(user.RoleId) ?? "Unknown",
+                    Action = "PASSWORD_RESET_REQUESTED",
+                    Category = "SECURITY",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "User",
+                    EntityId = user.Id,
+                    Details = $"Password reset OTP generated and dispatched for user {user.Username} (Expires in 5 minutes)."
+                });
+            }
+            catch { }
         }
 
         return new AuthResponseDto
         {
             Success = true,
-            Message = sent
-                ? $"Mã xác thực OTP gồm 6 chữ số đã được gửi tới email {user.Email}. Vui lòng kiểm tra hộp thư đến hoặc mục thư rác (hiệu lực trong 15 phút)."
-                : $"Yêu cầu khôi phục mật khẩu đã được tiếp nhận cho tài khoản {user.Email}."
+            Message = "Nếu tài khoản tồn tại trong hệ thống, hướng dẫn và mã xác thực OTP 6 chữ số đã được gửi."
         };
     }
 
@@ -1196,55 +1297,189 @@ public class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Otp) || string.IsNullOrWhiteSpace(dto.NewPassword))
         {
-            return new AuthResponseDto { Success = false, Message = "Vui lòng nhập đầy đủ thông tin: Email, mã OTP và mật khẩu mới." };
+            return new AuthResponseDto { Success = false, Message = "Vui lòng nhập đầy đủ thông tin: Email/tên đăng nhập, mã OTP và mật khẩu mới." };
         }
 
-        var emailTrimmed = dto.Email.Trim();
+        var identifier = dto.Email.Trim();
+        var now = _clock.GetUtcNow().UtcDateTime;
+
         User? user = null;
         if (_userRepository != null)
         {
-            user = await _userRepository.FindByEmailAsync(emailTrimmed);
+            user = await _userRepository.FindByEmailAsync(identifier);
             if (user == null)
             {
-                user = await _userRepository.GetByEmailOrUsernameAsync(emailTrimmed);
+                user = await _userRepository.GetByEmailOrUsernameAsync(identifier);
             }
         }
 
         if (user == null)
         {
             user = _context.Users.FirstOrDefault(u =>
-                u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase) ||
-                u.Username.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+                u.Email.Equals(identifier, StringComparison.OrdinalIgnoreCase) ||
+                u.Username.Equals(identifier, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (user == null)
+        if (user == null || !user.IsActive)
         {
-            return new AuthResponseDto { Success = false, Message = "Tài khoản không tồn tại trong hệ thống." };
+            return new AuthResponseDto { Success = false, ErrorCode = "INVALID_REQUEST", Message = "Yêu cầu đặt lại mật khẩu không hợp lệ hoặc mã OTP không chính xác." };
         }
 
-        if (string.IsNullOrWhiteSpace(user.PasswordResetOtp) ||
-            !user.PasswordResetOtp.Trim().Equals(dto.Otp.Trim(), StringComparison.Ordinal) ||
-            user.PasswordResetExpiresAt < DateTime.UtcNow)
+        // 1. Check temporary lockout (Brute Force Protection on OTP - Max 5 attempts)
+        if (user.PasswordResetLockoutEnd is { } lockedUntil && lockedUntil > now)
         {
-            return new AuthResponseDto { Success = false, Message = "Mã OTP đặt lại mật khẩu không hợp lệ hoặc đã hết hạn." };
+            var remainingMinutes = (int)Math.Ceiling((lockedUntil - now).TotalMinutes);
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_LOCKED",
+                Message = $"Mã xác thực đã bị khóa do nhập sai quá 5 lần. Vui lòng thử lại sau {remainingMinutes} phút hoặc yêu cầu mã mới."
+            };
         }
 
+        // 2. Check single-use: OTP cannot be empty or already consumed
+        if (string.IsNullOrWhiteSpace(user.PasswordResetOtp))
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_ALREADY_USED",
+                Message = "Mã OTP đã được sử dụng hoặc không hợp lệ. Vui lòng yêu cầu mã mới."
+            };
+        }
+
+        // 3. Check expiration (5 minutes)
+        if (user.PasswordResetExpiresAt == null || user.PasswordResetExpiresAt < now)
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_EXPIRED",
+                Message = "Mã OTP đặt lại mật khẩu đã hết hạn (thời hạn 5 phút). Vui lòng yêu cầu mã mới."
+            };
+        }
+
+        // 4. Verify OTP using constant-time comparison to prevent timing attacks
+        var otpMatch = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(user.PasswordResetOtp.Trim()),
+            Encoding.UTF8.GetBytes(dto.Otp.Trim()));
+
+        if (!otpMatch)
+        {
+            user.PasswordResetFailedAttempts++;
+            if (user.PasswordResetFailedAttempts >= 5)
+            {
+                user.PasswordResetLockoutEnd = now.AddMinutes(15);
+                user.PasswordResetOtp = null; // Invalidate OTP on lockout
+            }
+
+            if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+            {
+                try { await _userRepository.UpdateAsync(user); } catch { }
+            }
+
+            if (_auditLogRepository != null)
+            {
+                try
+                {
+                    await _auditLogRepository.AddAsync(new AuditLog
+                    {
+                        AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                        Timestamp = now,
+                        UserId = user.Id,
+                        UserName = user.FullName ?? user.Username,
+                        UserRole = RoleNames.FromRoleId(user.RoleId) ?? "Unknown",
+                        Action = "PASSWORD_RESET_FAILED",
+                        Category = "SECURITY",
+                        Severity = "WARNING",
+                        Status = "FAILED",
+                        IpAddress = "127.0.0.1",
+                        TargetEntity = "User",
+                        EntityId = user.Id,
+                        Details = $"Incorrect OTP attempt ({user.PasswordResetFailedAttempts}/5) for user {user.Username}."
+                    });
+                }
+                catch { }
+            }
+
+            if (user.PasswordResetFailedAttempts >= 5)
+            {
+                return new AuthResponseDto
+                {
+                    Success = false,
+                    ErrorCode = "OTP_LOCKED",
+                    Message = "Mã xác thực đã bị khóa do nhập sai quá 5 lần. Vui lòng yêu cầu mã mới."
+                };
+            }
+
+            var remaining = 5 - user.PasswordResetFailedAttempts;
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "INVALID_OTP",
+                Message = $"Mã OTP không chính xác. Quý khách còn {remaining} lần thử."
+            };
+        }
+
+        // 5. OTP Valid -> Consume OTP immediately (Single-Use), Hash Password, Clear Lockout
         var newHash = _passwordHasher != null ? _passwordHasher.Hash(dto.NewPassword) : BmsDbContext.HashPassword(dto.NewPassword);
         user.PasswordHash = newHash;
+        user.Password = newHash;
         user.PasswordResetOtp = null;
         user.PasswordResetExpiresAt = null;
-        user.UpdatedAt = DateTime.UtcNow;
+        user.PasswordResetFailedAttempts = 0;
+        user.PasswordResetLockoutEnd = null;
+        user.UpdatedAt = now;
 
         if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
         {
             try
             {
                 await _userRepository.UpdateAsync(user);
+                await _userRepository.UpdatePasswordAsync(user.Id, newHash);
             }
             catch
             {
                 // In-memory or test scenario fallback
             }
+        }
+
+        // 6. Session Revocation: Invalidate all existing Refresh Tokens for this user (OWASP ASVS 5.0 §3.3)
+        if (_refreshTokenRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+        {
+            try
+            {
+                await _refreshTokenRepository.RevokeAllForUserAsync(user.Id, now, "password_reset");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to revoke refresh tokens after password reset for user {UserId}", user.Id);
+            }
+        }
+
+        // 7. Security Audit Trail (ISO 27001 Control 8.15)
+        if (_auditLogRepository != null)
+        {
+            try
+            {
+                await _auditLogRepository.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = user.Id,
+                    UserName = user.FullName ?? user.Username,
+                    UserRole = RoleNames.FromRoleId(user.RoleId) ?? "Unknown",
+                    Action = "PASSWORD_RESET_COMPLETED",
+                    Category = "SECURITY",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "User",
+                    EntityId = user.Id,
+                    Details = $"Password reset completed for user {user.Username}; all active refresh sessions revoked."
+                });
+            }
+            catch { }
         }
 
         return new AuthResponseDto

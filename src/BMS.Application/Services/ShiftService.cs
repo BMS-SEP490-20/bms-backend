@@ -5,19 +5,21 @@ using BMS.Application.DTOs.Shifts;
 using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Exceptions;
+using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 
 namespace BMS.Application.Services;
 
 /// <summary>
-/// Application service implementing View Shifts, Create Shifts, Update Shifts, and Delete Shifts use cases.
-/// Enforces working time validation, employee/room assignment conflict detection, and dependency checks.
+/// Application service implementing View Shifts, Create Shifts, Update Shifts, and Delete Shifts use cases (UC35).
+/// Enforces working time validation, employee/room assignment conflict detection, dependency checks, and audit trails.
 /// </summary>
 public sealed class ShiftService(
     IShiftRepository shiftRepository,
     TimeProvider clock,
-    ILogger<ShiftService> logger) : IShiftService
+    ILogger<ShiftService> logger,
+    IAuditLogRepository? auditLogs = null) : IShiftService
 {
     public async Task<PagedResult<ShiftDto>> ListShiftsAsync(ShiftFilterRequest filter, CancellationToken ct = default)
     {
@@ -29,10 +31,53 @@ public sealed class ShiftService(
         return new PagedResult<ShiftDto>(dtos, paged.Page, paged.PageSize, paged.TotalItems);
     }
 
-    public async Task<ShiftDto> GetShiftByIdAsync(string id, CancellationToken ct = default)
+    public Task<ShiftDto> GetShiftByIdAsync(string id, CancellationToken ct = default)
+        => GetShiftByIdAsync(id, requesterUserId: null, isManagerOrAdmin: true, ct);
+
+    public async Task<ShiftDto> GetShiftByIdAsync(
+        string id,
+        string? requesterUserId,
+        bool isManagerOrAdmin,
+        CancellationToken ct = default)
     {
         var shift = await shiftRepository.GetByIdAsync(id, ct)
                     ?? throw new ShiftNotFoundException(id);
+
+        if (!isManagerOrAdmin)
+        {
+            var isOwner = !string.IsNullOrWhiteSpace(requesterUserId) &&
+                          string.Equals(shift.DoctorId, requesterUserId, StringComparison.OrdinalIgnoreCase);
+
+            if (!isOwner)
+            {
+                if (auditLogs != null)
+                {
+                    try
+                    {
+                        var now = clock.GetUtcNow().UtcDateTime;
+                        await auditLogs.AddAsync(new AuditLog
+                        {
+                            AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                            Timestamp = now,
+                            UserId = requesterUserId ?? "ANONYMOUS",
+                            UserName = requesterUserId ?? "ANONYMOUS",
+                            UserRole = "Staff",
+                            Action = "VIEW_SHIFT_DETAILS",
+                            Category = "SHIFT_MANAGEMENT",
+                            Severity = "WARNING",
+                            Status = "ACCESS_DENIED",
+                            IpAddress = "127.0.0.1",
+                            TargetEntity = "DoctorShift",
+                            EntityId = shift.Id,
+                            Details = $"Unauthorized access attempt to shift {shift.Id} of employee {shift.DoctorId} by user {requesterUserId}."
+                        }, ct);
+                    }
+                    catch { /* Skip audit failure */ }
+                }
+
+                throw new ForbiddenAccessException("Bạn không có quyền xem thông tin chi tiết ca làm việc của nhân viên khác.");
+            }
+        }
 
         var empMap = await shiftRepository.GetEmployeeMetadataAsync([shift.DoctorId], ct);
         var roomMap = await shiftRepository.GetRoomMetadataAsync([shift.RoomId], ct);
@@ -59,6 +104,20 @@ public sealed class ShiftService(
         // 1. Resolve Employee / Doctor assignment
         var rawEmpId = request.EffectiveEmployeeId;
         var (doctor, account) = await shiftRepository.ResolveEmployeeAsync(rawEmpId, ct);
+        if (doctor == null && account == null)
+        {
+            throw new DomainValidationException(
+                "STAFF_NOT_FOUND",
+                $"Nhân sự '{rawEmpId}' không tồn tại trong hệ thống.");
+        }
+
+        if (account != null && (!account.IsActive || account.Status != (int)UserStatus.Active))
+        {
+            throw new DomainValidationException(
+                "STAFF_INACTIVE",
+                $"Tài khoản nhân sự '{rawEmpId}' đang ở trạng thái ngừng hoạt động hoặc bị khóa.");
+        }
+
         var resolvedEmployeeId = account?.Id ?? doctor?.Id ?? rawEmpId;
         var resolvedEmployeeName = !string.IsNullOrWhiteSpace(request.EmployeeName)
             ? request.EmployeeName.Trim()
@@ -129,6 +188,30 @@ public sealed class ShiftService(
             "Shift created: {ShiftId} on {Date:yyyy-MM-dd} ({Start}-{End}) for {Employee} in {Room} by {UserId}",
             entity.Id, entity.ShiftDate, entity.ShiftStart, entity.ShiftEnd, entity.EmployeeName, entity.RoomId, userId);
 
+        if (auditLogs != null)
+        {
+            try
+            {
+                await auditLogs.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = userId ?? "SYSTEM",
+                    UserName = userId ?? "SYSTEM",
+                    UserRole = "Manager",
+                    Action = "CREATE_SHIFT",
+                    Category = "SHIFT_MANAGEMENT",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "DoctorShift",
+                    EntityId = entity.Id,
+                    Details = $"Created shift {entity.Id} on {entity.ShiftDate:yyyy-MM-dd} ({entity.ShiftStart}-{entity.ShiftEnd}) for {entity.EmployeeName} in room {entity.RoomId}."
+                }, ct);
+            }
+            catch { /* Skip audit failure */ }
+        }
+
         var empMap = await shiftRepository.GetEmployeeMetadataAsync([entity.DoctorId], ct);
         var roomMap = await shiftRepository.GetRoomMetadataAsync([entity.RoomId], ct);
         return MapToDto(entity, empMap, roomMap);
@@ -142,6 +225,15 @@ public sealed class ShiftService(
     {
         var existing = await shiftRepository.GetByIdAsync(id, ct)
                        ?? throw new ShiftNotFoundException(id);
+
+        // Validation: Không cho sửa ca đã khóa/chốt
+        if (string.Equals(existing.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(existing.Status, "Locked", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainValidationException(
+                "SHIFT_LOCKED",
+                $"Ca làm việc '{existing.Id}' đã ở trạng thái {existing.Status} (đã chốt/khóa) và không thể chỉnh sửa.");
+        }
 
         var now = clock.GetUtcNow().UtcDateTime;
         var shiftDate = DateTime.SpecifyKind((request.ShiftDate ?? existing.ShiftDate).Date, DateTimeKind.Utc);
@@ -168,6 +260,20 @@ public sealed class ShiftService(
         // Resolve Employee / Doctor assignment
         var rawEmpId = request.EffectiveEmployeeId;
         var (doctor, account) = await shiftRepository.ResolveEmployeeAsync(rawEmpId, ct);
+        if (doctor == null && account == null)
+        {
+            throw new DomainValidationException(
+                "STAFF_NOT_FOUND",
+                $"Nhân sự '{rawEmpId}' không tồn tại trong hệ thống.");
+        }
+
+        if (account != null && (!account.IsActive || account.Status != (int)UserStatus.Active))
+        {
+            throw new DomainValidationException(
+                "STAFF_INACTIVE",
+                $"Tài khoản nhân sự '{rawEmpId}' đang ở trạng thái ngừng hoạt động hoặc bị khóa.");
+        }
+
         var resolvedEmployeeId = account?.Id ?? doctor?.Id ?? rawEmpId;
         var resolvedEmployeeName = !string.IsNullOrWhiteSpace(request.EmployeeName)
             ? request.EmployeeName.Trim()
@@ -216,6 +322,12 @@ public sealed class ShiftService(
                 ct);
         }
 
+        var oldDate = existing.ShiftDate;
+        var oldStart = existing.ShiftStart;
+        var oldEnd = existing.ShiftEnd;
+        var oldRoom = existing.RoomId;
+        var oldStatus = existing.Status;
+
         existing.DoctorId = resolvedEmployeeId;
         existing.EmployeeName = resolvedEmployeeName;
         existing.EmployeeRole = resolvedEmployeeRole;
@@ -237,6 +349,30 @@ public sealed class ShiftService(
 
         logger.LogInformation("Shift updated: {ShiftId} by {UserId}", existing.Id, userId);
 
+        if (auditLogs != null)
+        {
+            try
+            {
+                await auditLogs.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = userId ?? "SYSTEM",
+                    UserName = userId ?? "SYSTEM",
+                    UserRole = "Manager",
+                    Action = "UPDATE_SHIFT",
+                    Category = "SHIFT_MANAGEMENT",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "DoctorShift",
+                    EntityId = existing.Id,
+                    Details = $"Updated shift {existing.Id}: Time [{oldStart}-{oldEnd}]->[{startStr}-{endStr}], Room [{oldRoom}]->[{roomId}], Date [{oldDate:yyyy-MM-dd}]->[{shiftDate:yyyy-MM-dd}], Status [{oldStatus}]->[{newStatus}]."
+                }, ct);
+            }
+            catch { /* Skip audit failure */ }
+        }
+
         var empMap = await shiftRepository.GetEmployeeMetadataAsync([existing.DoctorId], ct);
         var roomMap = await shiftRepository.GetRoomMetadataAsync([existing.RoomId], ct);
         return MapToDto(existing, empMap, roomMap);
@@ -247,24 +383,69 @@ public sealed class ShiftService(
         var existing = await shiftRepository.GetByIdAsync(id, ct)
                        ?? throw new ShiftNotFoundException(id);
 
-        // Dependency check 1: CurrentPatientsCount > 0
-        if (existing.CurrentPatientsCount > 0)
+        var now = clock.GetUtcNow().UtcDateTime;
+
+        // Check if shift has started or is in the past
+        var isPastOrStarted = existing.ShiftDate.Date < now.Date;
+        if (existing.ShiftDate.Date == now.Date)
         {
-            throw new ShiftInUseException(
-                $"Không thể xoá ca làm việc '{existing.Id}' (ngày {existing.ShiftDate:yyyy-MM-dd}, ca {existing.ShiftType}) vì đang có {existing.CurrentPatientsCount} bệnh nhân đã đăng ký.");
+            var (startStr, _) = ShiftWriteRequest.ResolveWorkingTimeWindow(existing.ShiftType, existing.ShiftStart, existing.ShiftEnd);
+            if (TimeSpan.TryParseExact(startStr, @"hh\:mm", CultureInfo.InvariantCulture, out var startTs))
+            {
+                isPastOrStarted = now.TimeOfDay >= startTs;
+            }
         }
 
-        // Dependency check 2: Active appointments in appointments collection referencing doctor_shift_id
-        if (await shiftRepository.HasActiveAppointmentsAsync(existing.Id, ct))
+        // Check if shift has activity (registered patients or linked appointments)
+        var hasActivity = existing.CurrentPatientsCount > 0 || await shiftRepository.HasActiveAppointmentsAsync(existing.Id, ct);
+
+        bool softCancelled = false;
+        if (isPastOrStarted || hasActivity)
         {
-            throw new ShiftInUseException(
-                $"Không thể xoá ca làm việc '{existing.Id}' vì đang có lịch hẹn khám/xét nghiệm tham chiếu đến ca này.");
+            // UC35.5 (SHIFT-DEL-02 & SHIFT-DEL-03): Ca đã bắt đầu hoặc đã có dữ liệu hoạt động -> chuyển sang Cancelled thay vì xóa cứng
+            existing.Status = "Cancelled";
+            existing.UpdatedAt = now;
+            existing.UpdatedBy = userId;
+            existing.Notes = string.IsNullOrWhiteSpace(existing.Notes)
+                ? "[Đã hủy ca làm việc do yêu cầu xóa ca]"
+                : $"{existing.Notes} [Đã hủy ca làm việc do yêu cầu xóa ca]";
+            await shiftRepository.ReplaceAsync(existing, ct);
+            softCancelled = true;
+        }
+        else
+        {
+            // UC35.5 (SHIFT-DEL-01): Ca chưa bắt đầu và chưa có dữ liệu liên quan -> xóa cứng
+            if (!await shiftRepository.DeleteAsync(existing.Id, ct))
+                throw new ShiftNotFoundException(id);
         }
 
-        if (!await shiftRepository.DeleteAsync(existing.Id, ct))
-            throw new ShiftNotFoundException(id);
+        if (auditLogs != null)
+        {
+            try
+            {
+                await auditLogs.AddAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = now,
+                    UserId = userId ?? "SYSTEM",
+                    UserName = userId ?? "SYSTEM",
+                    UserRole = "Manager",
+                    Action = "DELETE_SHIFT",
+                    Category = "SHIFT_MANAGEMENT",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "DoctorShift",
+                    EntityId = existing.Id,
+                    Details = $"Shift {existing.Id} on {existing.ShiftDate:yyyy-MM-dd} for {existing.EmployeeName} was {(softCancelled ? "marked as Cancelled (soft-delete)" : "permanently deleted (hard-delete)")} by user {userId}."
+                }, ct);
+            }
+            catch { /* Skip audit failure */ }
+        }
 
-        logger.LogInformation("Shift deleted: {ShiftId} by {UserId}", existing.Id, userId);
+        logger.LogInformation(
+            "Shift {ShiftId} {Action} by {UserId}",
+            existing.Id, softCancelled ? "soft-cancelled" : "deleted", userId);
     }
 
     public async Task<IReadOnlyList<ShiftRoomDto>> GetRoomsAsync(CancellationToken ct = default)

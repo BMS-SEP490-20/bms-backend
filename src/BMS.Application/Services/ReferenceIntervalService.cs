@@ -1,26 +1,36 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Roles;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
+using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
 /// <summary>
 /// Clinical application service implementing laboratory reference interval configurations and auto-flagging engine (UC57).
-/// Fully adheres to: BR-LAB-02 (Biological Reference Intervals), BR-LAB-03 (Panic Values) and ISO 15189:2022.
+/// Fully adheres to: BR-LAB-02 (Biological Reference Intervals), BR-LAB-03 (Panic Values), ISO 15189:2022 and ISO 27789:2021.
 /// </summary>
 public class ReferenceIntervalService : IReferenceIntervalService
 {
     private readonly IReferenceIntervalRepository _repository;
     private readonly BMS.Core.Interfaces.ITestCriterionRepository _criterionRepository;
+    private readonly IMongoDatabase? _db;
 
     public ReferenceIntervalService(
         IReferenceIntervalRepository repository,
-        BMS.Core.Interfaces.ITestCriterionRepository criterionRepository)
+        BMS.Core.Interfaces.ITestCriterionRepository criterionRepository,
+        IMongoDatabase? db = null)
     {
         _repository = repository;
         _criterionRepository = criterionRepository;
+        _db = db;
     }
 
     public async Task<PagedResult<ReferenceIntervalResponseDto>> GetIntervalsPagedAsync(
@@ -63,26 +73,97 @@ public class ReferenceIntervalService : IReferenceIntervalService
 
     public async Task<(bool Success, string Message, ReferenceIntervalResponseDto? Data)> CreateIntervalAsync(
         CreateReferenceIntervalDto dto,
+        string? currentUserId = null,
+        string? currentUserName = null,
         CancellationToken ct = default)
     {
-        var normalizedCode = dto.CriterionCode.Trim().ToUpperInvariant();
+        var testId = !string.IsNullOrWhiteSpace(dto.TestId) 
+            ? dto.TestId.Trim() 
+            : (!string.IsNullOrWhiteSpace(dto.CriterionCode) ? dto.CriterionCode.Trim() : dto.CriterionId?.Trim() ?? string.Empty);
 
-        // 1. Validate age and numerical bounds
-        var validation = ValidateIntervalBounds(dto.AgeMin, dto.AgeMax, dto.NormalMin, dto.NormalMax, dto.PanicLow, dto.PanicHigh);
+        if (string.IsNullOrWhiteSpace(testId))
+        {
+            return (false, "Mã xét nghiệm (TestId / CriterionCode) là bắt buộc.", null);
+        }
+
+        var normalizedCode = testId.ToUpperInvariant();
+        var lowerLimit = dto.LowerLimit ?? dto.NormalMin;
+        var upperLimit = dto.UpperLimit ?? dto.NormalMax;
+
+        // 1. Validate age and numerical bounds (LowerLimit <= UpperLimit)
+        var validation = ValidateIntervalBounds(dto.AgeMin, dto.AgeMax, lowerLimit, upperLimit, dto.PanicLow, dto.PanicHigh);
         if (!validation.IsValid)
         {
             return (false, validation.Message, null);
         }
 
-        // 2. Check criterion existence and enrich metadata
+        // 2. Check criterion existence and verify unit compatibility (ISO 15189 / Business Logic)
         var criterion = await _criterionRepository.GetByCodeAsync(normalizedCode, ct);
-        var criterionId = dto.CriterionId ?? criterion?.Id ?? string.Empty;
+        if (criterion == null && normalizedCode.StartsWith("TEST-"))
+        {
+            criterion = await _criterionRepository.GetByCodeAsync(normalizedCode.Replace("TEST-", ""), ct);
+        }
+
+        if (criterion != null && !string.IsNullOrWhiteSpace(criterion.Unit) && !string.IsNullOrWhiteSpace(dto.Unit))
+        {
+            if (!IsUnitCompatible(criterion.Unit, dto.Unit))
+            {
+                return (false, $"Đơn vị đo '{dto.Unit}' không tương thích với xét nghiệm '{normalizedCode}' (Đơn vị xét nghiệm: '{criterion.Unit}').", null);
+            }
+        }
+
+        var criterionId = dto.CriterionId ?? criterion?.Id ?? normalizedCode;
         var criterionName = !string.IsNullOrWhiteSpace(dto.CriterionName) 
             ? dto.CriterionName.Trim() 
             : (criterion?.CriterionName ?? normalizedCode);
         var unit = !string.IsNullOrWhiteSpace(dto.Unit)
             ? dto.Unit.Trim()
             : (criterion?.Unit ?? string.Empty);
+
+        // 2b. Chặn tạo trùng lặp: Mỗi loại Chỉ Số Xét Nghiệm chỉ có tối đa 2 khoảng tham chiếu (1 Nam, 1 Nữ)
+        var targetGender = NormalizeGender(dto.Gender);
+        if (targetGender != "Male" && targetGender != "Female")
+        {
+            return (false, "Giới tính áp dụng cho khoảng tham chiếu phải là 'Nam' (Male) hoặc 'Nữ' (Female).", null);
+        }
+
+        var existingIntervals = await _repository.GetByCriterionCodeAsync(normalizedCode, activeOnly: false, ct);
+        var activeIntervals = existingIntervals.Where(x => !x.IsDeleted && x.IsActive).ToList();
+
+        // 1. Kiểm tra xem đã có khoảng tham chiếu cho giới tính này chưa
+        var duplicateGender = activeIntervals.FirstOrDefault(x => 
+            string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
+
+        if (duplicateGender != null)
+        {
+            var genderVi = targetGender == "Male" ? "Nam" : "Nữ";
+            return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateGender.Id}). Mỗi loại chỉ số xét nghiệm chỉ được cấu hình tối đa 2 khoảng tham chiếu: 1 cho Nam và 1 cho Nữ.", null);
+        }
+
+        // 2. Kiểm tra tổng số lượng: Tối đa 2 khoảng (1 Nam, 1 Nữ)
+        if (activeIntervals.Count >= 2)
+        {
+            return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có đủ 2 khoảng tham chiếu (1 Nam, 1 Nữ). Không thể tạo thêm khoảng tham chiếu mới cho chỉ số này (vui lòng chỉnh sửa khoảng tham chiếu hiện có thay vì tạo mới).", null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(criterionId) && !criterionId.Equals(normalizedCode, StringComparison.OrdinalIgnoreCase))
+        {
+            var byId = await _repository.GetByCriterionIdAsync(criterionId, activeOnly: false, ct);
+            var activeById = byId.Where(x => !x.IsDeleted && x.IsActive).ToList();
+            var duplicateById = activeById.FirstOrDefault(x =>
+                string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
+            if (duplicateById != null)
+            {
+                var genderVi = targetGender == "Male" ? "Nam" : "Nữ";
+                return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateById.Id}). Mỗi loại chỉ số xét nghiệm chỉ được cấu hình tối đa 2 khoảng tham chiếu: 1 cho Nam và 1 cho Nữ.", null);
+            }
+            if (activeById.Count >= 2)
+            {
+                return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có đủ 2 khoảng tham chiếu (1 Nam, 1 Nữ). Không thể tạo thêm khoảng tham chiếu mới cho chỉ số này.", null);
+            }
+        }
 
         // 3. Generate demographic label if missing
         var demographicLabel = !string.IsNullOrWhiteSpace(dto.DemographicLabel)
@@ -100,26 +181,62 @@ public class ReferenceIntervalService : IReferenceIntervalService
             AgeMax = dto.AgeMax,
             AgeUnit = string.IsNullOrWhiteSpace(dto.AgeUnit) ? "Years" : dto.AgeUnit.Trim(),
             DemographicLabel = demographicLabel,
-            NormalMin = dto.NormalMin,
-            NormalMax = dto.NormalMax,
+            NormalMin = lowerLimit,
+            NormalMax = upperLimit,
             NormalText = dto.NormalText?.Trim(),
             PanicLow = dto.PanicLow,
             PanicHigh = dto.PanicHigh,
             Condition = string.IsNullOrWhiteSpace(dto.Condition) ? "General" : dto.Condition.Trim(),
             StandardAuthority = string.IsNullOrWhiteSpace(dto.StandardAuthority) ? "Quyết định 2429/QĐ-BYT" : dto.StandardAuthority.Trim(),
             Notes = dto.Notes?.Trim() ?? string.Empty,
-            IsActive = dto.IsActive,
+            EffectiveFrom = dto.EffectiveFrom ?? DateTime.UtcNow,
+            EffectiveTo = dto.EffectiveTo,
+            Status = !string.IsNullOrWhiteSpace(dto.Status) ? dto.Status.Trim().ToUpperInvariant() : "ACTIVE",
+            CreatedBy = currentUserId ?? dto.CreatedBy ?? "System",
+            ApprovedBy = dto.ApprovedBy?.Trim(),
+            Version = 1,
+            PreviousVersions = new List<ReferenceIntervalVersionSnapshot>(),
+            IsActive = dto.IsActive && (!string.Equals(dto.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase)),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
         var created = await _repository.CreateAsync(entity, ct);
+
+        // ISO 27789 Audit Trail for creation
+        if (_db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = currentUserId ?? dto.CreatedBy ?? "System",
+                    UserName = currentUserName ?? currentUserId ?? "LabStaff",
+                    UserRole = RoleNames.Manager,
+                    Action = "CREATE_REFERENCE_INTERVAL",
+                    Category = "LAB_CONFIGURATION",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "ReferenceInterval",
+                    EntityId = created.Id,
+                    Details = $"Cấu hình mới khoảng tham chiếu cho xét nghiệm {created.CriterionCode} ({created.Gender}, {created.AgeMin}-{created.AgeMax} {created.AgeUnit}): {created.NormalMin} - {created.NormalMax} {created.Unit}."
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
+
         return (true, "Khoảng tham chiếu sinh học đã được cấu hình thành công.", MapToDto(created));
     }
 
     public async Task<(bool Success, string Message, ReferenceIntervalResponseDto? Data)> UpdateIntervalAsync(
         string id,
         UpdateReferenceIntervalDto dto,
+        string? currentUserId = null,
+        string? currentUserName = null,
         CancellationToken ct = default)
     {
         var existing = await _repository.GetByIdAsync(id, ct);
@@ -128,12 +245,66 @@ public class ReferenceIntervalService : IReferenceIntervalService
             return (false, "Không tìm thấy khoảng tham chiếu cần cập nhật.", null);
         }
 
-        var validation = ValidateIntervalBounds(dto.AgeMin, dto.AgeMax, dto.NormalMin, dto.NormalMax, dto.PanicLow, dto.PanicHigh);
+        var lowerLimit = dto.LowerLimit ?? dto.NormalMin;
+        var upperLimit = dto.UpperLimit ?? dto.NormalMax;
+
+        var validation = ValidateIntervalBounds(dto.AgeMin, dto.AgeMax, lowerLimit, upperLimit, dto.PanicLow, dto.PanicHigh);
         if (!validation.IsValid)
         {
             return (false, validation.Message, null);
         }
 
+        // Unit compatibility check
+        if (!string.IsNullOrWhiteSpace(dto.Unit) && !string.IsNullOrWhiteSpace(existing.Unit))
+        {
+            if (!IsUnitCompatible(existing.Unit, dto.Unit))
+            {
+                return (false, $"Đơn vị đo '{dto.Unit}' không tương thích với xét nghiệm '{existing.CriterionCode}' (Đơn vị xét nghiệm: '{existing.Unit}').", null);
+            }
+        }
+
+        // Chặn trùng lặp giới tính khi cập nhật: Mỗi chỉ số xét nghiệm chỉ có 1 Nam và 1 Nữ
+        var newGender = NormalizeGender(dto.Gender);
+        if (newGender != "Male" && newGender != "Female")
+        {
+            return (false, "Giới tính áp dụng cho khoảng tham chiếu phải là 'Nam' (Male) hoặc 'Nữ' (Female).", null);
+        }
+
+        if (!string.Equals(existing.Gender, newGender, StringComparison.OrdinalIgnoreCase))
+        {
+            var existingIntervals = await _repository.GetByCriterionCodeAsync(existing.CriterionCode, activeOnly: false, ct);
+            var duplicateGender = existingIntervals.FirstOrDefault(x =>
+                !x.IsDeleted &&
+                x.IsActive &&
+                x.Id != id &&
+                (string.Equals(x.Gender, newGender, StringComparison.OrdinalIgnoreCase) || string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase)));
+
+            if (duplicateGender != null)
+            {
+                var genderVi = newGender == "Male" ? "Nam" : "Nữ";
+                return (false, $"Không thể đổi giới tính sang {genderVi} vì chỉ số '{existing.CriterionCode}' đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateGender.Id}). Mỗi loại chỉ số chỉ được cấu hình tối đa 1 khoảng cho Nam và 1 khoảng cho Nữ.", null);
+            }
+        }
+
+        // Archive prior version into PreviousVersions (Version Control / Audit Trail)
+        existing.PreviousVersions.Add(new ReferenceIntervalVersionSnapshot
+        {
+            Version = existing.Version,
+            LowerLimit = existing.NormalMin,
+            UpperLimit = existing.NormalMax,
+            Unit = existing.Unit,
+            Gender = existing.Gender,
+            AgeMin = existing.AgeMin,
+            AgeMax = existing.AgeMax,
+            EffectiveFrom = existing.EffectiveFrom,
+            EffectiveTo = DateTime.UtcNow,
+            Status = existing.Status,
+            ChangedBy = currentUserId ?? "System",
+            ChangedAt = DateTime.UtcNow,
+            ChangeReason = dto.ChangeReason ?? "Cập nhật khoảng tham chiếu"
+        });
+
+        existing.Version++;
         if (!string.IsNullOrWhiteSpace(dto.CriterionName))
             existing.CriterionName = dto.CriterionName.Trim();
 
@@ -149,8 +320,8 @@ public class ReferenceIntervalService : IReferenceIntervalService
             ? dto.DemographicLabel.Trim()
             : GenerateDemographicLabel(existing.Gender, existing.AgeMin, existing.AgeMax, existing.AgeUnit, dto.Condition);
 
-        existing.NormalMin = dto.NormalMin;
-        existing.NormalMax = dto.NormalMax;
+        existing.NormalMin = lowerLimit;
+        existing.NormalMax = upperLimit;
         existing.NormalText = dto.NormalText?.Trim();
         existing.PanicLow = dto.PanicLow;
         existing.PanicHigh = dto.PanicHigh;
@@ -161,16 +332,65 @@ public class ReferenceIntervalService : IReferenceIntervalService
         if (!string.IsNullOrWhiteSpace(dto.StandardAuthority))
             existing.StandardAuthority = dto.StandardAuthority.Trim();
 
-        existing.Notes = dto.Notes?.Trim() ?? string.Empty;
-        existing.IsActive = dto.IsActive;
+        if (!string.IsNullOrWhiteSpace(dto.Notes))
+            existing.Notes = dto.Notes.Trim();
+
+        if (dto.EffectiveFrom.HasValue)
+            existing.EffectiveFrom = dto.EffectiveFrom.Value;
+
+        if (dto.EffectiveTo.HasValue)
+            existing.EffectiveTo = dto.EffectiveTo.Value;
+
+        if (!string.IsNullOrWhiteSpace(dto.Status))
+        {
+            existing.Status = dto.Status.Trim().ToUpperInvariant();
+            existing.IsActive = !string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) && dto.IsActive;
+        }
+        else
+        {
+            existing.IsActive = dto.IsActive;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.ApprovedBy))
+            existing.ApprovedBy = dto.ApprovedBy.Trim();
+
         existing.UpdatedAt = DateTime.UtcNow;
 
         var updated = await _repository.UpdateAsync(existing, ct);
+
+        // ISO 27789 Audit Trail for modification
+        if (_db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = currentUserId ?? "System",
+                    UserName = currentUserName ?? currentUserId ?? "LabStaff",
+                    UserRole = RoleNames.Manager,
+                    Action = "UPDATE_REFERENCE_INTERVAL",
+                    Category = "LAB_CONFIGURATION",
+                    Severity = "INFO",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "ReferenceInterval",
+                    EntityId = existing.Id,
+                    Details = $"Cập nhật khoảng tham chiếu {existing.CriterionCode} sang Phiên bản {existing.Version} ({existing.Gender}, {existing.AgeMin}-{existing.AgeMax} {existing.AgeUnit}): {existing.NormalMin} - {existing.NormalMax} {existing.Unit}."
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
+
         return (true, "Cập nhật khoảng tham chiếu thành công.", MapToDto(updated!));
     }
 
     public async Task<(bool Success, string Message)> DeactivateIntervalAsync(
         string id,
+        string? currentUserId = null,
+        string? currentUserName = null,
         CancellationToken ct = default)
     {
         var existing = await _repository.GetByIdAsync(id, ct);
@@ -180,6 +400,31 @@ public class ReferenceIntervalService : IReferenceIntervalService
         }
 
         var deactivated = await _repository.DeactivateAsync(id, ct);
+        if (deactivated && _db != null)
+        {
+            try
+            {
+                var auditCol = _db.GetCollection<AuditLog>("audit_logs");
+                await auditCol.InsertOneAsync(new AuditLog
+                {
+                    AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6]}",
+                    Timestamp = DateTime.UtcNow,
+                    UserId = currentUserId ?? "System",
+                    UserName = currentUserName ?? currentUserId ?? "LabStaff",
+                    UserRole = RoleNames.Manager,
+                    Action = "DEACTIVATE_REFERENCE_INTERVAL",
+                    Category = "LAB_CONFIGURATION",
+                    Severity = "WARNING",
+                    Status = "SUCCESS",
+                    IpAddress = "127.0.0.1",
+                    TargetEntity = "ReferenceInterval",
+                    EntityId = id,
+                    Details = $"Khóa khoảng tham chiếu {existing.CriterionCode} ({existing.DemographicLabel}). Dữ liệu lịch sử xét nghiệm cũ được bảo toàn."
+                }, cancellationToken: ct);
+            }
+            catch { }
+        }
+
         return deactivated
             ? (true, "Khoảng tham chiếu đã được khóa an toàn (dữ liệu kết quả lịch sử được bảo toàn).")
             : (false, "Không thể khóa khoảng tham chiếu.");
@@ -339,6 +584,33 @@ public class ReferenceIntervalService : IReferenceIntervalService
         return (true, string.Empty);
     }
 
+    private static bool IsUnitCompatible(string testUnit, string inputUnit)
+    {
+        if (string.IsNullOrWhiteSpace(testUnit) || string.IsNullOrWhiteSpace(inputUnit)) return true;
+        var u1 = testUnit.Trim().ToLowerInvariant();
+        var u2 = inputUnit.Trim().ToLowerInvariant();
+        if (u1 == u2) return true;
+
+        // Known compatible laboratory unit groups (e.g. concentration equivalents)
+        string[][] compatibleGroups = new[]
+        {
+            new[] { "mmol/l", "mg/dl", "mg/l", "g/l" },
+            new[] { "g/dl", "g/l", "mg/dl" },
+            new[] { "u/l", "iu/l", "ukat/l" },
+            new[] { "10^9/l", "g/l", "k/ul", "/ul", "cells/ul" },
+            new[] { "10^12/l", "t/l", "m/ul" },
+            new[] { "%", "percent", "tỉ lệ" },
+            new[] { "sec", "s", "giây" }
+        };
+
+        foreach (var group in compatibleGroups)
+        {
+            if (group.Contains(u1) && group.Contains(u2)) return true;
+        }
+
+        return false;
+    }
+
     private static string NormalizeGender(string? gender)
     {
         if (string.IsNullOrWhiteSpace(gender)) return "All";
@@ -408,6 +680,7 @@ public class ReferenceIntervalService : IReferenceIntervalService
         return new ReferenceIntervalResponseDto
         {
             Id = entity.Id,
+            TestId = entity.TestId,
             CriterionId = entity.CriterionId,
             CriterionCode = entity.CriterionCode,
             CriterionName = entity.CriterionName,
@@ -417,6 +690,8 @@ public class ReferenceIntervalService : IReferenceIntervalService
             AgeMax = entity.AgeMax,
             AgeUnit = entity.AgeUnit,
             DemographicLabel = entity.DemographicLabel,
+            LowerLimit = entity.NormalMin,
+            UpperLimit = entity.NormalMax,
             NormalMin = entity.NormalMin,
             NormalMax = entity.NormalMax,
             NormalText = entity.NormalText,
@@ -427,6 +702,13 @@ public class ReferenceIntervalService : IReferenceIntervalService
             Condition = entity.Condition,
             StandardAuthority = entity.StandardAuthority,
             Notes = entity.Notes,
+            EffectiveFrom = entity.EffectiveFrom,
+            EffectiveTo = entity.EffectiveTo,
+            Status = entity.Status,
+            CreatedBy = entity.CreatedBy,
+            ApprovedBy = entity.ApprovedBy,
+            Version = entity.Version,
+            PreviousVersions = entity.PreviousVersions ?? new List<ReferenceIntervalVersionSnapshot>(),
             IsActive = entity.IsActive,
             CreatedAt = entity.CreatedAt.ToString("dd/MM/yyyy HH:mm"),
             UpdatedAt = entity.UpdatedAt.ToString("dd/MM/yyyy HH:mm")

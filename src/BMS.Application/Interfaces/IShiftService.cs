@@ -29,6 +29,7 @@ public interface IShiftService
 {
     Task<PagedResult<ShiftDto>> ListShiftsAsync(ShiftFilterRequest filter, CancellationToken ct = default);
     Task<ShiftDto> GetShiftByIdAsync(string id, CancellationToken ct = default);
+    Task<ShiftDto> GetShiftByIdAsync(string id, string? requesterUserId, bool isManagerOrAdmin, CancellationToken ct = default);
     Task<ShiftDto> CreateShiftAsync(CreateShiftRequest request, string? userId, CancellationToken ct = default);
     Task<ShiftDto> UpdateShiftAsync(string id, UpdateShiftRequest request, string? userId, CancellationToken ct = default);
     Task DeleteShiftAsync(string id, string? userId, CancellationToken ct = default);

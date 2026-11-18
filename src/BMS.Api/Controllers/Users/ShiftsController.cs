@@ -34,6 +34,13 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
     {
         try
         {
+            var isManagerOrAdmin = User.IsInRole(RoleNames.Admin) || User.IsInRole(RoleNames.Manager);
+            if (!isManagerOrAdmin)
+            {
+                filter.EmployeeId = CurrentUserId;
+                filter.DoctorId = CurrentUserId;
+            }
+
             var result = await shifts.ListShiftsAsync(filter, ct);
             return Ok(result);
         }
@@ -154,7 +161,8 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
     {
         try
         {
-            var result = await shifts.GetShiftByIdAsync(id, ct);
+            var isManagerOrAdmin = User.IsInRole(RoleNames.Admin) || User.IsInRole(RoleNames.Manager);
+            var result = await shifts.GetShiftByIdAsync(id, CurrentUserId, isManagerOrAdmin, ct);
             return Ok(result);
         }
         catch (AppException ex)
@@ -198,7 +206,7 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
         try
         {
             var created = await shifts.CreateShiftAsync(request, CurrentUserId, ct);
-            return CreatedAtAction(nameof(GetShiftById), new { id = created.Id }, created);
+            return StatusCode(StatusCodes.Status201Created, created);
         }
         catch (AppException ex)
         {

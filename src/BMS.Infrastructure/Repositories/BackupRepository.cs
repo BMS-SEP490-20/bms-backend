@@ -15,8 +15,8 @@ namespace BMS.Infrastructure.Repositories;
 
 /// <summary>
 /// Infrastructure repository for Backup and Restore operations (UC80 / BR-242).
-/// Supports MongoDB persistence with a thread-safe in-memory cache and medical seeds for resilient development.
-/// Conforms to: Production Medical Standards, ISO 15189 Quality Management & AGENTS-CODE.md.
+/// Supports live MongoDB collection export/import, health ping, cryptographic integrity verification,
+/// post-restore data verification, and automatic retention policy enforcement (ISO 27001 / ISO 25010).
 /// </summary>
 public class BackupRepository : IBackupRepository
 {
@@ -67,7 +67,7 @@ public class BackupRepository : IBackupRepository
                     },
                     EncryptionAlgorithm = "AES-256-GCM / SHA-256",
                     IsEncrypted = true,
-                    RetentionUntil = DateTime.UtcNow.AddYears(10),
+                    RetentionUntil = DateTime.UtcNow.AddDays(7),
                     Notes = "Sao lưu định kỳ dữ liệu kết quả phân tích huyết học và sinh hóa phòng Lab Cobas.",
                     CreatedAt = DateTime.UtcNow.AddDays(-1),
                     CreatedBy = "Hứa Khánh Duy (Lab Manager)",
@@ -99,42 +99,12 @@ public class BackupRepository : IBackupRepository
                     },
                     EncryptionAlgorithm = "AES-256-GCM / SHA-256",
                     IsEncrypted = true,
-                    RetentionUntil = DateTime.UtcNow.AddYears(10),
+                    RetentionUntil = DateTime.UtcNow.AddDays(7),
                     Notes = "Bản chụp sao lưu ban đêm tự động qua cron job hệ thống.",
                     CreatedAt = DateTime.UtcNow.AddDays(-2),
                     CreatedBy = "Hệ thống tự động",
                     CompletedAt = DateTime.UtcNow.AddDays(-2).AddMinutes(4),
                     LastVerifiedAt = DateTime.UtcNow.AddDays(-1)
-                },
-                new BackupRecord
-                {
-                    Id = "6724a001a1b2c3d4e5f60003",
-                    BackupId = "BKP-261015-0003",
-                    BackupName = "Lưu trữ phân hệ kết quả xét nghiệm & chỉ số tham chiếu Q3/2026",
-                    Scope = BackupScope.PatientTestResults,
-                    BackupType = BackupType.Manual,
-                    Status = BackupStatus.Restored,
-                    FilePath = "App_Data/Backups/BKP-261015-0003.json.gz",
-                    FileName = "BKP-261015-0003.json.gz",
-                    FileSizeBytes = 2202009, // 2.1 MB
-                    ChecksumSha256 = "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
-                    TotalRecords = 340,
-                    CollectionBreakdown = new Dictionary<string, int>
-                    {
-                        { "test_results", 195 },
-                        { "blood_samples", 90 },
-                        { "test_orders", 55 }
-                    },
-                    EncryptionAlgorithm = "AES-256-GCM / SHA-256",
-                    IsEncrypted = true,
-                    RetentionUntil = DateTime.UtcNow.AddYears(10),
-                    Notes = "Lưu trữ định kỳ sau đợt đánh giá chứng nhận ISO 15189.",
-                    CreatedAt = DateTime.UtcNow.AddDays(-6),
-                    CreatedBy = "Hứa Khánh Duy (Lab Manager)",
-                    CompletedAt = DateTime.UtcNow.AddDays(-6).AddMinutes(3),
-                    LastVerifiedAt = DateTime.UtcNow.AddDays(-3),
-                    LastRestoredAt = DateTime.UtcNow.AddDays(-1),
-                    LastRestoredBy = "Võ Gia Huy (System Admin)"
                 }
             };
 
@@ -143,24 +113,24 @@ public class BackupRepository : IBackupRepository
                 _inMemoryBackups[b.BackupId] = b;
             }
 
-            var restoreSeed = new RestoreAuditLog
-            {
-                Id = "6724b001a1b2c3d4e5f60001",
-                RestoreId = "RST-261020-0001",
-                BackupId = "BKP-261015-0003",
-                RestoredBy = "Võ Gia Huy",
-                RestoredByRole = "Admin",
-                Status = RestoreStatus.Completed,
-                ChecksumVerified = true,
-                TotalRecordsRestored = 340,
-                IsDryRun = false,
-                ValidationNotes = "Xác thực mã băm SHA-256 khớp 100%. Khôi phục thành công 340 bản ghi xét nghiệm.",
-                ExecutedAt = DateTime.UtcNow.AddDays(-1),
-                DurationMs = 1845
-            };
-            _inMemoryRestores[restoreSeed.RestoreId] = restoreSeed;
-
             _seeded = true;
+        }
+    }
+
+    public async Task<bool> PingDatabaseAsync(CancellationToken ct = default)
+    {
+        if (_context.Database == null) return false;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(2));
+            await _context.Database.RunCommandAsync((Command<BsonDocument>)"{ ping: 1 }", cancellationToken: cts.Token);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Backup Repo] Database ping check failed.");
+            return false;
         }
     }
 
@@ -429,4 +399,152 @@ public class BackupRepository : IBackupRepository
             { "TotalStorageMb", totalMb }
         };
     }
+
+    public async Task<Dictionary<string, List<BsonDocument>>> ExportCollectionsAsync(BackupScope scope, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, List<BsonDocument>>();
+        if (_context.Database == null) return result;
+
+        var targetCollections = GetScopeCollections(scope);
+        foreach (var colName in targetCollections)
+        {
+            try
+            {
+                var col = _context.Database.GetCollection<BsonDocument>(colName);
+                var docs = await col.Find(Builders<BsonDocument>.Filter.Empty).Limit(5000).ToListAsync(ct);
+                result[colName] = docs;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Backup Repo] Failed to export collection '{ColName}'.", colName);
+                result[colName] = new List<BsonDocument>();
+            }
+        }
+        return result;
+    }
+
+    public async Task<Dictionary<string, int>> ImportCollectionsAsync(Dictionary<string, List<BsonDocument>> data, bool overwrite, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, int>();
+        if (_context.Database == null) return result;
+
+        foreach (var (colName, docs) in data)
+        {
+            if (docs == null || docs.Count == 0) continue;
+            try
+            {
+                var col = _context.Database.GetCollection<BsonDocument>(colName);
+                int imported = 0;
+                if (overwrite)
+                {
+                    // Full snapshot overwrite: Clear existing documents to restore true point-in-time state
+                    await col.DeleteManyAsync(Builders<BsonDocument>.Filter.Empty, ct);
+                    if (docs.Count > 0)
+                    {
+                        await col.InsertManyAsync(docs, cancellationToken: ct);
+                        imported = docs.Count;
+                    }
+                }
+                else
+                {
+                    foreach (var doc in docs)
+                    {
+                        if (doc.Contains("_id"))
+                        {
+                            var filter = Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]);
+                            var exists = await col.CountDocumentsAsync(filter, cancellationToken: ct) > 0;
+                            if (!exists)
+                            {
+                                await col.InsertOneAsync(doc, cancellationToken: ct);
+                                imported++;
+                            }
+                        }
+                        else
+                        {
+                            await col.InsertOneAsync(doc, cancellationToken: ct);
+                            imported++;
+                        }
+                    }
+                }
+                result[colName] = imported;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Backup Repo] Error restoring collection '{ColName}'.", colName);
+                result[colName] = 0;
+            }
+        }
+        return result;
+    }
+
+    public async Task<Dictionary<string, int>> VerifyCollectionsRecordCountAsync(IEnumerable<string> collections, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, int>();
+        if (_context.Database == null) return result;
+
+        foreach (var colName in collections)
+        {
+            try
+            {
+                var col = _context.Database.GetCollection<BsonDocument>(colName);
+                var count = await col.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: ct);
+                result[colName] = (int)count;
+            }
+            catch
+            {
+                result[colName] = 0;
+            }
+        }
+        return result;
+    }
+
+    public async Task<int> EnforceRetentionPolicyAsync(int maxRetainedBackups = 7, CancellationToken ct = default)
+    {
+        int pruned = 0;
+        if (_context.BackupRecords != null)
+        {
+            try
+            {
+                var all = await _context.BackupRecords
+                    .Find(Builders<BackupRecord>.Filter.Empty)
+                    .SortByDescending(x => x.CreatedAt)
+                    .ToListAsync(ct);
+
+                if (all.Count > maxRetainedBackups)
+                {
+                    var toPrune = all.Skip(maxRetainedBackups).ToList();
+                    foreach (var old in toPrune)
+                    {
+                        await _context.BackupRecords.DeleteOneAsync(x => x.Id == old.Id || x.BackupId == old.BackupId, ct);
+                        _inMemoryBackups.TryRemove(old.BackupId, out _);
+                        pruned++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Backup Repo] Retention policy enforcement failed on DB.");
+            }
+        }
+
+        var inMemList = _inMemoryBackups.Values.OrderByDescending(x => x.CreatedAt).ToList();
+        if (inMemList.Count > maxRetainedBackups)
+        {
+            foreach (var old in inMemList.Skip(maxRetainedBackups))
+            {
+                _inMemoryBackups.TryRemove(old.BackupId, out _);
+                pruned++;
+            }
+        }
+
+        return pruned;
+    }
+
+    private static List<string> GetScopeCollections(BackupScope scope) => scope switch
+    {
+        BackupScope.PatientTestResults => new List<string> { "test_results", "blood_samples", "patients", "test_orders", "medical_assessments" },
+        BackupScope.ClinicalRecords => new List<string> { "test_results", "blood_samples", "patients", "test_orders", "medical_assessments", "test_criteria", "reference_intervals" },
+        BackupScope.LaboratoryMasterData => new List<string> { "test_criteria", "reference_intervals", "service_packages", "roles" },
+        _ => new List<string> { "accounts", "roles", "test_criteria", "reference_intervals", "test_results", "blood_samples", "patients", "test_orders", "medical_assessments", "audit_logs" }
+    };
 }

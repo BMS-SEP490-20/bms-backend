@@ -1,17 +1,24 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
 using BMS.Api.Authorization;
 using BMS.Core.Constants;
 using BMS.Core.Exceptions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using BMS.Infrastructure.Data;
-using System.Security.Claims;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Notifications;
 using BMS.Application.DTOs.Roles;
 using BMS.Application.DTOs.Users;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace BMS.Api.Controllers.Notifications;
 
@@ -69,7 +76,13 @@ public class TestResultNotificationsController : ControllerBase
 
             if (!success)
             {
-                return BadRequest(ApiResponse<object>.Fail(message, "MSG-ERR-DISPATCH-FAILED"));
+                return BadRequest(new ApiResponse<TestResultNotificationDetailDto>
+                {
+                    Success = false,
+                    MessageCode = "MSG-ERR-DISPATCH-FAILED",
+                    Message = message,
+                    Data = data
+                });
             }
 
             return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(data!, message));
@@ -119,6 +132,7 @@ public class TestResultNotificationsController : ControllerBase
     [Authorize(Roles = RoleSets.LabManagerOrPatient)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetNotificationById(
         string id,
@@ -127,13 +141,17 @@ public class TestResultNotificationsController : ControllerBase
         try
         {
             var result = await _notificationService.GetNotificationByIdAsync(id, ct);
-            // A patient asking for someone else's notification gets the same 404 as a missing one (anti-BOLA, R14).
-            if (result != null && !await this.MayAccessPatientAsync(result.PatientId, ct)) result = null;
             if (result == null)
             {
                 return NotFound(ApiResponse<object>.Fail(
                     $"Không tìm thấy thông báo kết quả xét nghiệm với mã '{id}'.",
                     "MSG-ERR-NOTIF-NOT-FOUND"));
+            }
+
+            if (User.IsInRole(RoleNames.Patient) && !await this.MayAccessPatientAsync(result.PatientId, ct))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    ApiResponse<object>.Fail("Bạn không có quyền truy cập thông báo kết quả xét nghiệm của bệnh nhân khác.", "MSG-ERR-FORBIDDEN"));
             }
 
             return Ok(ApiResponse<TestResultNotificationDetailDto>.Ok(result, "Tải chi tiết thông báo thành công."));
@@ -155,13 +173,13 @@ public class TestResultNotificationsController : ControllerBase
     [Authorize(Roles = RoleNames.Patient)]
     [HttpGet("patient/{patientId}")]
     [ProducesResponseType(typeof(ApiResponse<List<TestResultNotificationDetailDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetPatientNotifications(
         string patientId,
         CancellationToken ct = default)
     {
         try
         {
-            // WHY (R14, smoke SMK-BN-08): patientId is in the URL, so ownership is checked against the token account.
             if (!await this.MayAccessPatientAsync(patientId, ct))
             {
                 return StatusCode(StatusCodes.Status403Forbidden,
@@ -387,7 +405,6 @@ public class TestResultNotificationsController : ControllerBase
                         ? s["test_package_name"].AsString
                         : "Xét nghiệm sinh hóa / huyết học";
 
-                    // Check if there is a matching test_result for conclusion or panic alert
                     var matchingRes = approvedResults.FirstOrDefault(r =>
                         (r.Contains("sample_id") && r["sample_id"].AsString.Equals(s["_id"].AsString, StringComparison.OrdinalIgnoreCase)) ||
                         (r.Contains("patient_id") && r["patient_id"].AsString.Equals(patientId, StringComparison.OrdinalIgnoreCase)));
@@ -443,5 +460,4 @@ public class TestResultNotificationsController : ControllerBase
 
         return Ok(ApiResponse<List<CompletedTestPatientDto>>.Ok(result, "Tải danh sách bệnh nhân hoàn thành xét nghiệm thành công."));
     }
-
 }

@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using BMS.Application.DTOs.Laboratory;
 using BMS.Application.DTOs.Roles;
 
@@ -23,15 +26,21 @@ public interface IReferenceIntervalService
 
     Task<(bool Success, string Message, ReferenceIntervalResponseDto? Data)> CreateIntervalAsync(
         CreateReferenceIntervalDto dto,
+        string? currentUserId = null,
+        string? currentUserName = null,
         CancellationToken ct = default);
 
     Task<(bool Success, string Message, ReferenceIntervalResponseDto? Data)> UpdateIntervalAsync(
         string id,
         UpdateReferenceIntervalDto dto,
+        string? currentUserId = null,
+        string? currentUserName = null,
         CancellationToken ct = default);
 
     Task<(bool Success, string Message)> DeactivateIntervalAsync(
         string id,
+        string? currentUserId = null,
+        string? currentUserName = null,
         CancellationToken ct = default);
 
     Task<EvaluateTestResultResponseDto> EvaluateResultAsync(

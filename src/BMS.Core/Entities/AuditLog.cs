@@ -29,7 +29,7 @@ namespace BMS.Core.Entities
         public string UserName { get; set; } = null!;
 
         /// <summary>Role name of the actor at the time of the event.</summary>
-        public string UserRole { get; set; } = null!;
+        public string? UserRole { get; set; }
 
         /// <summary>Action code, e.g. LOGIN, VIEW_RESULT.</summary>
         public string Action { get; set; } = null!;

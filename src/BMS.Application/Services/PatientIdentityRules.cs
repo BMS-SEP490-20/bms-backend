@@ -16,9 +16,18 @@ public static partial class PatientIdentityRules
     [GeneratedRegex(@"^0[35789]\d{8}$")]
     public static partial Regex Phone();
 
-    /// <summary>Throws 400 when CCCD (if given) or phone break the format rules.</summary>
-    public static void Validate(string? cccd, string phone)
+    /// <summary>Throws 400 when CCCD (if given), phone, or date of birth break the format/clinical rules.</summary>
+    public static void Validate(string? cccd, string phone, System.DateTime? dateOfBirth = null)
     {
+        if (dateOfBirth.HasValue)
+        {
+            var today = System.DateTime.UtcNow.Date;
+            if (dateOfBirth.Value.Date > today)
+                throw new DomainValidationException("MSG-ERR-REC-02", "Ngày sinh của bệnh nhân không được vượt quá thời điểm hiện tại.");
+            if (dateOfBirth.Value.Year < 1900)
+                throw new DomainValidationException("MSG-ERR-REC-05", "Ngày sinh không hợp lệ (phải từ năm 1900 trở đi).");
+        }
+
         if (!string.IsNullOrWhiteSpace(cccd) && !Cccd().IsMatch(cccd.Trim()))
             throw new DomainValidationException("MSG-ERR-REC-03", "Số CCCD phải gồm đúng 12 chữ số.");
         if (!Phone().IsMatch(phone.Trim()))

@@ -101,6 +101,10 @@ public class SpecimenHistoryDetailDto
     public SpecimenStorageInfoDto Storage { get; set; } = new();
     public string Notes { get; set; } = string.Empty;
     public string? RejectionReason { get; set; }
+    public bool IsRejected { get; set; }
+    public string? QcStatus { get; set; } = "Passed";
+    public string? ReceivedBy { get; set; }
+    public string? ReceivedAt { get; set; }
 }
 
 /// <summary>

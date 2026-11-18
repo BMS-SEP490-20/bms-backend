@@ -22,6 +22,12 @@ public class ServicePackage
     public decimal Price { get; set; }
     public decimal? DiscountPrice { get; set; }
 
+    /// <summary>Giá vốn nội bộ (chỉ quản trị viên/kế toán xem, bảo vệ theo OWASP Data Protection).</summary>
+    public decimal? CostPrice { get; set; }
+
+    /// <summary>Ghi chú nội bộ cho quản lý / cấu hình phòng Lab.</summary>
+    public string? InternalNotes { get; set; }
+
     public List<ServicePackageTest> Tests { get; set; } = new();
 
     /// <summary>Đang được bán/cho phép đặt hay không.</summary>

@@ -8,7 +8,7 @@ public class RegisterRequestDto
     [StringLength(100, MinimumLength = 2)]
     public string FullName { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "Email là bắt buộc")]
+    [Required(ErrorMessage = "Email hoặc tên đăng nhập là bắt buộc")]
     [EmailAddress(ErrorMessage = "Định dạng email không hợp lệ")]
     public string Email { get; set; } = string.Empty;
 
@@ -102,15 +102,15 @@ public class ChangePasswordDto
 
 public class ForgotPasswordDto
 {
-    [Required(ErrorMessage = "Email là bắt buộc")]
-    [EmailAddress(ErrorMessage = "Email không hợp lệ")]
+    [Required(ErrorMessage = "Email hoặc tên đăng nhập là bắt buộc")]
+
     public string Email { get; set; } = string.Empty;
 }
 
 public class ResetPasswordDto
 {
-    [Required(ErrorMessage = "Email là bắt buộc")]
-    [EmailAddress(ErrorMessage = "Email không hợp lệ")]
+    [Required(ErrorMessage = "Email hoặc tên đăng nhập là bắt buộc")]
+
     public string Email { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "Mã OTP là bắt buộc")]

@@ -75,7 +75,8 @@ public class TestResultItem
 }
 
 /// <summary>
-/// Represents a laboratory test result report sheet (UC24).
+/// Represents a laboratory test result report sheet (UC24 / UC75).
+/// Conforms to ISO 15189:2022 (versioning & analysis runs) and ISO 27789:2021.
 /// </summary>
 public class TestResult : ISupportInitialize
 {
@@ -108,6 +109,11 @@ public class TestResult : ISupportInitialize
         ApprovedAt ??= Date("approved_at");
         if (CreatedAt == default) CreatedAt = Date("created_at") ?? default;
         UpdatedAt ??= Date("updated_at");
+        if (AnalysisRun <= 1 && LegacyFields.TryGetValue("analysis_run", out var ar) && ar.IsInt32) AnalysisRun = ar.AsInt32;
+        if (Version <= 1 && LegacyFields.TryGetValue("version", out var vr) && vr.IsInt32) Version = vr.AsInt32;
+        if (string.IsNullOrEmpty(ParentResultId)) ParentResultId = Text("parent_result_id");
+        if (string.IsNullOrEmpty(RerunReason)) RerunReason = Text("rerun_reason");
+        if (!IsSuperseded && LegacyFields.TryGetValue("is_superseded", out var sup) && sup.IsBoolean) IsSuperseded = sup.AsBoolean;
     }
     [BsonId]
     public string Id { get; set; } = Guid.NewGuid().ToString();
@@ -138,6 +144,21 @@ public class TestResult : ISupportInitialize
 
     [BsonElement("status")]
     public string? Status { get; set; }
+
+    [BsonElement("analysisRun")]
+    public int AnalysisRun { get; set; } = 1;
+
+    [BsonElement("version")]
+    public int Version { get; set; } = 1;
+
+    [BsonElement("parentResultId")]
+    public string? ParentResultId { get; set; }
+
+    [BsonElement("rerunReason")]
+    public string? RerunReason { get; set; }
+
+    [BsonElement("isSuperseded")]
+    public bool IsSuperseded { get; set; }
 
     [BsonElement("enteredByUserId")]
     public string? EnteredByUserId { get; set; }

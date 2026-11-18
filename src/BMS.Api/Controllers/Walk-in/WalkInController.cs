@@ -1,9 +1,12 @@
 using BMS.Core.Constants;
+using BMS.Core.Exceptions;
 using System.Security.Claims;
 using BMS.WalkIn.DTOs;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Linq;
+using System.Collections.Generic;
 
 namespace BMS.WalkIn.Controllers;
 
@@ -35,12 +38,71 @@ public class WalkInController : ControllerBase
         CancellationToken ct)
     {
         if (!ModelState.IsValid)
-            return ValidationProblem(ModelState);
+        {
+            var errorsDict = ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .ToDictionary(
+                    k => k.Key,
+                    v => v.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
+                );
+            var errList = errorsDict.Values.SelectMany(x => x).Where(e => !string.IsNullOrWhiteSpace(e)).ToList();
+            var detailMsg = string.Join("; ", errList);
 
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue("sub");
-        var result = await _service.RegisterAsync(request, userId, ct);
-        return CreatedAtAction(nameof(LookupIdentity), new { identityNumber = result.IdentityNumber }, result);
+            return BadRequest(new ApiErrorResponse
+            {
+                Code = "VALIDATION_ERROR",
+                Message = !string.IsNullOrWhiteSpace(detailMsg) ? detailMsg : "Vui lòng điền đầy đủ các thông tin bắt buộc.",
+                Errors = errorsDict
+            });
+        }
+
+        try
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                         ?? User.FindFirstValue("sub");
+            var result = await _service.RegisterAsync(request, userId, ct);
+            return StatusCode(StatusCodes.Status201Created, result);
+        }
+        catch (PatientDuplicateException ex)
+        {
+            _logger.LogWarning("Đăng ký bệnh nhân vãng lai bị trùng: {Message} (Code: {Code})", ex.Message, ex.Code);
+            return StatusCode(StatusCodes.Status409Conflict, new ApiErrorResponse
+            {
+                Code = ex.Code,
+                Message = ex.Message,
+                Errors = new Dictionary<string, string[]>
+                {
+                    ["IdentityNumber"] = new[] { ex.Message }
+                }
+            });
+        }
+        catch (DomainValidationException ex)
+        {
+            _logger.LogWarning("Dữ liệu đăng ký bệnh nhân vãng lai không hợp lệ: {Message} (Code: {Code})", ex.Message, ex.Code);
+            return BadRequest(new ApiErrorResponse
+            {
+                Code = ex.Code,
+                Message = ex.Message
+            });
+        }
+        catch (AppException ex)
+        {
+            _logger.LogWarning("Lỗi nghiệp vụ khi đăng ký bệnh nhân vãng lai: {Message} (Code: {Code}, Status: {Status})", ex.Message, ex.Code, ex.StatusCode);
+            return StatusCode((int)ex.StatusCode, new ApiErrorResponse
+            {
+                Code = ex.Code,
+                Message = ex.Message
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi không xác định khi đăng ký bệnh nhân vãng lai");
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+            {
+                Code = "INTERNAL_ERROR",
+                Message = "Đã xảy ra lỗi hệ thống khi tiếp đón bệnh nhân vãng lai. Vui lòng thử lại sau."
+            });
+        }
     }
 
     [HttpGet("lookup/identity/{identityNumber}")]
@@ -49,8 +111,20 @@ public class WalkInController : ControllerBase
         string identityNumber,
         CancellationToken ct)
     {
-        var result = await _service.LookupByIdentityAsync(identityNumber, ct);
-        return Ok(result);
+        try
+        {
+            var result = await _service.LookupByIdentityAsync(identityNumber, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi tra cứu CCCD");
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse { Code = "INTERNAL_ERROR", Message = "Lỗi hệ thống khi tra cứu CCCD." });
+        }
     }
 
     [HttpGet("lookup/phone/{phone}")]
@@ -59,7 +133,19 @@ public class WalkInController : ControllerBase
         string phone,
         CancellationToken ct)
     {
-        var result = await _service.LookupByPhoneAsync(phone, ct);
-        return Ok(result);
+        try
+        {
+            var result = await _service.LookupByPhoneAsync(phone, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi tra cứu SĐT");
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse { Code = "INTERNAL_ERROR", Message = "Lỗi hệ thống khi tra cứu SĐT." });
+        }
     }
 }

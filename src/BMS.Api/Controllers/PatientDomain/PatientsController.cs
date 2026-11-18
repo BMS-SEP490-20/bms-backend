@@ -224,7 +224,7 @@ public class PatientsController(
             }
 
             var created = await patients.CreateGuestProfileAsync(request, CurrentUserId, ct);
-            return CreatedAtAction(nameof(GetPatientById), new { id = created.Id }, created);
+            return StatusCode(StatusCodes.Status201Created, created);
         }
         catch (AppException ex)
         {
@@ -270,7 +270,14 @@ public class PatientsController(
         if (!User.IsInRole(RoleNames.Patient))
             return true;
 
-        var policy = $"{PermissionPolicy.Prefix}{Permissions.ViewPatients},{Permissions.ManageAppointment},{Permissions.CheckIn}";
-        return (await authorization.AuthorizeAsync(User, (object?)null, policy)).Succeeded;
+        try
+        {
+            var policy = $"{PermissionPolicy.Prefix}{Permissions.ViewPatients},{Permissions.ManageAppointment},{Permissions.CheckIn}";
+            return (await authorization.AuthorizeAsync(User, (object?)null, policy)).Succeeded;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

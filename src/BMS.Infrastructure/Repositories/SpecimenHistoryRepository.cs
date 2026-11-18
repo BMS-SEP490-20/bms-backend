@@ -230,11 +230,16 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
         {
             try
             {
-                var filter = Builders<SpecimenHistoryRecord>.Filter.Or(
+                var filters = new List<FilterDefinition<SpecimenHistoryRecord>>
+                {
                     Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Barcode, norm),
-                    Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Id, barcode.Trim()),
                     Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.RfidTag, norm)
-                );
+                };
+                if (MongoDB.Bson.ObjectId.TryParse(barcode.Trim(), out _))
+                {
+                    filters.Add(Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Id, barcode.Trim()));
+                }
+                var filter = Builders<SpecimenHistoryRecord>.Filter.Or(filters);
                 var found = await _context.SpecimenHistories.Find(filter).FirstOrDefaultAsync(ct);
                 if (found != null) return found;
             }
@@ -244,10 +249,35 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
             }
         }
 
-        return _memoryStore.Values.FirstOrDefault(x =>
+        var mem = _memoryStore.Values.FirstOrDefault(x =>
             x.Barcode.Equals(norm, StringComparison.OrdinalIgnoreCase) ||
             x.Id.Equals(barcode.Trim(), StringComparison.OrdinalIgnoreCase) ||
             (x.RfidTag != null && x.RfidTag.Equals(norm, StringComparison.OrdinalIgnoreCase)));
+        if (mem != null) return mem;
+
+        if (_context.Database != null)
+        {
+            try
+            {
+                var samplesCol = _context.Database.GetCollection<Sample>("blood_samples");
+                var sampleFilter = Builders<Sample>.Filter.Or(
+                    Builders<Sample>.Filter.Eq(s => s.Id, barcode.Trim()),
+                    Builders<Sample>.Filter.Eq(s => s.Barcode, norm),
+                    Builders<Sample>.Filter.Eq(s => s.Barcode, barcode.Trim())
+                );
+                var sample = await samplesCol.Find(sampleFilter).FirstOrDefaultAsync(ct);
+                if (sample != null)
+                {
+                    return ConvertSampleToHistoryRecord(sample);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SpecimenHistoryRepository] Query blood_samples fallback failed.");
+            }
+        }
+
+        return null;
     }
 
     public async Task<SpecimenHistoryRecord?> GetByIdAsync(string id, CancellationToken ct = default)
@@ -267,10 +297,11 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                 var filter = Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.PatientId, pid) &
                              Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.IsActive, true);
 
-                return await _context.SpecimenHistories
+                var list = await _context.SpecimenHistories
                     .Find(filter)
                     .SortByDescending(x => x.CollectionTime)
                     .ToListAsync(ct);
+                if (list.Count > 0) return list;
             }
             catch (Exception ex)
             {
@@ -278,10 +309,31 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
             }
         }
 
-        return _memoryStore.Values
+        var memResults = _memoryStore.Values
             .Where(x => x.IsActive && x.PatientId.Equals(pid, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(x => x.CollectionTime)
             .ToList();
+        if (memResults.Count > 0) return memResults;
+
+        if (_context.Database != null)
+        {
+            try
+            {
+                var samplesCol = _context.Database.GetCollection<Sample>("blood_samples");
+                var sampleFilter = Builders<Sample>.Filter.Eq(s => s.PatientId, pid);
+                var samples = await samplesCol.Find(sampleFilter).ToListAsync(ct);
+                if (samples.Count > 0)
+                {
+                    return samples.Select(ConvertSampleToHistoryRecord).ToList();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SpecimenHistoryRepository] MongoDB find in blood_samples by patient failed.");
+            }
+        }
+
+        return [];
     }
 
     public async Task<SpecimenHistoryRecord> CreateAsync(SpecimenHistoryRecord record, CancellationToken ct = default)
@@ -317,13 +369,17 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
         await EnsureDefaultSpecimensSeededAsync(ct);
 
         record.UpdatedAt = DateTime.UtcNow;
+        if (!MongoDB.Bson.ObjectId.TryParse(record.Id, out _))
+        {
+            record.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        }
 
         if (_context.SpecimenHistories != null)
         {
             try
             {
                 var filter = Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Barcode, record.Barcode);
-                await _context.SpecimenHistories.ReplaceOneAsync(filter, record, cancellationToken: ct);
+                await _context.SpecimenHistories.ReplaceOneAsync(filter, record, new ReplaceOptions { IsUpsert = true }, cancellationToken: ct);
             }
             catch (Exception ex)
             {
@@ -775,5 +831,161 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                 ]
             }
         };
+    }
+
+    private static SpecimenHistoryRecord ConvertSampleToHistoryRecord(Sample sample)
+    {
+        var isRejected = sample.Status == SampleStatus.Rejected || !string.IsNullOrWhiteSpace(sample.RejectionReason);
+        var rec = new SpecimenHistoryRecord
+        {
+            Id = MongoDB.Bson.ObjectId.TryParse(sample.Id, out _) ? sample.Id : MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
+            Barcode = sample.Barcode,
+            RfidTag = sample.RfidTag,
+            SampleType = sample.SampleType ?? "Blood",
+            TubeColor = sample.TubeColor ?? "Purple (EDTA)",
+            Anticoagulant = sample.Anticoagulant ?? "EDTA K2",
+            VolumeMl = sample.VolumeMl,
+            MinimumRequiredVolumeMl = 1.0,
+            PatientId = sample.PatientId,
+            PatientName = !string.IsNullOrWhiteSpace(sample.PatientName) ? sample.PatientName : "Bệnh nhân",
+            PatientGender = sample.PatientGender ?? "Nam",
+            PatientAge = sample.PatientAge ?? 30,
+            OrderId = sample.TestOrderId,
+            AppointmentId = sample.AppointmentId,
+            OrderDate = sample.CreatedAt,
+            DoctorName = "BS. Chỉ Định",
+            Department = "Khoa Xét Nghiệm",
+            TestPackageName = !string.IsNullOrWhiteSpace(sample.TestPackageName) ? sample.TestPackageName : "Gói Xét Nghiệm Tiêu Chuẩn",
+            Status = sample.StatusString,
+            Priority = sample.PriorityString,
+            CollectionTime = sample.CollectedAt,
+            CollectorId = sample.CollectedBy ?? string.Empty,
+            CollectorName = sample.CollectorName ?? "KTV Lấy Mẫu",
+            CollectionSite = sample.LabRoom ?? "Phòng Lấy Mẫu 102",
+            Notes = sample.Notes ?? string.Empty,
+            RejectionReason = sample.RejectionReason,
+            IsRejected = isRejected,
+            QcStatus = isRejected ? "Failed" : "Passed",
+            ReceivedBy = sample.ReceivedBy,
+            ReceivedAt = sample.ReceivedAt,
+            CreatedAt = sample.CreatedAt,
+            UpdatedAt = sample.UpdatedAt ?? sample.CreatedAt
+        };
+
+        rec.Timeline.Add(new SpecimenTimelineEvent
+        {
+            EventId = $"EVT-CREATE-{sample.Id}",
+            EventType = "SampleCreated",
+            Title = "Khởi tạo mã mẫu xét nghiệm",
+            Description = $"Hệ thống tạo mã mẫu {sample.Barcode} cho chỉ định {sample.TestOrderId}",
+            Timestamp = sample.CreatedAt,
+            OperatorId = "SYSTEM",
+            OperatorName = "Hệ Thống BMS",
+            OperatorRole = "Receptionist",
+            Status = "PendingCollection"
+        });
+
+        if (sample.CollectedAt != DateTime.MinValue && sample.Status >= SampleStatus.Collected)
+        {
+            rec.Timeline.Add(new SpecimenTimelineEvent
+            {
+                EventId = $"EVT-COLLECT-{sample.Id}",
+                EventType = "SampleCollected",
+                Title = "Lấy mẫu bệnh phẩm",
+                Description = $"Thu thập mẫu nghiệm tại {rec.CollectionSite}",
+                Timestamp = sample.CollectedAt,
+                OperatorId = sample.CollectedBy ?? string.Empty,
+                OperatorName = sample.CollectorName ?? "KTV Lấy Mẫu",
+                OperatorRole = "Lab",
+                Status = "Collected"
+            });
+        }
+
+        if (sample.StatusHistory != null && sample.StatusHistory.Count > 0)
+        {
+            foreach (var h in sample.StatusHistory)
+            {
+                if (h.ToStatus == "Collected" && rec.Timeline.Any(t => t.EventType == "SampleCollected"))
+                    continue;
+
+                var title = h.ToStatus switch
+                {
+                    "Received" => "Tiếp nhận mẫu tại phòng xét nghiệm",
+                    "Processing" => "Tiền xử lý và ly tâm mẫu",
+                    "Testing" => "Đưa mẫu vào máy phân tích",
+                    "Completed" => "Hoàn tất xử lý mẫu",
+                    "Rejected" => "Từ chối mẫu bệnh phẩm",
+                    _ => $"Chuyển trạng thái sang {h.ToStatus}"
+                };
+
+                rec.Timeline.Add(new SpecimenTimelineEvent
+                {
+                    EventId = Guid.NewGuid().ToString("N"),
+                    EventType = h.ToStatus,
+                    Title = title,
+                    Description = h.Notes ?? $"Cập nhật trạng thái mẫu sang {h.ToStatus}",
+                    Timestamp = h.ChangedAt,
+                    OperatorId = h.ChangedBy ?? string.Empty,
+                    OperatorName = h.OperatorName ?? "Kỹ thuật viên Lab",
+                    OperatorRole = "Lab",
+                    Status = h.ToStatus,
+                    Notes = h.Notes
+                });
+            }
+        }
+        else
+        {
+            if (sample.ReceivedAt.HasValue)
+            {
+                rec.Timeline.Add(new SpecimenTimelineEvent
+                {
+                    EventId = $"EVT-RECV-{sample.Id}",
+                    EventType = "Received",
+                    Title = "Tiếp nhận mẫu tại phòng xét nghiệm",
+                    Description = "Khoa xét nghiệm kiểm tra và nhận mẫu",
+                    Timestamp = sample.ReceivedAt.Value,
+                    OperatorId = sample.ReceivedBy ?? string.Empty,
+                    OperatorName = sample.AssignedTechnicianName ?? "KTV Tiếp Nhận",
+                    OperatorRole = "Lab",
+                    Status = "Received"
+                });
+            }
+
+            if (sample.CompletedAt.HasValue)
+            {
+                rec.Timeline.Add(new SpecimenTimelineEvent
+                {
+                    EventId = $"EVT-COMP-{sample.Id}",
+                    EventType = "Completed",
+                    Title = "Hoàn tất xử lý mẫu",
+                    Description = "Quy trình phân tích mẫu đã hoàn thành",
+                    Timestamp = sample.CompletedAt.Value,
+                    OperatorId = sample.AssignedTechnicianId ?? string.Empty,
+                    OperatorName = sample.AssignedTechnicianName ?? "KTV Xét Nghiệm",
+                    OperatorRole = "Lab",
+                    Status = "Completed"
+                });
+            }
+
+            if (sample.RejectedAt.HasValue)
+            {
+                rec.Timeline.Add(new SpecimenTimelineEvent
+                {
+                    EventId = $"EVT-REJ-{sample.Id}",
+                    EventType = "Rejected",
+                    Title = "Mẫu bị từ chối",
+                    Description = $"Lý do: {sample.RejectionReason}",
+                    Timestamp = sample.RejectedAt.Value,
+                    OperatorId = sample.RejectedBy ?? string.Empty,
+                    OperatorName = "KTV Xét Nghiệm",
+                    OperatorRole = "Lab",
+                    Status = "Rejected",
+                    Notes = sample.RejectionReason
+                });
+            }
+        }
+
+        rec.Timeline = rec.Timeline.OrderBy(t => t.Timestamp).ToList();
+        return rec;
     }
 }

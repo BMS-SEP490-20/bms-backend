@@ -150,6 +150,7 @@ public class RestoreExecutionResultDto
     public string RestoreId { get; set; } = string.Empty;
     public string BackupId { get; set; } = string.Empty;
     public int RestoredCount { get; set; }
+    public bool DataIntegrityVerified { get; set; } = true;
     public string Message { get; set; } = string.Empty;
     public long DurationMs { get; set; }
     public string ExecutedAt { get; set; } = string.Empty;

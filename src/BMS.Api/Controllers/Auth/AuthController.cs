@@ -150,6 +150,7 @@ public sealed class AuthController : ControllerBase
     // =========================================================
 
     [HttpPost("refresh")]
+    [HttpPost("refresh-token")]
     [AllowAnonymous]
     [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
