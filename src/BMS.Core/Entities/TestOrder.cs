@@ -55,9 +55,10 @@ public static class TestOrderStatusRules
             throw new BMS.Core.Exceptions.DomainValidationException("MSG-ERR-DOC-01", "Đơn chưa có mã chẩn đoán ICD-10, chưa thể tính phí.");
     }
 
-    /// <summary>Sampling gate: Đơn thuốc/Y lệnh đã được bác sĩ ký phát hành -> Được phép lấy mẫu (không có cổng thu ngân/kế toán).</summary>
+    /// <summary>Sampling gate: paid order or STAT order with deferred payment may be collected.</summary>
     public static bool CanCollectSample(TestOrder o) =>
-        o.Status is TestOrderStatus.PaidPendingSample or TestOrderStatus.AwaitingPayment or TestOrderStatus.Ordered;
+        o.Status == TestOrderStatus.PaidPendingSample
+        || (o.PaymentDeferred && o.Status is TestOrderStatus.AwaitingPayment or TestOrderStatus.Ordered);
 }
 
 /// <summary>
@@ -112,6 +113,10 @@ public class TestOrder
 
     [BsonElement("patient_id")]
     public string PatientId { get; set; } = string.Empty;
+
+    [BsonElement("appointment_id")]
+    [BsonIgnoreIfNull]
+    public string? AppointmentId { get; set; }
 
     [BsonElement("patient_name")]
     public string PatientName { get; set; } = string.Empty;

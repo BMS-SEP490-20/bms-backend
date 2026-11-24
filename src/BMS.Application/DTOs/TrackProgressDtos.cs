@@ -39,6 +39,8 @@ public class TrackProgressResponse
 {
     public string OrderNumber { get; set; } = string.Empty;
     public string? Barcode { get; set; }
+    /// <summary>Signed result code (TRE-…) when a released result exists — used by patient PDF export.</summary>
+    public string? ResultCode { get; set; }
     public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
     public string? PatientGender { get; set; }

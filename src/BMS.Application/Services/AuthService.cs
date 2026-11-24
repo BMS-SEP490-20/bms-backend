@@ -1285,6 +1285,112 @@ public class AuthService : IAuthService
         };
     }
 
+    public async Task<AuthResponseDto> VerifyPasswordResetOtpAsync(VerifyPasswordResetOtpDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Otp))
+        {
+            return new AuthResponseDto { Success = false, Message = "Vui lòng nhập email và mã OTP 6 chữ số." };
+        }
+
+        var otpTrimmed = dto.Otp.Trim();
+        if (otpTrimmed.Length != 6 || !otpTrimmed.All(char.IsDigit))
+        {
+            return new AuthResponseDto { Success = false, ErrorCode = "OTP_INVALID", Message = "Mã OTP phải gồm đúng 6 chữ số." };
+        }
+
+        var identifier = dto.Email.Trim();
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        User? user = null;
+        if (_userRepository != null)
+        {
+            user = await _userRepository.FindByEmailAsync(identifier);
+            if (user == null)
+            {
+                user = await _userRepository.GetByEmailOrUsernameAsync(identifier);
+            }
+        }
+
+        if (user == null)
+        {
+            user = _context.Users.FirstOrDefault(u =>
+                u.Email.Equals(identifier, StringComparison.OrdinalIgnoreCase) ||
+                u.Username.Equals(identifier, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (user == null || !user.IsActive)
+        {
+            return new AuthResponseDto { Success = false, ErrorCode = "INVALID_REQUEST", Message = "Yêu cầu đặt lại mật khẩu không hợp lệ hoặc mã OTP không chính xác." };
+        }
+
+        if (user.PasswordResetLockoutEnd is { } lockedUntil && lockedUntil > now)
+        {
+            var remainingMinutes = (int)Math.Ceiling((lockedUntil - now).TotalMinutes);
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_LOCKED",
+                Message = $"Mã xác thực đã bị khóa do nhập sai quá 5 lần. Vui lòng thử lại sau {remainingMinutes} phút hoặc yêu cầu mã mới."
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(user.PasswordResetOtp))
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_ALREADY_USED",
+                Message = "Mã OTP đã được sử dụng hoặc không hợp lệ. Vui lòng yêu cầu mã mới."
+            };
+        }
+
+        if (user.PasswordResetExpiresAt == null || user.PasswordResetExpiresAt < now)
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_EXPIRED",
+                Message = "Mã OTP đặt lại mật khẩu đã hết hạn (thời hạn 5 phút). Vui lòng yêu cầu mã mới."
+            };
+        }
+
+        var otpMatch = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(user.PasswordResetOtp.Trim()),
+            Encoding.UTF8.GetBytes(otpTrimmed));
+
+        if (!otpMatch)
+        {
+            user.PasswordResetFailedAttempts++;
+            if (user.PasswordResetFailedAttempts >= 5)
+            {
+                user.PasswordResetLockoutEnd = now.AddMinutes(15);
+                user.PasswordResetOtp = null;
+            }
+
+            if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+            {
+                try { await _userRepository.UpdateAsync(user); } catch { }
+            }
+
+            var remaining = Math.Max(0, 5 - user.PasswordResetFailedAttempts);
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "OTP_INVALID",
+                Message = remaining > 0
+                    ? $"Mã OTP không đúng. Bạn còn {remaining} lần thử."
+                    : "Mã OTP không đúng. Tài khoản tạm khóa yêu cầu mã mới."
+            };
+        }
+
+        // Đúng OTP nhưng chưa tiêu thụ — chờ bước đặt mật khẩu mới
+        return new AuthResponseDto
+        {
+            Success = true,
+            Message = "Mã OTP hợp lệ. Vui lòng thiết lập mật khẩu mới."
+        };
+    }
+
     public async Task<AuthResponseDto> ResetPasswordAsync(ResetPasswordDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Otp) || string.IsNullOrWhiteSpace(dto.NewPassword))

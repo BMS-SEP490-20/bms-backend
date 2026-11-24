@@ -117,7 +117,7 @@ public sealed class SePayPaymentService(
             try
             {
                 var invoiceList = await invoices.GetInvoicesAsync(appointment.PatientId, InvoiceStatus.Unpaid, null, null, 1, 50, ct);
-                var linkedInvoice = invoiceList.FirstOrDefault(i => i.AppointmentId == appointment.Id);
+                var linkedInvoice = invoiceList.FirstOrDefault(i => i.AppointmentId == appointment.Id || i.AppointmentId == appointment.AppointmentCode);
                 if (linkedInvoice != null)
                 {
                     linkedInvoice.Status = InvoiceStatus.Paid;

@@ -102,6 +102,10 @@ public class PaymentService(IInvoiceRepository invoiceRepo, ITestOrderRepository
                 invoice.PaymentMethod = PaymentMethod.BankingQR;
                 message = "Đang chờ xác nhận chuyển khoản SePay.";
                 break;
+            case "VNPAY":
+                invoice.PaymentMethod = PaymentMethod.VNPay;
+                message = "Đang chờ xác nhận thanh toán từ cổng VNPay.";
+                break;
             default:
                 throw new DomainValidationException("PAYMENT_METHOD_INVALID", "Phương thức thanh toán không hợp lệ.");
         }

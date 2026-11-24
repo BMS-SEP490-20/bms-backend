@@ -102,11 +102,12 @@ public class TestResultsController : ControllerBase
             {
                 var trimmed = queryKey.Trim();
 
-                // 1. Direct result match
+                // 1. Direct result match (exact)
                 var filter = Builders<BsonDocument>.Filter.Or(
                     Builders<BsonDocument>.Filter.Eq("_id", trimmed),
                     Builders<BsonDocument>.Filter.Eq("testResultId", trimmed),
                     Builders<BsonDocument>.Filter.Eq("result_code", trimmed),
+                    Builders<BsonDocument>.Filter.Eq("resultCode", trimmed),
                     Builders<BsonDocument>.Filter.Eq("sample_id", trimmed),
                     Builders<BsonDocument>.Filter.Eq("sampleId", trimmed),
                     Builders<BsonDocument>.Filter.Eq("patient_id", trimmed),
@@ -114,6 +115,19 @@ public class TestResultsController : ControllerBase
                 );
 
                 var doc = await _resultsCol.Find(filter).FirstOrDefaultAsync();
+
+                // 1b. Partial / suffix match on TRE result codes (e.g. D020E4 → TRE-…D020E4)
+                if (doc == null && trimmed.Length >= 4)
+                {
+                    var escaped = System.Text.RegularExpressions.Regex.Escape(trimmed);
+                    var rx = new BsonRegularExpression(escaped, "i");
+                    doc = await _resultsCol.Find(Builders<BsonDocument>.Filter.Or(
+                        Builders<BsonDocument>.Filter.Regex("_id", rx),
+                        Builders<BsonDocument>.Filter.Regex("result_code", rx),
+                        Builders<BsonDocument>.Filter.Regex("resultCode", rx),
+                        Builders<BsonDocument>.Filter.Regex("testResultId", rx)
+                    )).SortByDescending(d => d["_id"]).FirstOrDefaultAsync();
+                }
 
                 // 2. Barcode match via blood_samples
                 if (doc == null && _samplesCol != null)
@@ -126,10 +140,19 @@ public class TestResultsController : ControllerBase
                     if (sampleDoc != null)
                     {
                         var sId = sampleDoc["_id"].AsString;
-                        doc = await _resultsCol.Find(Builders<BsonDocument>.Filter.Or(
+                        var sampleFilters = new List<FilterDefinition<BsonDocument>>
+                        {
                             Builders<BsonDocument>.Filter.Eq("sample_id", sId),
                             Builders<BsonDocument>.Filter.Eq("sampleId", sId)
-                        )).FirstOrDefaultAsync();
+                        };
+                        if (sampleDoc.Contains("barcode") && !sampleDoc["barcode"].IsBsonNull
+                            && !string.IsNullOrWhiteSpace(sampleDoc["barcode"].AsString))
+                        {
+                            var sBarcode = sampleDoc["barcode"].AsString;
+                            sampleFilters.Add(Builders<BsonDocument>.Filter.Eq("sample_id", sBarcode));
+                            sampleFilters.Add(Builders<BsonDocument>.Filter.Eq("sampleId", sBarcode));
+                        }
+                        doc = await _resultsCol.Find(Builders<BsonDocument>.Filter.Or(sampleFilters)).FirstOrDefaultAsync();
                     }
                 }
 
@@ -271,9 +294,9 @@ public class TestResultsController : ControllerBase
             var docPatientId = doc.Contains("patient_id") ? doc["patient_id"].AsString : (doc.Contains("patientId") ? doc["patientId"].AsString : "");
 
             // OWASP ASVS Anti-IDOR Check
-            if (User.IsInRole(RoleNames.Patient))
+            if (User?.IsInRole(RoleNames.Patient) == true)
             {
-                if (!await this.MayAccessPatientAsync(docPatientId, HttpContext.RequestAborted))
+                if (!await this.MayAccessPatientAsync(docPatientId, HttpContext?.RequestAborted ?? CancellationToken.None))
                 {
                     // Patient A requests Patient B's result -> 403 Forbidden
                     return Forbid();

@@ -25,7 +25,10 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
         var id = "REA-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code + "\0" + lot)));
         var item = new Reagent { Id = id, Code = code, LotNumber = lot, Unit = request.Unit.Trim(),
             Name = request.Name.Trim(), Manufacturer = request.Manufacturer.Trim(), Quantity = request.Quantity,
-            MinimumStock = request.MinimumStock, ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate!.Value.Date, DateTimeKind.Utc) };
+            MinimumStock = request.MinimumStock, ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate!.Value.Date, DateTimeKind.Utc),
+            OpenedDate = request.OpenedDate.HasValue ? DateTime.SpecifyKind(request.OpenedDate.Value.Date, DateTimeKind.Utc) : null,
+            StorageCondition = string.IsNullOrWhiteSpace(request.StorageCondition) ? null : request.StorageCondition.Trim(),
+            ImportBatchNumber = string.IsNullOrWhiteSpace(request.ImportBatchNumber) ? null : request.ImportBatchNumber.Trim() };
         item.Changes.Add(Change("CREATE", actorId, actorName, request.Reason, null, item));
         if (!await repository.CreateAsync(item, ct))
             throw new InventoryConflictException("Mã hóa chất và số lô này đã tồn tại. Vui lòng kiểm tra danh sách kho.");
@@ -53,7 +56,10 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
             throw new InventoryConflictException("Lô đã được thay đổi. Vui lòng tải lại dữ liệu mới nhất trước khi lưu.");
         var next = new Reagent { Id = before.Id, Code = before.Code, LotNumber = before.LotNumber, Unit = before.Unit,
             Name = request.Name.Trim(), Manufacturer = request.Manufacturer.Trim(), Quantity = request.Quantity,
-            MinimumStock = request.MinimumStock, ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate!.Value.Date, DateTimeKind.Utc) };
+            MinimumStock = request.MinimumStock, ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate!.Value.Date, DateTimeKind.Utc),
+            OpenedDate = request.OpenedDate.HasValue ? DateTime.SpecifyKind(request.OpenedDate.Value.Date, DateTimeKind.Utc) : before.OpenedDate,
+            StorageCondition = !string.IsNullOrWhiteSpace(request.StorageCondition) ? request.StorageCondition.Trim() : before.StorageCondition,
+            ImportBatchNumber = !string.IsNullOrWhiteSpace(request.ImportBatchNumber) ? request.ImportBatchNumber.Trim() : before.ImportBatchNumber };
         var updated = await repository.UpdateAsync(next, request.ExpectedRevision,
             Change("UPDATE", actorId, actorName, request.Reason, before, next), ct)
             ?? throw new InventoryConflictException("Lô vừa được thay đổi. Vui lòng tải lại trước khi lưu.");
@@ -118,6 +124,7 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
         var status = expiry is null ? "UNKNOWN_EXPIRY" : expiry < today ? "EXPIRED"
             : expiry < today.AddDays(30) ? "EXPIRING_SOON" : "AVAILABLE";
         return new(item.Id, item.Code, item.Name, item.Manufacturer, item.LotNumber,
-            item.Quantity, item.Unit, item.MinimumStock, expiry, status, item.Quantity <= item.MinimumStock, item.Revision);
+            item.Quantity, item.Unit, item.MinimumStock, expiry, status, item.Quantity <= item.MinimumStock, item.Revision,
+            item.OpenedDate, item.StorageCondition, item.ImportBatchNumber);
     }
 }

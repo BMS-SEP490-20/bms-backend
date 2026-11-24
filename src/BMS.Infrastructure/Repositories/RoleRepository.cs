@@ -515,6 +515,22 @@ public class RoleRepository : IRoleRepository
                 Permissions = new List<string>(),
                 IsSystemRole = true,
                 IsActive = true
+            },
+            new()
+            {
+                RoleCode = "LAB_MANAGER",
+                RoleName = "Quản Lý Phòng Xét Nghiệm",
+                Description =
+                    "Quản lý vận hành Lab, phê duyệt QC, định mức cảnh báo nguy kịch, ca trực và hóa chất.",
+                Permissions = new List<string>
+                {
+                    SystemPermissions.LabApprove,
+                    SystemPermissions.LabTest,
+                    SystemPermissions.InventoryView,
+                    SystemPermissions.IotMonitor
+                },
+                IsSystemRole = true,
+                IsActive = true
             }
         };
 

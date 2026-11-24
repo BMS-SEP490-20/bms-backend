@@ -67,6 +67,10 @@ public class Invoice
     [BsonElement("appointmentId")]
     public string? AppointmentId { get; set; }
 
+    [BsonElement("appointmentCode")]
+    [BsonIgnoreIfNull]
+    public string? AppointmentCode { get; set; }
+
     /// <summary>Test order this invoice settles (Đợt 3 order payment), or null for legacy invoices.</summary>
     [BsonElement("orderId")]
     [BsonIgnoreIfNull]

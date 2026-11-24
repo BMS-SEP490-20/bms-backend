@@ -25,8 +25,15 @@ public class RegisterWalkInRequest : IValidatableObject
     [Required(ErrorMessage = "Số CCCD / Định danh cá nhân không được để trống."), RegularExpression(@"^\d{12}$", ErrorMessage = "Số CCCD phải gồm đúng 12 chữ số theo Đề án 06 Bộ Y Tế.")]
     public string IdentityNumber { get; set; } = string.Empty;
 
+    // Empty string must become null — [EmailAddress] rejects "" and blocks optional email on walk-in.
+    private string? _email;
+
     [EmailAddress(ErrorMessage = "Địa chỉ email không đúng định dạng."), MaxLength(120, ErrorMessage = "Email tối đa 120 ký tự.")]
-    public string? Email { get; set; }
+    public string? Email
+    {
+        get => _email;
+        set => _email = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
 
     [MaxLength(300, ErrorMessage = "Địa chỉ tối đa 300 ký tự.")]
     public string? Address { get; set; }

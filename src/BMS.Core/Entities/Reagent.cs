@@ -24,6 +24,15 @@ public sealed class Reagent
     public decimal MinimumStock { get; set; }
     [BsonElement("expiry_date")]
     public DateTime? ExpiryDate { get; set; }
+    [BsonElement("opened_date")]
+    [BsonIgnoreIfNull]
+    public DateTime? OpenedDate { get; set; }
+    [BsonElement("storage_condition")]
+    [BsonIgnoreIfNull]
+    public string? StorageCondition { get; set; }
+    [BsonElement("import_batch_number")]
+    [BsonIgnoreIfNull]
+    public string? ImportBatchNumber { get; set; }
     [BsonElement("revision")]
     public long Revision { get; set; }
     [BsonElement("changes")]

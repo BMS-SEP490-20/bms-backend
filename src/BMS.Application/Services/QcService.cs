@@ -30,14 +30,100 @@ public class QcService : IQcService
         InitializeSeedRuns().GroupBy(r => r.LotId).ToDictionary(g => g.Key, g => g.ToList())
     );
 
+    private static bool _dbInitialized;
+
     public QcService(ILogger<QcService> logger, IMongoDatabase? database = null)
     {
         _logger = logger;
         _database = database;
     }
 
+    private async Task EnsureMongoLoadedAsync(CancellationToken ct)
+    {
+        if (_database == null || _dbInitialized) return;
+        try
+        {
+            var lotsCol = _database.GetCollection<QcLot>("qc_lots");
+            var runsCol = _database.GetCollection<QcRun>("qc_runs");
+            var existingLots = await lotsCol.Find(Builders<QcLot>.Filter.Empty).ToListAsync(ct);
+            if (existingLots.Count == 0)
+            {
+                foreach (var seedLot in _lots.Values)
+                {
+                    await lotsCol.ReplaceOneAsync(
+                        Builders<QcLot>.Filter.Eq(l => l.Id, seedLot.Id),
+                        seedLot,
+                        new ReplaceOptions { IsUpsert = true },
+                        ct);
+                }
+                foreach (var seedRun in _runsByLot.Values.SelectMany(r => r))
+                {
+                    await runsCol.ReplaceOneAsync(
+                        Builders<QcRun>.Filter.Eq(r => r.Id, seedRun.Id),
+                        seedRun,
+                        new ReplaceOptions { IsUpsert = true },
+                        ct);
+                }
+            }
+            else
+            {
+                foreach (var dbLot in existingLots)
+                {
+                    _lots[dbLot.Id] = dbLot;
+                }
+                var existingRuns = await runsCol.Find(Builders<QcRun>.Filter.Empty).ToListAsync(ct);
+                foreach (var g in existingRuns.GroupBy(r => r.LotId))
+                {
+                    _runsByLot[g.Key] = g.OrderBy(r => r.RunNumber).ToList();
+                }
+            }
+            _dbInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể đồng bộ dữ liệu QC với MongoDB, tiếp tục sử dụng bộ nhớ.");
+        }
+    }
+
+    private async Task PersistLotToMongoAsync(QcLot lot, CancellationToken ct)
+    {
+        if (_database == null) return;
+        try
+        {
+            var lotsCol = _database.GetCollection<QcLot>("qc_lots");
+            await lotsCol.ReplaceOneAsync(
+                Builders<QcLot>.Filter.Eq(l => l.Id, lot.Id),
+                lot,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể lưu lô QC {LotId} vào MongoDB.", lot.Id);
+        }
+    }
+
+    private async Task PersistRunToMongoAsync(QcRun run, CancellationToken ct)
+    {
+        if (_database == null) return;
+        try
+        {
+            var runsCol = _database.GetCollection<QcRun>("qc_runs");
+            await runsCol.ReplaceOneAsync(
+                Builders<QcRun>.Filter.Eq(r => r.Id, run.Id),
+                run,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể lưu lượt chạy QC {RunId} vào MongoDB.", run.Id);
+        }
+    }
+
     public async Task<List<QcLotDto>> GetLotsAsync(bool? activeOnly = null, string? analyte = null, CancellationToken ct = default)
     {
+        await EnsureMongoLoadedAsync(ct);
         var query = _lots.Values.AsEnumerable();
 
         if (activeOnly.HasValue)
@@ -96,6 +182,7 @@ public class QcService : IQcService
 
         _lots[lot.Id] = lot;
         _runsByLot[lot.Id] = new List<QcRun>();
+        await PersistLotToMongoAsync(lot, ct);
 
         _logger.LogInformation("Đã khởi tạo lô QC mới: {LotNumber} ({AnalyteName}) Mean={Mean}{Unit}, SD={SD}{Unit}.",
             lot.LotNumber, lot.AnalyteName, lot.TargetMean, lot.Unit, lot.TargetStandardDeviation, lot.Unit);
@@ -115,23 +202,27 @@ public class QcService : IQcService
         if (dto.TargetStandardDeviation.HasValue && dto.TargetStandardDeviation.Value > 0) lot.TargetStandardDeviation = Math.Round(dto.TargetStandardDeviation.Value, 3);
         if (dto.ExpirationDate.HasValue) lot.ExpirationDate = dto.ExpirationDate.Value;
         if (dto.IsActive.HasValue) lot.IsActive = dto.IsActive.Value;
+        await PersistLotToMongoAsync(lot, ct);
 
         return await Task.FromResult(MapLotToDto(lot));
     }
 
     public async Task<bool> ToggleLotStatusAsync(string lotId, CancellationToken ct = default)
     {
+        await EnsureMongoLoadedAsync(ct);
         if (!_lots.TryGetValue(lotId, out var lot))
         {
             throw new KeyNotFoundException($"Không tìm thấy lô QC với mã '{lotId}'.");
         }
 
         lot.IsActive = !lot.IsActive;
+        await PersistLotToMongoAsync(lot, ct);
         return await Task.FromResult(lot.IsActive);
     }
 
     public async Task<QcEvaluationResultDto> RecordRunAsync(RecordQcRunDto dto, CancellationToken ct = default)
     {
+        await EnsureMongoLoadedAsync(ct);
         if (dto == null) throw new ArgumentNullException(nameof(dto));
         if (string.IsNullOrWhiteSpace(dto.LotId)) throw new ArgumentException("Mã lô QC không được để trống.", nameof(dto));
         if (string.IsNullOrWhiteSpace(dto.OperatorName)) throw new ArgumentException("Họ tên kỹ thuật viên vận hành không được để trống.", nameof(dto));
@@ -170,6 +261,7 @@ public class QcService : IQcService
         };
 
         runList.Add(run);
+        await PersistRunToMongoAsync(run, ct);
 
         if (isLocked)
         {
@@ -188,7 +280,15 @@ public class QcService : IQcService
             ViolatedRules = run.ViolatedRules,
             IsLocked = run.IsLocked,
             Message = message,
-            EvaluatedAt = run.EvaluatedAt
+            EvaluatedAt = run.EvaluatedAt,
+            InstrumentId = run.InstrumentId,
+            AnalyteName = lot.AnalyteName,
+            TargetMean = lot.TargetMean,
+            TargetStandardDeviation = lot.TargetStandardDeviation,
+            LowerLimit = Math.Round(lot.TargetMean - 2 * lot.TargetStandardDeviation, 3),
+            UpperLimit = Math.Round(lot.TargetMean + 2 * lot.TargetStandardDeviation, 3),
+            Unit = lot.Unit,
+            OperatorName = run.OperatorName
         });
     }
 
@@ -264,6 +364,7 @@ public class QcService : IQcService
         targetRun.ResolvedAt = DateTime.UtcNow;
         targetRun.ResolvedBy = dto.OperatorName.Trim();
         targetRun.IsLocked = false; // Unlock analyzer batch
+        await PersistRunToMongoAsync(targetRun, ct);
 
         _logger.LogInformation("Đã ký duyệt khắc phục sự cố QC {RunId} bởi {Operator}: {Action}.",
             targetRun.Id, dto.OperatorName, dto.CorrectiveAction);
@@ -285,6 +386,7 @@ public class QcService : IQcService
 
     public async Task<QcDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken ct = default)
     {
+        await EnsureMongoLoadedAsync(ct);
         var allLots = _lots.Values.Where(l => l.IsActive).ToList();
         var allRuns = _runsByLot.Values.SelectMany(r => r).ToList();
 
@@ -312,24 +414,39 @@ public class QcService : IQcService
 
     public async Task<List<QcEvaluationResultDto>> GetActiveQcFlagsAsync(CancellationToken ct = default)
     {
+        await EnsureMongoLoadedAsync(ct);
         var allRuns = _runsByLot.Values.SelectMany(r => r)
             .Where(r => r.IsLocked || r.Status != WestgardStatus.PASS)
             .OrderByDescending(r => r.EvaluatedAt)
             .Take(50)
-            .Select(r => new QcEvaluationResultDto
+            .Select(r =>
             {
-                RunId = r.Id,
-                LotId = r.LotId,
-                RunNumber = r.RunNumber,
-                MeasuredValue = r.MeasuredValue,
-                ZScore = r.ZScore,
-                Status = r.StatusString,
-                ViolatedRules = r.ViolatedRules,
-                IsLocked = r.IsLocked,
-                Message = r.IsLocked
-                    ? $"Cảnh báo vi phạm Westgard {string.Join(", ", r.ViolatedRules)} - Máy đang bị khóa!"
-                    : $"Cảnh báo Westgard {string.Join(", ", r.ViolatedRules)}.",
-                EvaluatedAt = r.EvaluatedAt
+                _lots.TryGetValue(r.LotId, out var lot);
+                double? mean = lot?.TargetMean;
+                double? sd = lot?.TargetStandardDeviation;
+                return new QcEvaluationResultDto
+                {
+                    RunId = r.Id,
+                    LotId = r.LotId,
+                    RunNumber = r.RunNumber,
+                    MeasuredValue = r.MeasuredValue,
+                    ZScore = r.ZScore,
+                    Status = r.StatusString,
+                    ViolatedRules = r.ViolatedRules,
+                    IsLocked = r.IsLocked,
+                    Message = r.IsLocked
+                        ? $"Cảnh báo vi phạm Westgard {string.Join(", ", r.ViolatedRules)} - Máy đang bị khóa!"
+                        : $"Cảnh báo Westgard {string.Join(", ", r.ViolatedRules)}.",
+                    EvaluatedAt = r.EvaluatedAt,
+                    InstrumentId = !string.IsNullOrWhiteSpace(r.InstrumentId) ? r.InstrumentId : lot?.InstrumentId,
+                    AnalyteName = lot?.AnalyteName ?? r.LotId,
+                    TargetMean = mean,
+                    TargetStandardDeviation = sd,
+                    LowerLimit = mean.HasValue && sd.HasValue ? Math.Round(mean.Value - 2 * sd.Value, 3) : null,
+                    UpperLimit = mean.HasValue && sd.HasValue ? Math.Round(mean.Value + 2 * sd.Value, 3) : null,
+                    Unit = lot?.Unit,
+                    OperatorName = r.OperatorName
+                };
             })
             .ToList();
 

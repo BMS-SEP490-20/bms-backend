@@ -30,7 +30,9 @@ namespace BMS.Infrastructure.Repositories
         private static FilterDefinition<TestResult> Signed =>
             F.Or(F.Eq(x => x.ValidationStatus, ResultValidationStatus.DoctorApproved), F.Ne(x => x.ApprovedAt, null),
                 F.Regex(x => x.Status, new BsonRegularExpression("^APPROVED$", "i")),
-                new BsonDocument("approved_at", new BsonDocument("$type", "date")));
+                new BsonDocument("approved_at", new BsonDocument("$type", "date")),
+                new BsonDocument("digitalSignature", new BsonDocument("$regex", new BsonRegularExpression(@"\S"))),
+                new BsonDocument("digital_signature", new BsonDocument("$regex", new BsonRegularExpression(@"\S"))));
         private static FilterDefinition<TestResult> ById(string id) => F.Or(F.Eq(x => x.Id, id), F.Eq(x => x.TestResultId, id)) & Active;
 
         /// <inheritdoc />

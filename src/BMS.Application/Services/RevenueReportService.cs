@@ -32,8 +32,70 @@ public class RevenueReportService : IRevenueReportService
         _database = database;
     }
 
+    private async Task SyncInvoicesFromMongoAsync(CancellationToken ct)
+    {
+        if (_database == null) return;
+        try
+        {
+            var invoicesCol = _database.GetCollection<Invoice>("invoices");
+            var paidInvoices = await invoicesCol
+                .Find(Builders<Invoice>.Filter.Eq(i => i.Status, InvoiceStatus.Paid))
+                .ToListAsync(ct);
+
+            if (paidInvoices.Count > 0)
+            {
+                _transactions.Clear();
+                foreach (var inv in paidInvoices)
+                {
+                    var id = string.IsNullOrWhiteSpace(inv.Id) ? inv.InvoiceCode : inv.Id;
+                    var methodStr = inv.PaymentMethod switch
+                    {
+                        PaymentMethod.Cash => "Cash",
+                        PaymentMethod.CreditCard => "Card",
+                        PaymentMethod.BankingQR or PaymentMethod.VNPay or PaymentMethod.BankTransfer or PaymentMethod.MoMo => "VietQR",
+                        _ => "Cash"
+                    };
+                    var itemCategory = inv.Items?.FirstOrDefault()?.ItemName ?? string.Empty;
+                    var category = itemCategory.Contains("Huyết", StringComparison.OrdinalIgnoreCase) || itemCategory.Contains("CBC", StringComparison.OrdinalIgnoreCase)
+                        ? "Hematology"
+                        : itemCategory.Contains("Miễn", StringComparison.OrdinalIgnoreCase)
+                            ? "Immunology"
+                            : itemCategory.Contains("Gói", StringComparison.OrdinalIgnoreCase)
+                                ? "GeneralCheckup"
+                                : "Biochemistry";
+
+                    _transactions[id] = new RevenueTransaction
+                    {
+                        Id = id,
+                        TransactionNumber = !string.IsNullOrWhiteSpace(inv.TransactionReference) ? inv.TransactionReference : inv.InvoiceCode,
+                        OrderNumber = !string.IsNullOrWhiteSpace(inv.OrderId) ? inv.OrderId : (inv.AppointmentId ?? inv.InvoiceCode),
+                        PatientName = !string.IsNullOrWhiteSpace(inv.PatientName) ? inv.PatientName : "Bệnh nhân",
+                        PatientId = inv.PatientId,
+                        ServiceType = "InClinic",
+                        Category = category,
+                        GrossAmount = inv.SubTotal > 0 ? inv.SubTotal : inv.TotalAmount,
+                        BhytCoverageAmount = 0m,
+                        DiscountAmount = inv.DiscountAmount,
+                        HomeSurchargeAmount = 0m,
+                        NetAmount = inv.TotalAmount,
+                        PaymentMethod = methodStr,
+                        ReferralDoctor = "Bác sĩ chỉ định",
+                        ReferralDepartment = "Khoa Xét Nghiệm & Lâm Sàng",
+                        CreatedAt = inv.PaidAt ?? inv.CreatedAt,
+                        CashierName = !string.IsNullOrWhiteSpace(inv.CashierName) ? inv.CashierName : "Thu ngân hệ thống"
+                    };
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể đồng bộ hóa đơn thực tế từ MongoDB cho báo cáo doanh thu.");
+        }
+    }
+
     public async Task<ComprehensiveRevenueReportDto> GetComprehensiveReportAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
 
@@ -60,6 +122,7 @@ public class RevenueReportService : IRevenueReportService
 
     public async Task<RevenueSummaryDto> GetSummaryAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
         return await Task.FromResult(CalculateSummary(filteredTxns, fromDate, toDate));
@@ -67,6 +130,7 @@ public class RevenueReportService : IRevenueReportService
 
     public async Task<List<RevenueTrendPointDto>> GetTrendAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
         return await Task.FromResult(CalculateTrend(filteredTxns, parameters.Period, fromDate, toDate));
@@ -74,6 +138,7 @@ public class RevenueReportService : IRevenueReportService
 
     public async Task<List<RevenueByCategoryDto>> GetByCategoryAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
         return await Task.FromResult(CalculateByCategory(filteredTxns));
@@ -81,6 +146,7 @@ public class RevenueReportService : IRevenueReportService
 
     public async Task<List<RevenueByPaymentMethodDto>> GetByPaymentMethodAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
         return await Task.FromResult(CalculateByPaymentMethod(filteredTxns));
@@ -88,6 +154,7 @@ public class RevenueReportService : IRevenueReportService
 
     public async Task<List<RevenueByChannelDto>> GetByChannelAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
         return await Task.FromResult(CalculateByChannel(filteredTxns));
@@ -95,6 +162,7 @@ public class RevenueReportService : IRevenueReportService
 
     public async Task<List<RevenueExportItemDto>> GetExportTransactionsAsync(RevenueFilterParameters parameters, CancellationToken ct = default)
     {
+        await SyncInvoicesFromMongoAsync(ct);
         var (fromDate, toDate) = ResolveDateRange(parameters);
         var filteredTxns = FilterTransactions(parameters, fromDate, toDate);
 

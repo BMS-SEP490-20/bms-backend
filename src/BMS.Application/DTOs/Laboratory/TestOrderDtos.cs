@@ -50,6 +50,7 @@ public class CreateTestOrderRequestDto
     [Required]
     public string PatientId { get; set; } = string.Empty;
 
+    public string? AppointmentId { get; set; }
     public string? PatientName { get; set; }
     public string? PatientGender { get; set; }
     public int? PatientAge { get; set; }
@@ -92,6 +93,7 @@ public class TestOrderResponseDto
     public string Id { get; set; } = string.Empty;
     public string OrderNumber { get; set; } = string.Empty;
     public string PatientId { get; set; } = string.Empty;
+    public string? AppointmentId { get; set; }
     public string PatientName { get; set; } = string.Empty;
     public string PatientGender { get; set; } = string.Empty;
     public int PatientAge { get; set; }

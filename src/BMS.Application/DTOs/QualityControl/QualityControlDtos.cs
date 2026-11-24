@@ -83,6 +83,14 @@ public class QcEvaluationResultDto
     public bool IsLocked { get; set; }
     public string Message { get; set; } = string.Empty;
     public DateTime EvaluatedAt { get; set; }
+    public string? InstrumentId { get; set; }
+    public string? AnalyteName { get; set; }
+    public double? TargetMean { get; set; }
+    public double? TargetStandardDeviation { get; set; }
+    public double? LowerLimit { get; set; }
+    public double? UpperLimit { get; set; }
+    public string? Unit { get; set; }
+    public string? OperatorName { get; set; }
 }
 
 /// <summary>

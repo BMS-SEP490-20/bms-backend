@@ -122,3 +122,16 @@ public class ResetPasswordDto
 
     public string? ConfirmNewPassword { get; set; }
 }
+
+/// <summary>
+/// Xác thực OTP đặt lại mật khẩu (bước trung gian) — không tiêu thụ OTP.
+/// </summary>
+public class VerifyPasswordResetOtpDto
+{
+    [Required(ErrorMessage = "Email hoặc tên đăng nhập là bắt buộc")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Mã OTP là bắt buộc")]
+    [StringLength(6, MinimumLength = 6, ErrorMessage = "Mã OTP gồm đúng 6 chữ số")]
+    public string Otp { get; set; } = string.Empty;
+}

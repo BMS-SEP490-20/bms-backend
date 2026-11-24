@@ -10,10 +10,12 @@ namespace BMS.Infrastructure.Repositories;
 
 public class InvoiceRepository : IInvoiceRepository
 {
+    private readonly IMongoDatabase _database;
     private readonly IMongoCollection<Invoice> _collection;
 
     public InvoiceRepository(IMongoDatabase database)
     {
+        _database = database;
         _collection = database.GetCollection<Invoice>("invoices");
 
         var indexKeys = Builders<Invoice>.IndexKeys.Ascending(x => x.InvoiceCode);
@@ -25,7 +27,9 @@ public class InvoiceRepository : IInvoiceRepository
 
     public async Task<Invoice?> GetByIdAsync(string id, CancellationToken ct = default)
     {
-        return await _collection.Find(x => x.Id == id || x.InvoiceCode == id).FirstOrDefaultAsync(ct);
+        var inv = await _collection.Find(x => x.Id == id || x.InvoiceCode == id).FirstOrDefaultAsync(ct);
+        if (inv != null) await EnrichAppointmentCodesAsync([inv], ct);
+        return inv;
     }
 
     /// <inheritdoc />
@@ -62,11 +66,57 @@ public class InvoiceRepository : IInvoiceRepository
         CancellationToken ct = default)
     {
         var filter = BuildFilter(patientId, status, fromDate, toDate);
-        return await _collection.Find(filter)
+        var list = await _collection.Find(filter)
             .SortByDescending(x => x.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Limit(pageSize)
             .ToListAsync(ct);
+        await EnrichAppointmentCodesAsync(list, ct);
+        return list;
+    }
+
+    private async Task EnrichAppointmentCodesAsync(List<Invoice> invoices, CancellationToken ct)
+    {
+        if (invoices.Count == 0) return;
+        try
+        {
+            var apptCol = _database.GetCollection<MongoDB.Bson.BsonDocument>("appointments");
+            foreach (var inv in invoices)
+            {
+                if (!string.IsNullOrWhiteSpace(inv.AppointmentCode)) continue;
+                if (!string.IsNullOrWhiteSpace(inv.OrderId) && inv.OrderId.StartsWith("ORD-", StringComparison.OrdinalIgnoreCase))
+                {
+                    inv.AppointmentCode = inv.OrderId;
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(inv.AppointmentId)) continue;
+                if (inv.AppointmentId.StartsWith("APT-", StringComparison.OrdinalIgnoreCase) || inv.AppointmentId.StartsWith("ORD-", StringComparison.OrdinalIgnoreCase))
+                {
+                    inv.AppointmentCode = inv.AppointmentId;
+                    continue;
+                }
+                var filters = new List<FilterDefinition<MongoDB.Bson.BsonDocument>>
+                {
+                    Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("_id", inv.AppointmentId),
+                    Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("appointmentCode", inv.AppointmentId)
+                };
+                if (MongoDB.Bson.ObjectId.TryParse(inv.AppointmentId, out var oid))
+                {
+                    filters.Add(Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("_id", oid));
+                }
+                var apptDoc = await apptCol.Find(Builders<MongoDB.Bson.BsonDocument>.Filter.Or(filters)).FirstOrDefaultAsync(ct);
+                if (apptDoc != null)
+                {
+                    var code = apptDoc.TryGetValue("appointmentCode", out var ac) && ac.IsString ? ac.AsString
+                        : (apptDoc.TryGetValue("appointment_code", out var ac2) && ac2.IsString ? ac2.AsString : null);
+                    if (!string.IsNullOrWhiteSpace(code))
+                    {
+                        inv.AppointmentCode = code;
+                    }
+                }
+            }
+        }
+        catch { }
     }
 
     public async Task<long> CountInvoicesAsync(

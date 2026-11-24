@@ -19,7 +19,8 @@ public class QueueService(
     IQueueRepository repository,
     ISequenceGenerator sequences,
     TimeProvider clock,
-    ILogger<QueueService> logger) : IQueueService
+    ILogger<QueueService> logger,
+    IAppointmentRepository? appointmentRepository = null) : IQueueService
 {
     /// <summary>Highest number of a day (BA:L33: after Q-999 the queue is closed, never Q-1000).</summary>
     public const int MaxTicketsPerDay = 999;
@@ -100,6 +101,27 @@ public class QueueService(
             CheckedInAt = now
         };
         await repository.InsertAsync(ticket, ct);
+        if (appointmentRepository != null && !request.IsWalkIn)
+        {
+            try
+            {
+                var candidateKey = !string.IsNullOrWhiteSpace(ticket.PatientCode) ? ticket.PatientCode : ticket.PatientId;
+                if (!string.IsNullOrWhiteSpace(candidateKey))
+                {
+                    var apt = await appointmentRepository.GetByIdAsync(candidateKey, ct)
+                           ?? await appointmentRepository.GetByCodeAsync(candidateKey, ct);
+                    if (apt != null && apt.QueueNumber != ticket.Sequence)
+                    {
+                        apt.QueueNumber = ticket.Sequence;
+                        await appointmentRepository.UpdateAsync(apt, ct);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not sync queue sequence {Seq} to appointment {Key}", ticket.Sequence, ticket.PatientCode);
+            }
+        }
         logger.LogInformation("Queue ticket {TicketNumber} issued ({Priority}) for {Patient}",
             ticket.TicketNumber, ticket.Priority, PiiMasker.MaskName(ticket.PatientName));
         return ToDto(ticket, now);

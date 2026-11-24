@@ -445,7 +445,7 @@ public sealed class ShiftRepository : IShiftRepository
             // Fallback
         }
 
-        if (result.Count == 0)
+        if (!result.Any(r => r.Type == "Clinic"))
         {
             result.AddRange(new[]
             {
@@ -453,6 +453,13 @@ public sealed class ShiftRepository : IShiftRepository
                 new ShiftRoomDto { Id = "ROOM-102", Name = "Phòng Khám Tim Mạch 102", RoomNumber = "102", Floor = "Tầng 1", Department = "Khám Lâm Sàng", Type = "Clinic" },
                 new ShiftRoomDto { Id = "ROOM-103", Name = "Phòng Khám Nội Tiết 103", RoomNumber = "103", Floor = "Tầng 1", Department = "Khám Lâm Sàng", Type = "Clinic" },
                 new ShiftRoomDto { Id = "ROOM-201", Name = "Phòng Tư Vấn Kết Quả 201", RoomNumber = "201", Floor = "Tầng 2", Department = "Khám Lâm Sàng", Type = "Clinic" },
+            });
+        }
+
+        if (!result.Any(r => r.Type is "Laboratory" or "Phlebotomy"))
+        {
+            result.AddRange(new[]
+            {
                 new ShiftRoomDto { Id = "LAB-ROOM-01", Name = "Phòng Xét Nghiệm Huyết Học 01", RoomNumber = "LAB-01", Floor = "Tầng 2", Department = "Khoa Xét Nghiệm", Type = "Laboratory" },
                 new ShiftRoomDto { Id = "LAB-ROOM-02", Name = "Phòng Miễn Dịch & Sinh Học Phân Tử 02", RoomNumber = "LAB-02", Floor = "Tầng 2", Department = "Khoa Xét Nghiệm", Type = "Laboratory" },
                 new ShiftRoomDto { Id = "SAMPLE-ROOM-01", Name = "Phòng Lấy Mẫu Bệnh Phẩm 01", RoomNumber = "SAMPLE-01", Floor = "Tầng 1", Department = "Tiếp Nhận & Lấy Mẫu", Type = "Phlebotomy" }

@@ -203,8 +203,13 @@ public sealed class UserRepository : IUserRepository
                     roleFilters.Add(Builders<User>.Filter.Eq(u => u.RoleId, (int)parsedRole));
                 }
 
+                if (roleFilters.Count == 0)
+                {
+                    return 0;
+                }
+
                 var filter = Builders<User>.Filter.And(
-                    Builders<User>.Filter.Or(roleFilters.Count > 0 ? roleFilters : [Builders<User>.Filter.Empty]),
+                    Builders<User>.Filter.Or(roleFilters),
                     Builders<User>.Filter.Eq(
                         u => u.IsDeleted, false));
 

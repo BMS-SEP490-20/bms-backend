@@ -17,7 +17,8 @@ public sealed class InventoryFilterDto
 /// <summary>A reagent lot with expiry warnings calculated by the server on the current clinic day.</summary>
 public sealed record InventoryItemDto(string Id, string Code, string Name, string Manufacturer,
     string LotNumber, decimal Quantity, string Unit, decimal MinimumStock, DateTime? ExpiryDate,
-    string ExpiryStatus, bool IsLowStock, long Revision);
+    string ExpiryStatus, bool IsLowStock, long Revision,
+    DateTime? OpenedDate = null, string? StorageCondition = null, string? ImportBatchNumber = null);
 public sealed record InventorySummaryDto(long Total, long LowStock, long ExpiringSoon, long Expired);
 public sealed record InventoryListDto(List<InventoryItemDto> Items, InventorySummaryDto Summary,
     int Page, int PageSize, long Total, int TotalPages, DateTime AsOfDate);
@@ -36,6 +37,9 @@ public class InventoryValuesDto
     [Range(typeof(decimal), "0", "1000000000")] public decimal MinimumStock { get; set; }
     [Required] public DateTime? ExpiryDate { get; set; }
     [Required, StringLength(500, MinimumLength = 5)] public string Reason { get; set; } = string.Empty;
+    public DateTime? OpenedDate { get; set; }
+    [StringLength(100)] public string? StorageCondition { get; set; }
+    [StringLength(100)] public string? ImportBatchNumber { get; set; }
 }
 
 /// <summary>Creates a lot with an opening balance and server-derived audit identity.</summary>

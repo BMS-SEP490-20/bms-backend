@@ -18,6 +18,7 @@ public interface IAuthService
     Task<AuthResponseDto> LoginAsync(LoginRequestDto dto);
     Task<AuthResponseDto> ChangePasswordAsync(string userId, ChangePasswordDto dto);
     Task<AuthResponseDto> ForgotPasswordAsync(ForgotPasswordDto dto);
+    Task<AuthResponseDto> VerifyPasswordResetOtpAsync(VerifyPasswordResetOtpDto dto);
     Task<AuthResponseDto> ResetPasswordAsync(ResetPasswordDto dto);
     Task<UserDto?> GetUserByIdAsync(string userId);
 }

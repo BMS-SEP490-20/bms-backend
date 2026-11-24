@@ -6,8 +6,8 @@ namespace BMS.Application.DTOs.Reception;
 
 public class CallNextPatientRequest
 {
-    [Required(ErrorMessage = "Mã phòng khám (RoomId) là bắt buộc.")]
-    public string RoomId { get; set; } = string.Empty;
+    /// <summary>Optional — when empty, resolved from the doctor's assigned shift room.</summary>
+    public string? RoomId { get; set; }
 
     [Required(ErrorMessage = "Mã bác sĩ (DoctorId) là bắt buộc.")]
     public string DoctorId { get; set; } = string.Empty;

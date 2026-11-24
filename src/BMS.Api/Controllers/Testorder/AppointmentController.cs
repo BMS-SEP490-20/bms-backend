@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using BMS.Api.Authorization;
 using BMS.Core.Constants;
 using Microsoft.AspNetCore.Mvc;
 using BMS.Application.DTOs.Appointment;
@@ -29,8 +30,17 @@ namespace BMS.Api.Controllers.Testorder
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken ct = default)
         {
-            // TODO(senior-dev, Đợt 2): page in MongoDB via GetFilteredAsync instead of in memory.
             var data = await _service.GetAllAsync(ct);
+            if (User.IsInRole(RoleNames.Patient))
+            {
+                var filtered = new System.Collections.Generic.List<AppointmentReadDto>();
+                foreach (var item in data)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.PatientId) && await this.MayAccessPatientAsync(item.PatientId, ct))
+                        filtered.Add(item);
+                }
+                data = filtered;
+            }
             var total = data.Count();
             var items = data.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
@@ -67,6 +77,9 @@ namespace BMS.Api.Controllers.Testorder
             if (data == null)
                 return NotFound($"Appointment with ID '{id}' not found.");
 
+            if (User.IsInRole(RoleNames.Patient) && (string.IsNullOrWhiteSpace(data.PatientId) || !await this.MayAccessPatientAsync(data.PatientId, ct)))
+                return NotFound($"Appointment with ID '{id}' not found.");
+
             return Ok(data);
         }
 
@@ -75,10 +88,14 @@ namespace BMS.Api.Controllers.Testorder
         /// </summary>
         /// <param name="dto">The appointment creation payload.</param>
         /// <returns>The newly created appointment resource.</returns>
+        [Authorize(Roles = RoleSets.ReceptionOrPatient)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] AppointmentCreateDto dto, CancellationToken ct)
         {
-            var result = await _service.CreateAsync(dto, ct);
+            if (User.IsInRole(RoleNames.Patient) && (string.IsNullOrWhiteSpace(dto?.PatientId) || !await this.MayAccessPatientAsync(dto.PatientId, ct)))
+                return Forbid();
+
+            var result = await _service.CreateAsync(dto!, ct);
             return CreatedAtAction(nameof(GetById), new { id = result.AppointmentId }, result);
         }
 
@@ -88,9 +105,17 @@ namespace BMS.Api.Controllers.Testorder
         /// <param name="id">The unique identifier of the appointment to update.</param>
         /// <param name="dto">The update payload containing updated time, status, or reschedule notes.</param>
         /// <returns>204 NoContent if successful; 404 NotFound if the appointment does not exist.</returns>
+        [Authorize(Roles = RoleSets.AppointmentEditors)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] AppointmentUpdateDto dto, CancellationToken ct)
         {
+            if (User.IsInRole(RoleNames.Patient))
+            {
+                var existing = await _service.GetDetailByIdAsync(id, ct);
+                if (existing == null || string.IsNullOrWhiteSpace(existing.PatientId) || !await this.MayAccessPatientAsync(existing.PatientId, ct))
+                    return NotFound();
+            }
+
             var success = await _service.UpdateAsync(id, dto, ct);
             if (!success) return NotFound();
             return NoContent();
@@ -101,9 +126,17 @@ namespace BMS.Api.Controllers.Testorder
         /// </summary>
         /// <param name="id">The unique identifier of the appointment to delete.</param>
         /// <returns>204 NoContent on success; 404 NotFound if the record is missing.</returns>
+        [Authorize(Roles = RoleSets.AppointmentEditors)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
+            if (User.IsInRole(RoleNames.Patient))
+            {
+                var existing = await _service.GetDetailByIdAsync(id, ct);
+                if (existing == null || string.IsNullOrWhiteSpace(existing.PatientId) || !await this.MayAccessPatientAsync(existing.PatientId, ct))
+                    return NotFound();
+            }
+
             var success = await _service.DeleteAsync(id, ct);
             if (!success) return NotFound();
             return NoContent();
@@ -117,6 +150,9 @@ namespace BMS.Api.Controllers.Testorder
             [FromQuery] int pageSize = 10,
             CancellationToken ct = default)
         {
+            if (User.IsInRole(RoleNames.Patient) && !await this.MayAccessPatientAsync(patientId, ct))
+                return NotFound(new { message = "Không có cuộc hẹn nào cho bệnh nhân này." });
+
             var data = await _service.GetByPatientIdAsync(patientId, ct);
             if (data == null || !data.Any())
                 return NotFound(new { message = "Không có cuộc hẹn nào cho bệnh nhân này." });

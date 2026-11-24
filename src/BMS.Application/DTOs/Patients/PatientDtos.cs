@@ -148,9 +148,11 @@ public sealed class PatientAppointmentSummaryDto
     public string AppointmentId { get; set; } = string.Empty;
     public DateTime? AppointmentDate { get; set; }
     public string? Type { get; set; }
+    public string? TimeSlot { get; set; }
     public string? Status { get; set; }
     public decimal? TotalAmount { get; set; }
     public string? PaymentStatus { get; set; }
+    public string? ServicePackageName { get; set; }
     public IReadOnlyList<string> TestPackages { get; set; } = Array.Empty<string>();
 }
 
@@ -159,9 +161,13 @@ public sealed class PatientMedicalRecordSummaryDto
     public string RecordId { get; set; } = string.Empty;
     public string? AppointmentId { get; set; }
     public string? DoctorId { get; set; }
+    public string? DoctorName { get; set; }
     public string? Symptoms { get; set; }
     public string? Diagnosis { get; set; }
     public string? DoctorNotes { get; set; }
+    public string? ClinicalNotes { get; set; }
+    public string? Recommendations { get; set; }
+    public DateTime? VisitDate { get; set; }
     public DateTime? CreatedAt { get; set; }
 }
 

@@ -49,8 +49,14 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                 var count = await _context.SpecimenHistories.CountDocumentsAsync(
                     Builders<SpecimenHistoryRecord>.Filter.Empty,
                     cancellationToken: ct);
+                long liveSamplesCount = 0;
+                if (_context.Database != null)
+                {
+                    liveSamplesCount = await _context.Database.GetCollection<Sample>("blood_samples")
+                        .CountDocumentsAsync(Builders<Sample>.Filter.Empty, cancellationToken: ct);
+                }
 
-                if (count < 3)
+                if (count == 0 && liveSamplesCount == 0)
                 {
                     foreach (var rec in defaultRecords)
                     {
@@ -168,6 +174,43 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                     .Skip((page - 1) * pageSize)
                     .Limit(pageSize)
                     .ToListAsync(ct);
+
+                // Merge live blood_samples from MongoDB so /laboratory/specimen-history reflects real specimens
+                if (_context.Database != null)
+                {
+                    try
+                    {
+                        var samplesCol = _context.Database.GetCollection<Sample>("blood_samples");
+                        var liveSamples = await samplesCol.Find(Builders<Sample>.Filter.Ne(s => s.IsDeleted, true))
+                            .SortByDescending(s => s.CollectedAt)
+                            .Limit(100)
+                            .ToListAsync(ct);
+                        if (liveSamples.Count > 0)
+                        {
+                            var converted = liveSamples.Select(ConvertSampleToHistoryRecord).AsEnumerable();
+                            if (!string.IsNullOrWhiteSpace(keyword))
+                            {
+                                var kw = keyword.Trim();
+                                converted = converted.Where(x =>
+                                    x.Barcode.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                                    x.PatientId.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                                    x.PatientName.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                                    x.OrderId.Contains(kw, StringComparison.OrdinalIgnoreCase));
+                            }
+                            if (!string.IsNullOrWhiteSpace(sampleType) && !sampleType.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+                            {
+                                converted = converted.Where(x => x.SampleType.Equals(sampleType.Trim(), StringComparison.OrdinalIgnoreCase));
+                            }
+                            if (!string.IsNullOrWhiteSpace(status) && !status.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+                            {
+                                converted = converted.Where(x => x.Status.Equals(status.Trim(), StringComparison.OrdinalIgnoreCase));
+                            }
+                            var liveList = converted.ToList();
+                            return (liveList.Skip((page - 1) * pageSize).Take(pageSize).ToList(), liveList.Count);
+                        }
+                    }
+                    catch { }
+                }
 
                 return (items, total);
             }

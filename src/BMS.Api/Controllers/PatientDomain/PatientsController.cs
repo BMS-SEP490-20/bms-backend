@@ -18,14 +18,14 @@ namespace BMS.Api.Controllers.PatientDomain;
 [Route("api/patients")]
 [Route("api/v1/patients")]
 [Produces("application/json")]
-// WHY: UC30/UC25: search/view Manager, Doctor, Lab, Receptionist; Patient /me; guest profile Receptionist. Admin denied (decision 10). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+// WHY: UC30 search/view: Admin, Manager, Doctor, Lab, Receptionist; Patient /me; guest profile Receptionist.
 [Authorize]
 public class PatientsController(
     IPatientService patients,
     IAuthorizationService authorization) : ControllerBase
 {
     /// <summary>
-    /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Staff / Manager / Doctor / Lab / Receptionist).
+    /// Searches and filters patient profiles by code, name, phone number, or CCCD/CMND (Admin / Manager / Doctor / Lab / Receptionist).
     /// </summary>
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet]

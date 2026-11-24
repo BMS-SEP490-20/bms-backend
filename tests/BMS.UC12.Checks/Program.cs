@@ -42,8 +42,8 @@ try
     var accounts = db.GetCollection<User>("accounts");
     await accounts.InsertManyAsync(new[]
     {
-        NewUser("a1", 1), NewUser("m1", 2), NewUser("l1", 3), NewUser("l2", 3), NewUser("d1", 4), NewUser("r1", 5),
-        NewUser("p1", 6), NewUser("legacy1", 9), NewUser("legacy2", 9),
+        NewUser("a1", 1), NewUser("m1", 6), NewUser("l1", 3), NewUser("l2", 3), NewUser("d1", 2), NewUser("r1", 4),
+        NewUser("p1", 5), NewUser("legacy1", 9), NewUser("legacy2", 9),
     });
     // locked: status Locked, and one with an active lockout window, one with an expired window
     await accounts.UpdateOneAsync(u => u.Id == "l2", Builders<User>.Update.Set(u => u.Status, (int)UserStatus.Locked));
@@ -76,11 +76,11 @@ try
     var names = new MongoCollections("accounts", "roles", "refresh_tokens");
     var migration = new UserRoleMigration(db, names, clock, NullLogger<UserRoleMigration>.Instance);
 
-    await Check("migration converts RoleId 9 -> 6 exactly once and records a marker", async () =>
+    await Check("migration converts RoleId 9 -> 5 (Patient) exactly once and records a marker", async () =>
     {
         Assert(await migration.MigrateLegacyPatientRoleIdAsync(CancellationToken.None) == 2);
         Assert(await accounts.CountDocumentsAsync(u => u.RoleId == 9) == 0);
-        Assert(await accounts.CountDocumentsAsync(u => u.RoleId == 6) == 3);
+        Assert(await accounts.CountDocumentsAsync(u => u.RoleId == 5) == 3);
         Assert(await migration.MigrateLegacyPatientRoleIdAsync(CancellationToken.None) == 0);
         var marker = await db.GetCollection<BsonDocument>("schema_migrations").Find(new BsonDocument("_id", UserRoleMigration.MigrationId)).SingleAsync();
         Assert(marker["convertedTotal"].ToInt64() == 2);

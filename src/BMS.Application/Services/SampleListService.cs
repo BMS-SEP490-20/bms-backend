@@ -113,12 +113,10 @@ public class SampleListService : ISampleListService
         {
             try
             {
-                var pkgKey = appt.PackageId.Trim();
-                var pkgUpper = pkgKey.ToUpperInvariant();
-                var pkg = await _packagesCol.Find(p => !p.IsDeleted && (p.Id == pkgKey || p.Code == pkgUpper)).FirstOrDefaultAsync();
+                var pkg = await _packagesCol.Find(p => p.Id == appt.PackageId || p.Code == appt.PackageId).FirstOrDefaultAsync();
                 if (pkg != null)
                 {
-                    var spec = TubeRules.For(pkg.Code, pkg.Name, !string.IsNullOrWhiteSpace(pkg.Category) ? pkg.Category : pkg.SampleTube);
+                    var spec = TubeRules.For(pkg.Code, pkg.Name, pkg.Category);
                     tubes.Add(TubePrintCode(spec.Color));
                 }
             }
@@ -190,17 +188,33 @@ public class SampleListService : ISampleListService
         {
             try
             {
-                // Main flow: after check-in / during doctor visit, Lab still needs to intake
-                // ordered specimens. InProgress was previously excluded → empty sample-list UI.
+                // Main flow: after check-in / doctor test order (which auto-completes consultation),
+                // Lab still needs to intake & print barcode labels for today's appointments.
+                var vnOffset = TimeSpan.FromHours(7);
+                var vnToday = (DateTime.UtcNow + vnOffset).Date;
+                var startUtc = vnToday - vnOffset;
+                var endUtc = vnToday.AddDays(1) - vnOffset;
+
                 var fb = Builders<Appointment>.Filter;
-                var filter = fb.Or(
-                    fb.Eq(a => a.Status, AppointmentStatus.Confirmed),
-                    fb.Eq(a => a.Status, AppointmentStatus.CheckedIn),
-                    fb.Eq(a => a.Status, AppointmentStatus.Pending),
-                    fb.Eq(a => a.Status, AppointmentStatus.InProgress)
+                var statusFilter = fb.In(a => a.Status, new[]
+                {
+                    AppointmentStatus.Confirmed,
+                    AppointmentStatus.CheckedIn,
+                    AppointmentStatus.InProgress,
+                    AppointmentStatus.Completed
+                });
+                var todayFilter = fb.Or(
+                    fb.And(fb.Gte(a => a.AppointmentDate, startUtc), fb.Lt(a => a.AppointmentDate, endUtc)),
+                    fb.And(fb.Gte(a => a.AppointmentDate, vnToday), fb.Lt(a => a.AppointmentDate, vnToday.AddDays(1))),
+                    fb.In(a => a.Status, new[] { AppointmentStatus.CheckedIn, AppointmentStatus.InProgress })
                 );
 
-                var list = await _appointmentsCol.Find(filter).Limit(30).ToListAsync();
+                var list = await _appointmentsCol
+                    .Find(fb.And(statusFilter, todayFilter))
+                    .SortByDescending(a => a.UpdatedAt)
+                    .ThenByDescending(a => a.CreatedAt)
+                    .Limit(50)
+                    .ToListAsync();
                 foreach (var a in list)
                 {
                     if (string.IsNullOrEmpty(a.PatientId)) continue;
@@ -223,9 +237,7 @@ public class SampleListService : ISampleListService
                     string packageName = !string.IsNullOrEmpty(a.Notes) ? a.Notes : string.Empty;
                     if (_packagesCol != null && !string.IsNullOrEmpty(a.PackageId))
                     {
-                        var pkgKey = a.PackageId.Trim();
-                        var pkgUpper = pkgKey.ToUpperInvariant();
-                        var pkg = await _packagesCol.Find(p => !p.IsDeleted && (p.Id == pkgKey || p.Code == pkgUpper)).FirstOrDefaultAsync();
+                        var pkg = await _packagesCol.Find(p => p.Id == a.PackageId || p.Code == a.PackageId).FirstOrDefaultAsync();
                         if (pkg != null && !string.IsNullOrEmpty(pkg.Name)) packageName = pkg.Name;
                     }
 
@@ -331,19 +343,10 @@ public class SampleListService : ISampleListService
             }
 
             string itemPackageName = !string.IsNullOrEmpty(apptDoc.Notes) ? apptDoc.Notes : string.Empty;
-            string? itemPackageId = apptDoc.PackageId;
-            string? itemPackageCode = null;
             if (_packagesCol != null && !string.IsNullOrEmpty(apptDoc.PackageId))
             {
-                var pkgKey = apptDoc.PackageId.Trim();
-                var pkgUpper = pkgKey.ToUpperInvariant();
-                var pkg = await _packagesCol.Find(p => !p.IsDeleted && (p.Id == pkgKey || p.Code == pkgUpper)).FirstOrDefaultAsync();
-                if (pkg != null)
-                {
-                    if (!string.IsNullOrEmpty(pkg.Name)) itemPackageName = pkg.Name;
-                    itemPackageId = pkg.Id ?? apptDoc.PackageId;
-                    itemPackageCode = pkg.Code;
-                }
+                var pkg = await _packagesCol.Find(p => p.Id == apptDoc.PackageId || p.Code == apptDoc.PackageId).FirstOrDefaultAsync();
+                if (pkg != null && !string.IsNullOrEmpty(pkg.Name)) itemPackageName = pkg.Name;
             }
 
             var itemTubes = await ResolveTubePrintCodesAsync(apptDoc, itemPackageName);
@@ -352,8 +355,9 @@ public class SampleListService : ISampleListService
             var baseSpecimenId = $"SPC-{datePrefix}-{patientTag}-{aptTag}-{specimenSequence:D4}";
             var createdTubeCodes = new List<string>();
 
-            // Update appointment status to InProgress when accessioned by Lab
-            if (_appointmentsCol != null)
+            // Only move Confirmed/CheckedIn appointments to InProgress when accessioned by Lab;
+            // keep already-Completed doctor consultations Completed so they don't reappear on Doctor Console.
+            if (_appointmentsCol != null && apptDoc.Status != AppointmentStatus.Completed)
             {
                 var updateDef = Builders<Appointment>.Update
                     .Set(a => a.Status, AppointmentStatus.InProgress)
@@ -370,12 +374,15 @@ public class SampleListService : ISampleListService
                 // Đã có đúng ống này cho BN+lịch → không tạo trùng
                 if (_samplesCol != null)
                 {
-                    var dup = await _samplesCol.Find(s =>
+                    var expectedColor = TubeColorFromPrint(tubeType);
+                    var existingForOrder = await _samplesCol.Find(s =>
                         s.Barcode == tubeBarcode ||
                         (s.PatientId == patientId &&
-                         s.TestOrderId == (apptDoc.Id ?? aptId) &&
-                         s.TubeColor == TubeColorFromPrint(tubeType) &&
-                         s.Status != SampleStatus.Rejected)).Limit(1).AnyAsync();
+                         (s.TestOrderId == (apptDoc.Id ?? aptId) || s.TestOrderId == (apptDoc.AppointmentCode ?? aptId)))).ToListAsync();
+                    var dup = existingForOrder.Any(s =>
+                        s.Barcode == tubeBarcode ||
+                        (string.Equals(s.TubeColor, expectedColor, StringComparison.OrdinalIgnoreCase) &&
+                         s.Status != SampleStatus.Rejected));
                     if (dup) continue;
                 }
 
@@ -389,8 +396,6 @@ public class SampleListService : ISampleListService
                     PatientId = patientId,
                     PatientName = patientName,
                     TestPackageName = itemPackageName,
-                    PackageId = itemPackageId,
-                    PackageCode = itemPackageCode,
                     SampleType = tubeType is "EDTA" or "CITRATE" ? "Blood" : "Serum",
                     TubeColor = TubeColorFromPrint(tubeType),
                     VolumeMl = tubeType == "EDTA" ? 2.0 : 4.0,

@@ -145,6 +145,10 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<bool> TryConfirmPaymentAsync(string id, string transactionId, decimal amount, CancellationToken ct = default)
         {
+            var existing = await GetByIdAsync(id, ct);
+            if (existing == null) return false;
+            if (existing.Status == AppointmentStatus.Confirmed && existing.PaidAt != null) return true;
+
             var update = Builders<Appointment>.Update
                 .Set(x => x.Status, AppointmentStatus.Confirmed)
                 .Set(x => x.SepayTransactionId, transactionId)
@@ -152,10 +156,10 @@ namespace BMS.Infrastructure.Repositories
                 .Set(x => x.PaidAt, DateTime.UtcNow)
                 .Set(x => x.UpdatedAt, DateTime.UtcNow);
             var result = await _collection.UpdateOneAsync(
-                x => x.Id == id && x.Status == AppointmentStatus.Pending,
+                x => x.Id == existing.Id && x.Status != AppointmentStatus.Cancelled,
                 update,
                 cancellationToken: ct);
-            return result.ModifiedCount > 0;
+            return result.ModifiedCount > 0 || result.MatchedCount > 0;
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
@@ -326,13 +330,24 @@ namespace BMS.Infrastructure.Repositories
         // UC28: Smart Queue & Doctor Call
         public async Task<Appointment?> CallNextPatientAtomicAsync(string doctorId, string roomId, CancellationToken ct = default)
         {
-            var startOfToday = DateTime.UtcNow.Date;
-            var endOfToday = startOfToday.AddDays(1);
+            var vnOffset = TimeSpan.FromHours(7);
+            var vnToday = (DateTime.UtcNow + vnOffset).Date;
+            var startUtc = vnToday - vnOffset;
+            var endUtc = vnToday.AddDays(1) - vnOffset;
+            var dateOnlyStart = vnToday;
+            var dateOnlyEnd = vnToday.AddDays(1);
 
-            var filter = Builders<Appointment>.Filter.And(
-                Builders<Appointment>.Filter.Eq(x => x.Status, AppointmentStatus.CheckedIn),
-                Builders<Appointment>.Filter.Gte(x => x.AppointmentDate, startOfToday.AddDays(-1)),
-                Builders<Appointment>.Filter.Lt(x => x.AppointmentDate, endOfToday)
+            var fb = Builders<Appointment>.Filter;
+            var filter = fb.And(
+                fb.Eq(x => x.Status, AppointmentStatus.CheckedIn),
+                fb.Or(
+                    fb.And(fb.Gte(x => x.AppointmentDate, startUtc), fb.Lt(x => x.AppointmentDate, endUtc)),
+                    fb.And(fb.Gte(x => x.AppointmentDate, dateOnlyStart), fb.Lt(x => x.AppointmentDate, dateOnlyEnd))),
+                // Prefer this doctor's queue; also allow unassigned doctorId so reception can feed the desk.
+                fb.Or(
+                    fb.Eq(x => x.DoctorId, doctorId),
+                    fb.Eq(x => x.DoctorId, null),
+                    fb.Eq(x => x.DoctorId, string.Empty))
             );
 
             var sort = Builders<Appointment>.Sort
@@ -357,14 +372,27 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<List<Appointment>> GetTodayQueueAppointmentsAsync(string? roomId, string? doctorId, CancellationToken ct = default)
         {
-            var startOfToday = DateTime.UtcNow.Date.AddDays(-1);
-            var endOfToday = DateTime.UtcNow.Date.AddDays(1);
+            // Clinic day = Vietnam (UTC+7). AppointmentDate is often stored as local calendar midnight UTC
+            // (e.g. 2026-11-20T00:00:00Z for a 20/11 VN booking) — bound the window in VN then convert to UTC.
+            var vnOffset = TimeSpan.FromHours(7);
+            var vnNow = DateTime.UtcNow + vnOffset;
+            var vnToday = vnNow.Date;
+            var startUtc = vnToday - vnOffset;                 // 00:00 VN → prior day 17:00 UTC
+            var endUtc = vnToday.AddDays(1) - vnOffset;        // next 00:00 VN → today 17:00 UTC
+            // Also accept date-only docs stamped at midnight UTC of the VN calendar day.
+            var dateOnlyStart = vnToday;
+            var dateOnlyEnd = vnToday.AddDays(1);
 
             var filterBuilder = Builders<Appointment>.Filter;
             var filter = filterBuilder.And(
                 filterBuilder.In(x => x.Status, new[] { AppointmentStatus.CheckedIn, AppointmentStatus.InProgress }),
-                filterBuilder.Gte(x => x.AppointmentDate, startOfToday),
-                filterBuilder.Lt(x => x.AppointmentDate, endOfToday)
+                filterBuilder.Or(
+                    filterBuilder.And(
+                        filterBuilder.Gte(x => x.AppointmentDate, startUtc),
+                        filterBuilder.Lt(x => x.AppointmentDate, endUtc)),
+                    filterBuilder.And(
+                        filterBuilder.Gte(x => x.AppointmentDate, dateOnlyStart),
+                        filterBuilder.Lt(x => x.AppointmentDate, dateOnlyEnd)))
             );
 
             if (!string.IsNullOrWhiteSpace(doctorId))
@@ -391,15 +419,20 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<bool> HasActiveDoctorShiftTodayAsync(string doctorId, CancellationToken ct = default)
         {
-            var startOfToday = DateTime.UtcNow.Date;
-            var endOfToday = startOfToday.AddDays(1);
+            // Match clinic day in VN (UTC+7); ShiftDate is often midnight UTC of the calendar day.
+            var vnOffset = TimeSpan.FromHours(7);
+            var vnToday = (DateTime.UtcNow + vnOffset).Date;
+            var startUtc = vnToday - vnOffset;
+            var endUtc = vnToday.AddDays(1) - vnOffset;
+            var dateOnlyStart = vnToday;
+            var dateOnlyEnd = vnToday.AddDays(1);
 
             var count = await _shiftCollection.CountDocumentsAsync(
                 x => x.DoctorId == doctorId
-                     && x.ShiftDate >= startOfToday
-                     && x.ShiftDate < endOfToday
                      && x.Status != "Cancelled"
-                     && x.Status != "Rejected",
+                     && x.Status != "Rejected"
+                     && ((x.ShiftDate >= startUtc && x.ShiftDate < endUtc)
+                         || (x.ShiftDate >= dateOnlyStart && x.ShiftDate < dateOnlyEnd)),
                 cancellationToken: ct);
 
             return count > 0;

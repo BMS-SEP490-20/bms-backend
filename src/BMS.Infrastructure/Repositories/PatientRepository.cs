@@ -17,12 +17,14 @@ public sealed class PatientRepository : IPatientRepository
     private readonly IMongoCollection<Patient> _patients;
     private readonly IMongoCollection<BsonDocument> _appointments;
     private readonly IMongoCollection<BsonDocument> _medicalRecords;
+    private readonly IMongoCollection<BsonDocument> _medicalAssessments;
 
     public PatientRepository(IMongoDatabase db)
     {
         _patients = db.GetCollection<Patient>("patients");
         _appointments = db.GetCollection<BsonDocument>("appointments");
         _medicalRecords = db.GetCollection<BsonDocument>("medical_records");
+        _medicalAssessments = db.GetCollection<BsonDocument>("medical_assessments");
     }
 
     /// <summary>Indexes for reception lookups (INV-5): unique CCCD among string values, unique AccountId among non-empty values, phone for duplicate checks.</summary>
@@ -232,9 +234,15 @@ public sealed class PatientRepository : IPatientRepository
     {
         try
         {
+            // Appointments entity uses camelCase BSON (patientId / appointmentDate), not snake_case.
+            var filter = Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("patientId", patientId),
+                Builders<BsonDocument>.Filter.Eq("patient_id", patientId),
+                Builders<BsonDocument>.Filter.Eq("PatientId", patientId));
+
             var docs = await _appointments
-                .Find(Builders<BsonDocument>.Filter.Eq("patient_id", patientId))
-                .Sort(Builders<BsonDocument>.Sort.Descending("appointment_date"))
+                .Find(filter)
+                .Sort(Builders<BsonDocument>.Sort.Descending("appointmentDate"))
                 .Limit(limit)
                 .ToListAsync(ct);
 
@@ -242,23 +250,37 @@ public sealed class PatientRepository : IPatientRepository
             foreach (var doc in docs)
             {
                 var packages = new List<string>();
-                if (doc.TryGetValue("test_packages", out var pkgsVal) && pkgsVal.IsBsonArray)
+                foreach (var key in new[] { "test_packages", "testPackages" })
                 {
-                    foreach (var item in pkgsVal.AsBsonArray)
+                    if (doc.TryGetValue(key, out var pkgsVal) && pkgsVal.IsBsonArray)
                     {
-                        if (item.IsString) packages.Add(item.AsString);
+                        foreach (var item in pkgsVal.AsBsonArray)
+                        {
+                            if (item.IsString) packages.Add(item.AsString);
+                        }
                     }
                 }
 
+                var code = ReadString(doc, "appointmentCode", "appointment_code", "AppointmentCode");
+                var id = ReadString(doc, "_id") ?? string.Empty;
+                // Prefer real package fields — `notes` often stores room/check-in text, not package name.
+                var pkgName = ReadString(doc, "packageName", "testPackageName", "PackageName", "packageCode");
+                var start = ReadDate(doc, "startTime", "appointmentTime", "appointmentDate", "appointment_date");
+                var slot = ReadString(doc, "slotTime", "timeSlot");
+                if (string.IsNullOrWhiteSpace(slot) && start.HasValue)
+                    slot = start.Value.ToLocalTime().ToString("HH:mm");
+
                 list.Add(new PatientAppointmentSummaryDto
                 {
-                    AppointmentId = doc.GetValue("_id", BsonNull.Value).ToString() ?? string.Empty,
-                    AppointmentDate = doc.TryGetValue("appointment_date", out var dt) && dt.IsValidDateTime ? dt.ToUniversalTime() : null,
-                    Type = doc.TryGetValue("type", out var tp) && tp.IsString ? tp.AsString : null,
-                    Status = doc.TryGetValue("status", out var st) && st.IsString ? st.AsString : null,
-                    TotalAmount = doc.TryGetValue("total_amount", out var ta) && ta.IsNumeric ? ta.ToDecimal() : null,
-                    PaymentStatus = doc.TryGetValue("payment_status", out var ps) && ps.IsString ? ps.AsString : null,
-                    TestPackages = packages
+                    AppointmentId = !string.IsNullOrWhiteSpace(code) ? code! : id,
+                    AppointmentDate = ReadDate(doc, "appointmentDate", "appointment_date", "appointmentTime") ?? start,
+                    Type = ReadString(doc, "type", "Type"),
+                    TimeSlot = slot,
+                    Status = ReadString(doc, "status", "Status"),
+                    TotalAmount = ReadDecimal(doc, "totalAmount", "total_amount", "paidAmount"),
+                    PaymentStatus = ReadString(doc, "paymentStatus", "payment_status"),
+                    ServicePackageName = pkgName,
+                    TestPackages = packages.Count > 0 ? packages : (string.IsNullOrWhiteSpace(pkgName) ? Array.Empty<string>() : new[] { pkgName! })
                 });
             }
 
@@ -277,32 +299,83 @@ public sealed class PatientRepository : IPatientRepository
     {
         try
         {
-            var docs = await _medicalRecords
-                .Find(Builders<BsonDocument>.Filter.Eq("patient_id", patientId))
+            var filter = Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("patientId", patientId),
+                Builders<BsonDocument>.Filter.Eq("patient_id", patientId),
+                Builders<BsonDocument>.Filter.Eq("PatientId", patientId));
+
+            var records = await _medicalRecords
+                .Find(filter)
+                .Sort(Builders<BsonDocument>.Sort.Descending("createdAt"))
+                .Limit(limit)
+                .ToListAsync(ct);
+
+            var assessments = await _medicalAssessments
+                .Find(filter)
                 .Sort(Builders<BsonDocument>.Sort.Descending("created_at"))
                 .Limit(limit)
                 .ToListAsync(ct);
 
-            var list = new List<PatientMedicalRecordSummaryDto>(docs.Count);
-            foreach (var doc in docs)
+            var list = new List<PatientMedicalRecordSummaryDto>();
+            foreach (var doc in records.Concat(assessments))
             {
                 list.Add(new PatientMedicalRecordSummaryDto
                 {
-                    RecordId = doc.GetValue("_id", BsonNull.Value).ToString() ?? string.Empty,
-                    AppointmentId = doc.TryGetValue("appointment_id", out var app) && !app.IsBsonNull ? app.ToString() : null,
-                    DoctorId = doc.TryGetValue("doctor_id", out var docId) && !docId.IsBsonNull ? docId.ToString() : null,
-                    Symptoms = doc.TryGetValue("symptoms", out var sym) && sym.IsString ? sym.AsString : null,
-                    Diagnosis = doc.TryGetValue("diagnosis", out var diag) && diag.IsString ? diag.AsString : null,
-                    DoctorNotes = doc.TryGetValue("doctor_notes", out var notes) && notes.IsString ? notes.AsString : null,
-                    CreatedAt = doc.TryGetValue("created_at", out var ca) && ca.IsValidDateTime ? ca.ToUniversalTime() : null
+                    RecordId = ReadString(doc, "assessment_code", "recordId", "RecordId", "_id") ?? string.Empty,
+                    AppointmentId = ReadString(doc, "appointment_id", "appointmentId"),
+                    DoctorId = ReadString(doc, "doctor_id", "doctorId"),
+                    DoctorName = ReadString(doc, "doctor_name", "doctorName"),
+                    Symptoms = ReadString(doc, "symptoms", "Symptoms"),
+                    Diagnosis = ReadString(doc, "diagnosis", "Diagnosis", "preliminary_diagnosis"),
+                    DoctorNotes = ReadString(doc, "doctor_notes", "doctorNotes", "clinical_notes"),
+                    ClinicalNotes = ReadString(doc, "clinical_notes", "clinicalNotes", "notes"),
+                    Recommendations = ReadString(doc, "recommendations", "Recommendations"),
+                    VisitDate = ReadDate(doc, "visit_date", "visitDate", "created_at", "createdAt"),
+                    CreatedAt = ReadDate(doc, "created_at", "createdAt", "visit_date")
                 });
             }
 
-            return list;
+            return list
+                .OrderByDescending(x => x.VisitDate ?? x.CreatedAt ?? DateTime.MinValue)
+                .Take(limit)
+                .ToList();
         }
         catch
         {
             return Array.Empty<PatientMedicalRecordSummaryDto>();
         }
+    }
+
+    private static string? ReadString(BsonDocument doc, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (doc.TryGetValue(key, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsString) return val.AsString;
+                return val.ToString();
+            }
+        }
+        return null;
+    }
+
+    private static DateTime? ReadDate(BsonDocument doc, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (doc.TryGetValue(key, out var val) && val.IsValidDateTime)
+                return val.ToUniversalTime();
+        }
+        return null;
+    }
+
+    private static decimal? ReadDecimal(BsonDocument doc, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (doc.TryGetValue(key, out var val) && val.IsNumeric)
+                return val.ToDecimal();
+        }
+        return null;
     }
 }

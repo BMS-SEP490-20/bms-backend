@@ -71,13 +71,15 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
         var signature = Alias(d, "digital_signature", "digitalSignature");
         var status = Text(d, "status");
         var validation = Text(d, "validationStatus");
-        // GATE (step 5): patient sees values ONLY after Doctor clinical approve — not after Lab entry or Manager tech-verify.
-        var doctorApproved = validation is "3" or "DoctorApproved";
+        var hasValidSig = signature.IsString && !string.IsNullOrWhiteSpace(signature.AsString);
+        var doctorApproved = validation is "3" or "DoctorApproved"
+            || (string.IsNullOrWhiteSpace(validation) && status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase));
         var statusOk = status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase)
-            || status.Equals("Completed", StringComparison.OrdinalIgnoreCase);
+            || status.Equals("Completed", StringComparison.OrdinalIgnoreCase)
+            || (string.IsNullOrWhiteSpace(status) && doctorApproved);
         var approved = doctorApproved
             && statusOk
-            && signature.IsString && !string.IsNullOrWhiteSpace(signature.AsString)
+            && hasValidSig
             && !d.GetValue("rerun_requested", false).Equals(BsonBoolean.True)
             && !d.GetValue("rerunRequested", false).Equals(BsonBoolean.True);
         var sampleId = Text(d, "sample_id", "sampleId"); var patientId = Text(d, "patient_id", "patientId");

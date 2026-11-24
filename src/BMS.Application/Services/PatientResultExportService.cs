@@ -493,7 +493,7 @@ public class PatientResultExportService : IPatientResultExportService
             new() { ParameterName = "Total Cholesterol", Value = "5.42", Unit = "mmol/L", ReferenceRange = "< 5.17", DeltaPrevious = "+0.28 ↑", Flag = "H", IsAbnormal = true, FlagSeverity = "warning" },
             new() { ParameterName = "HDL Cholesterol", Value = "1.28", Unit = "mmol/L", ReferenceRange = "> 1.04", DeltaPrevious = "+0.02", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" },
             new() { ParameterName = "Triglycerides", Value = "1.65", Unit = "mmol/L", ReferenceRange = "< 1.70", DeltaPrevious = "-0.12", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" },
-            new() { ParameterName = "VLDL (calculated)", Value = "0.75", Unit = "mmol/L", ReferenceRange = "< 1.04", DeltaPrevious = "Ã¢â‚¬â€", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" }
+            new() { ParameterName = "VLDL (calculated)", Value = "0.75", Unit = "mmol/L", ReferenceRange = "< 1.04", DeltaPrevious = "-", Flag = "N", IsAbnormal = false, FlagSeverity = "normal" }
         };
 
         var hash = ComputeSha256($"ORD-260927-0231-PT-004523-20260928");
@@ -537,14 +537,7 @@ public class PatientResultExportService : IPatientResultExportService
         return isAbnormal ? "H" : "N";
     }
 
-    private static string? CalculateSimulatedDelta(string paramName, string value)
-    {
-        if (paramName.Contains("LDL", StringComparison.OrdinalIgnoreCase)) return "+0.42 ↑";
-        if (paramName.Contains("Total Cholesterol", StringComparison.OrdinalIgnoreCase)) return "+0.28 ↑";
-        if (paramName.Contains("HDL", StringComparison.OrdinalIgnoreCase)) return "+0.02";
-        if (paramName.Contains("Triglycerides", StringComparison.OrdinalIgnoreCase)) return "-0.12";
-        return "Ã¢â‚¬â€";
-    }
+    private static string? CalculateSimulatedDelta(string paramName, string value) { return "-"; }
 
     private async Task<PatientTestResultDetailDto?> TryLoadFromMongoTestResultAsync(string orderId)
     {
@@ -657,12 +650,45 @@ public class PatientResultExportService : IPatientResultExportService
                     _ => "N"
                 };
                 var isAbn = normFlag != "N";
+                // Compute real Delta vs previous approved test result of the same patient if available
+                string deltaPrev = "—";
+                if (!string.IsNullOrWhiteSpace(patientId) && double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var currNum))
+                {
+                    try
+                    {
+                        var prevDocs = await col.Find(active
+                            & f.Ne("_id", doc["_id"])
+                            & f.Or(f.Eq("patientId", patientId), f.Eq("patient_id", patientId))
+                            & f.In("status", new[] { "APPROVED", "Approved", "Completed" }))
+                            .Sort(new BsonDocument("createdAt", -1))
+                            .Limit(5)
+                            .ToListAsync();
+                        foreach (var pd in prevDocs)
+                        {
+                            var pItems = pd.GetValue("items", BsonNull.Value);
+                            if (!pItems.IsBsonArray) continue;
+                            var matchedPrev = pItems.AsBsonArray
+                                .Where(iv => iv.IsBsonDocument)
+                                .Select(iv => iv.AsBsonDocument)
+                                .FirstOrDefault(iv => string.Equals(Str(iv, "criterionCode", "code"), code, StringComparison.OrdinalIgnoreCase));
+                            if (matchedPrev != null && double.TryParse(Str(matchedPrev, "measuredValue", "value_numeric"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var prevNum))
+                            {
+                                var diff = currNum - prevNum;
+                                deltaPrev = diff > 0 ? $"+{diff:0.##} ↑" : diff < 0 ? $"{diff:0.##} ↓" : "0.00";
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
                 parameters.Add(new PatientResultParameterDto
                 {
                     ParameterName = string.IsNullOrWhiteSpace(name) ? code : (string.IsNullOrWhiteSpace(code) || name.Contains(code, StringComparison.OrdinalIgnoreCase) ? name : $"{code} · {name}"),
                     Value = val,
                     Unit = unit,
                     ReferenceRange = refRange,
+                    DeltaPrevious = deltaPrev,
                     Flag = normFlag,
                     IsAbnormal = isAbn,
                     FlagSeverity = (normFlag is "HH" or "LL") ? "critical" : (isAbn ? "warning" : "normal")
@@ -778,3 +804,4 @@ public class PatientResultExportService : IPatientResultExportService
         return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
     }
 }
+

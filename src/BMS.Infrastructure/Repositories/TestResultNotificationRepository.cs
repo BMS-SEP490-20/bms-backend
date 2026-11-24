@@ -134,7 +134,13 @@ public class TestResultNotificationRepository : ITestResultNotificationRepositor
                 try
                 {
                     var count = _context.TestResultNotifications.CountDocuments(Builders<TestResultNotification>.Filter.Empty);
-                    if (count == 0)
+                    long realResultsCount = 0;
+                    if (_context.Database != null)
+                    {
+                        realResultsCount = _context.Database.GetCollection<MongoDB.Bson.BsonDocument>("test_results")
+                            .CountDocuments(Builders<MongoDB.Bson.BsonDocument>.Filter.Empty);
+                    }
+                    if (count == 0 && realResultsCount == 0)
                     {
                         _context.TestResultNotifications.InsertMany(seeds);
                     }

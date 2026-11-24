@@ -28,7 +28,8 @@ public sealed partial class TestOrderService(
     IAuditLogService audit,
     IOrderRefundService refunds,
     TimeProvider clock,
-    ILogger<TestOrderService> logger) : ITestOrderService
+    ILogger<TestOrderService> logger,
+    IAppointmentRepository? appointments = null) : ITestOrderService
 {
     /// <summary>ICD-10 format accepted (GAP C4; QĐ C7: format only, no WHO list lookup).</summary>
     [GeneratedRegex(@"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$")]
@@ -142,15 +143,15 @@ public sealed partial class TestOrderService(
         {
             OrderNumber = $"ORD-{localDate:yyyyMMdd}-{seq:D4}",
             PatientId = patient.Id,
+            AppointmentId = string.IsNullOrWhiteSpace(request.AppointmentId) ? null : request.AppointmentId.Trim(),
             PatientName = patient.FullName,
             PatientGender = patient.GenderString,
             PatientAge = AgeOn(patient.DateOfBirth, localDate),
             DoctorId = doctorUserId,
             DoctorName = doctor?.FullName ?? string.Empty,
             Priority = priority,
-            // Bác sĩ ký & phát hành y lệnh -> Chuyển thẳng sang Phòng Lấy Mẫu & Lab (Đồ án không có vai trò thu ngân/kế toán)
-            Status = request.SaveAsDraft ? TestOrderStatus.Draft : TestOrderStatus.PaidPendingSample,
-            PaymentDeferred = false,
+            Status = request.SaveAsDraft ? TestOrderStatus.Draft : TestOrderStatus.AwaitingPayment,
+            PaymentDeferred = !request.SaveAsDraft && isStat,
             Icd10Codes = icd,
             ClinicalIndication = request.ClinicalIndication.Trim(),
             SpecialInstructions = string.IsNullOrWhiteSpace(request.SpecialInstructions) ? null : request.SpecialInstructions.Trim(),
@@ -166,8 +167,40 @@ public sealed partial class TestOrderService(
 
         // Sau khi BS phát hành y lệnh (PaidPendingSample): tạo ống PendingCollection theo từng loại ống
         // để Lab tiếp nhận / in barcode — gắn TestOrderId = order.Id (không dùng appointment).
+        // Đồng thời tự động chuyển trạng thái lịch hẹn đang khám (InProgress) sang Completed để giải phóng bàn khám.
         if (!request.SaveAsDraft)
         {
+            if (appointments != null)
+            {
+                try
+                {
+                    Appointment? targetApt = null;
+                    if (!string.IsNullOrWhiteSpace(request.AppointmentId))
+                    {
+                        targetApt = await appointments.GetByIdAsync(request.AppointmentId.Trim(), ct)
+                                 ?? await appointments.GetByCodeAsync(request.AppointmentId.Trim(), ct);
+                    }
+                    if (targetApt == null)
+                    {
+                        var todayList = await appointments.GetTodayQueueAppointmentsAsync(null, doctorUserId, ct);
+                        targetApt = todayList.FirstOrDefault(a =>
+                            a.Status == AppointmentStatus.InProgress &&
+                            (string.Equals(a.PatientId, patient.Id, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(a.PatientId, patient.PatientCode, StringComparison.OrdinalIgnoreCase)));
+                    }
+                    if (targetApt != null && targetApt.Status != AppointmentStatus.Completed)
+                    {
+                        targetApt.Status = AppointmentStatus.Completed;
+                        targetApt.ConsultationEndTime = now;
+                        targetApt.UpdatedAt = now;
+                        await appointments.UpdateAsync(targetApt, ct);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Could not auto-complete appointment after test order {OrderNumber}", order.OrderNumber);
+                }
+            }
             try
             {
                 var tubeGroups = items
@@ -396,6 +429,7 @@ public sealed partial class TestOrderService(
         Id = o.Id,
         OrderNumber = o.OrderNumber,
         PatientId = o.PatientId,
+        AppointmentId = o.AppointmentId,
         PatientName = o.PatientName,
         PatientGender = o.PatientGender,
         PatientAge = o.PatientAge,

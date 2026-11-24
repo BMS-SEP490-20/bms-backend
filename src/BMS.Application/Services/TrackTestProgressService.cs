@@ -206,25 +206,102 @@ public class TrackTestProgressService : ITrackTestProgressService
 
         try
         {
-            var candidates = await _resultsCollection
-                .Find(Builders<TestResult>.Filter.In(x => x.SampleId, keys))
-                .SortByDescending(x => x.CreatedAt)
+            // Legacy docs use sample_id / result_code; canonical uses sampleId / resultCode.
+            var raw = _database.GetCollection<BsonDocument>("test_results");
+            var f = Builders<BsonDocument>.Filter;
+            var idValues = new BsonArray();
+            foreach (var k in keys)
+            {
+                idValues.Add(k);
+                if (ObjectId.TryParse(k, out var oid)) idValues.Add(oid);
+            }
+
+            var filter = f.Or(
+                f.In("sampleId", idValues),
+                f.In("sample_id", idValues),
+                f.In("barcode", idValues),
+                f.In("Barcode", idValues));
+
+            var docs = await raw.Find(filter)
+                .Sort(Builders<BsonDocument>.Sort.Descending("createdAt").Descending("created_at"))
+                .Limit(20)
                 .ToListAsync(ct);
 
-            if (candidates.Count == 0) return null;
+            if (docs.Count == 0)
+            {
+                // Fallback typed query (camelCase-only collections)
+                var typed = await _resultsCollection
+                    .Find(Builders<TestResult>.Filter.In(x => x.SampleId, keys))
+                    .SortByDescending(x => x.CreatedAt)
+                    .ToListAsync(ct);
+                if (typed.Count == 0) return null;
+                return PreferApprovedResult(typed);
+            }
 
-            // Prefer latest approved/signed result over older draft/waiting rows
-            return candidates.FirstOrDefault(r =>
-                       string.Equals(r.Status, "Approved", StringComparison.OrdinalIgnoreCase) ||
-                       r.ValidationStatus == ResultValidationStatus.DoctorApproved ||
-                       !string.IsNullOrWhiteSpace(r.DigitalSignature))
-                   ?? candidates.First();
+            // Prefer approved/signed then map via typed collection by ResultCode / _id
+            BsonDocument? best = docs.FirstOrDefault(d =>
+            {
+                var status = d.GetValue("status", "").ToString() ?? "";
+                var validation = d.GetValue("validationStatus", d.GetValue("validation_status", "")).ToString() ?? "";
+                var sig = d.GetValue("digitalSignature", d.GetValue("digital_signature", BsonNull.Value));
+                var approved = status.Equals("Approved", StringComparison.OrdinalIgnoreCase)
+                    || status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase)
+                    || validation is "3" or "DoctorApproved";
+                var hasSig = sig.IsString && !string.IsNullOrWhiteSpace(sig.AsString);
+                return approved || hasSig;
+            }) ?? docs.First();
+
+            var code = best.GetValue("resultCode", best.GetValue("result_code", BsonNull.Value));
+            var id = best.GetValue("_id", BsonNull.Value).ToString() ?? "";
+            var codeStr = code.IsString ? code.AsString : (code.IsBsonNull ? "" : code.ToString()!);
+
+            TestResult? entity = null;
+            if (!string.IsNullOrWhiteSpace(codeStr))
+            {
+                entity = await _resultsCollection
+                    .Find(x => x.ResultCode == codeStr || x.Id == codeStr || x.TestResultId == codeStr)
+                    .FirstOrDefaultAsync(ct);
+            }
+            if (entity == null && !string.IsNullOrWhiteSpace(id))
+            {
+                entity = await _resultsCollection.Find(x => x.Id == id).FirstOrDefaultAsync(ct);
+            }
+
+            if (entity != null)
+            {
+                // Ensure ResultCode is populated even when stored only as snake_case _id / result_code
+                if (string.IsNullOrWhiteSpace(entity.ResultCode) && !string.IsNullOrWhiteSpace(codeStr))
+                    entity.ResultCode = codeStr;
+                if (string.IsNullOrWhiteSpace(entity.ResultCode) && id.StartsWith("TRE-", StringComparison.OrdinalIgnoreCase))
+                    entity.ResultCode = id;
+                return entity;
+            }
+
+            // Last resort: synthesize minimal result so tracking can expose ResultCode to FE
+            return new TestResult
+            {
+                Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString() : id,
+                ResultCode = !string.IsNullOrWhiteSpace(codeStr) ? codeStr : id,
+                SampleId = sample.Id,
+                Status = best.GetValue("status", "Approved").ToString() ?? "Approved",
+                DigitalSignature = best.GetValue("digitalSignature", best.GetValue("digital_signature", BsonNull.Value)) is var s && s.IsString ? s.AsString : null,
+                ApprovedAt = best.GetValue("approvedAt", best.GetValue("approved_at", BsonNull.Value)) is var a && a.IsBsonDateTime ? a.ToUniversalTime() : null,
+                CreatedAt = best.GetValue("createdAt", best.GetValue("created_at", BsonNull.Value)) is var c && c.IsBsonDateTime ? c.ToUniversalTime() : DateTime.UtcNow
+            };
         }
         catch
         {
             return null;
         }
     }
+
+    private static TestResult PreferApprovedResult(IReadOnlyList<TestResult> candidates) =>
+        candidates.FirstOrDefault(r =>
+            string.Equals(r.Status, "Approved", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase) ||
+            r.ValidationStatus == ResultValidationStatus.DoctorApproved ||
+            !string.IsNullOrWhiteSpace(r.DigitalSignature))
+        ?? candidates[0];
 
     private async Task<TrackProgressResponse> BuildEnrichedTrackingResponseAsync(
         TestOrder? order,
@@ -360,7 +437,12 @@ public class TrackTestProgressService : ITrackTestProgressService
         int? resolvedAge,
         string? resolvedPackageName)
     {
-        var orderNumber = order?.OrderNumber ?? sample?.Id ?? sample?.Barcode ?? "ORD-UNKNOWN";
+        // Prefer human ORD-/barcode over raw sample GUID so BN list/export never shows opaque IDs.
+        var orderNumber = !string.IsNullOrWhiteSpace(order?.OrderNumber)
+            ? order!.OrderNumber
+            : (!string.IsNullOrWhiteSpace(sample?.Barcode)
+                ? sample!.Barcode!
+                : (sample?.Id ?? "ORD-UNKNOWN"));
         var patientName = !string.IsNullOrWhiteSpace(resolvedPatientName)
             ? resolvedPatientName
             : (order?.PatientName ?? sample?.PatientName ?? "Bệnh nhân");
@@ -370,6 +452,12 @@ public class TrackTestProgressService : ITrackTestProgressService
         }
 
         var patientId = order?.PatientId ?? sample?.PatientId ?? string.Empty;
+        if (isPublicQuery && !string.IsNullOrWhiteSpace(patientId))
+        {
+            patientId = patientId.Length > 8
+                ? $"{patientId[..4]}****{patientId[^3..]}"
+                : "PAT-****";
+        }
         var orderedAt = order?.CreatedAt ?? sample?.CollectedAt ?? DateTime.UtcNow;
         var priority = order?.Priority.ToString() ?? sample?.Priority.ToString() ?? "Normal";
 
@@ -453,7 +541,9 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step3Status,
             StatusText = step3Text,
             Timestamp = step3Done ? (sample?.ReceivedAt ?? (sample?.CollectedAt.AddMinutes(10) ?? orderedAt.AddMinutes(25))) : null,
-            HandlerName = sample?.ReceivedBy ?? "KTV Tiếp Nhận",
+            HandlerName = !string.IsNullOrWhiteSpace(sample?.AssignedTechnicianName)
+                ? sample.AssignedTechnicianName
+                : (!string.IsNullOrWhiteSpace(sample?.ReceivedBy) && !MongoDB.Bson.ObjectId.TryParse(sample.ReceivedBy, out _) ? sample.ReceivedBy : "KTV Tiếp Nhận"),
             Department = "Khoa Xét Nghiệm Trung Tâm",
             Notes = step3Notes
         });
@@ -522,7 +612,9 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step5Status,
             StatusText = step5Text,
             Timestamp = step5Done ? (result?.ApprovedAt ?? sample?.CompletedAt ?? result?.CreatedAt ?? orderedAt.AddMinutes(75)) : null,
-            HandlerName = !string.IsNullOrWhiteSpace(result?.ReviewedBy) ? result.ReviewedBy : "Bác sĩ / Trưởng Khoa Xét Nghiệm",
+            HandlerName = !string.IsNullOrWhiteSpace(result?.ReviewedBy) && !MongoDB.Bson.ObjectId.TryParse(result.ReviewedBy, out _)
+                ? result.ReviewedBy
+                : (!string.IsNullOrWhiteSpace(order?.DoctorName) ? order.DoctorName : "Bác sĩ / Trưởng Khoa Xét Nghiệm"),
             Department = "Hội Đồng Thẩm Định Y Khoa"
         });
 
@@ -587,6 +679,7 @@ public class TrackTestProgressService : ITrackTestProgressService
         {
             OrderNumber = orderNumber,
             Barcode = sample?.Barcode ?? orderNumber,
+            ResultCode = string.IsNullOrWhiteSpace(result?.ResultCode) ? null : result!.ResultCode,
             PatientId = patientId,
             PatientName = patientName,
             PatientGender = string.IsNullOrWhiteSpace(resolvedGender) ? "Chưa rõ" : resolvedGender,

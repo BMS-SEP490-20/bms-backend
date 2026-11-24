@@ -240,6 +240,19 @@ public class Sample : ISupportInitialize
     [BsonIgnoreIfNull]
     public string? StorageLocation { get; set; }
 
+    /// <summary>Parent sample ID when this tube is an aliquot split from a primary specimen (BR-PHL-02).</summary>
+    [BsonElement("parent_sample_id")]
+    [BsonIgnoreIfNull]
+    public string? ParentSampleId { get; set; }
+
+    [BsonElement("parent_barcode")]
+    [BsonIgnoreIfNull]
+    public string? ParentBarcode { get; set; }
+
+    [BsonElement("is_aliquot")]
+    [BsonIgnoreIfDefault]
+    public bool IsAliquot { get; set; }
+
     /// <summary>
     /// Soft-delete flag (<c>is_deleted</c>), already honoured by UC71 Sample Timeline and UC76 Test History.
     /// Declared explicitly so full-document replaces do not drop it (ExtraElements are cleared on load).

@@ -34,4 +34,13 @@ public interface ILabQueueService
     /// Retrieves active clinical and laboratory staff accounts from MongoDB for sample collection and reception dropdowns (UC40/UC41).
     /// </summary>
     Task<List<LabStaffMemberDto>> GetStaffDirectoryAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Splits a collected/received specimen into a child aliquot tube with a distinct barcode (BR-PHL-02).
+    /// </summary>
+    Task<LabQueueItemDto> CreateAliquotAsync(
+        string idOrBarcode,
+        CreateAliquotRequestDto request,
+        string? operatorUserId = null,
+        CancellationToken ct = default);
 }

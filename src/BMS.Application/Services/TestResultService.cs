@@ -29,6 +29,7 @@ namespace BMS.Application.Services
         private readonly ISampleRepository? _samples;
         private readonly BMS.Core.Interfaces.ITestCriterionRepository? _criteria;
         private readonly ITestOrderRepository? _testOrders;
+        private readonly IInventoryRepository? _inventory;
 
         /// <summary>Creates the service.</summary>
         public TestResultService(
@@ -38,7 +39,8 @@ namespace BMS.Application.Services
             ILogger<TestResultService> logger,
             ISampleRepository? samples = null,
             BMS.Core.Interfaces.ITestCriterionRepository? criteria = null,
-            ITestOrderRepository? testOrders = null)
+            ITestOrderRepository? testOrders = null,
+            IInventoryRepository? inventory = null)
         {
             _repo = repo;
             _appointmentRepo = appointmentRepo;
@@ -47,6 +49,7 @@ namespace BMS.Application.Services
             _samples = samples;
             _criteria = criteria;
             _testOrders = testOrders;
+            _inventory = inventory;
         }
 
         /// <inheritdoc />
@@ -88,7 +91,7 @@ namespace BMS.Application.Services
                     ?? await _testOrders.GetByOrderNumberAsync(sample.AppointmentId, ct);
             }
 
-            if (appointment is null && testOrder is null && !string.IsNullOrWhiteSpace(sample.PatientId))
+            if (appointment is null && testOrder is null && string.IsNullOrWhiteSpace(sample.AppointmentId) && !string.IsNullOrWhiteSpace(sample.PatientId))
             {
                 var patientAppointments = await _appointmentRepo.GetByPatientIdAsync(sample.PatientId, ct);
                 appointment = patientAppointments.FirstOrDefault(a => a.Status != AppointmentStatus.Cancelled);
@@ -170,6 +173,49 @@ namespace BMS.Application.Services
             };
 
             await _repo.AddAsync(entity, ct);
+
+            // Auto-consume reagent stock (BR-LAB-05 / UC56) when ReagentCode and Quantity > 0 are provided
+            if (_inventory != null && !string.IsNullOrWhiteSpace(dto.ReagentCode) && dto.Quantity > 0)
+            {
+                try
+                {
+                    var lot = await _inventory.GetAsync(dto.ReagentCode.Trim(), ct);
+                    if (lot != null && lot.Quantity >= dto.Quantity)
+                    {
+                        var nextQty = Math.Max(0m, lot.Quantity - dto.Quantity);
+                        var nextLot = new Reagent
+                        {
+                            Id = lot.Id,
+                            Code = lot.Code,
+                            LotNumber = lot.LotNumber,
+                            Unit = lot.Unit,
+                            Name = lot.Name,
+                            Manufacturer = lot.Manufacturer,
+                            Quantity = nextQty,
+                            MinimumStock = lot.MinimumStock,
+                            ExpiryDate = lot.ExpiryDate,
+                            OpenedDate = lot.OpenedDate ?? now,
+                            StorageCondition = lot.StorageCondition,
+                            ImportBatchNumber = lot.ImportBatchNumber
+                        };
+                        var change = new InventoryChange
+                        {
+                            Action = "CONSUME_TEST_RUN",
+                            ActorId = dto.ActorId,
+                            ActorName = dto.ActorId,
+                            Reason = $"Tiêu hao hóa chất cho kết quả {resultId} (Mẫu {sample.Barcode})",
+                            At = now,
+                            Before = new InventorySnapshot(lot.Name, lot.Manufacturer, lot.Quantity, lot.MinimumStock, lot.ExpiryDate),
+                            After = new InventorySnapshot(nextLot.Name, nextLot.Manufacturer, nextLot.Quantity, nextLot.MinimumStock, nextLot.ExpiryDate)
+                        };
+                        await _inventory.UpdateAsync(nextLot, lot.Revision, change, ct);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể trừ tồn kho hóa chất {ReagentCode} khi lưu kết quả {ResultId}.", dto.ReagentCode, resultId);
+                }
+            }
 
             // Cập nhật trạng thái mẫu sang Completed và lịch hẹn sang InProgress (chờ bác sĩ kết luận)
             sample.Status = SampleStatus.Completed;

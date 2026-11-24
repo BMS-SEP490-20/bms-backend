@@ -52,7 +52,25 @@ public class LabQueueItemDto
     public DateTime? RejectedAt { get; set; }
     public string? RejectedBy { get; set; }
     public string? Notes { get; set; }
+    public string? ParentSampleId { get; set; }
+    public string? ParentBarcode { get; set; }
+    public bool IsAliquot { get; set; }
     public IReadOnlyList<SampleStatusHistoryDto> StatusHistory { get; set; } = Array.Empty<SampleStatusHistoryDto>();
+}
+
+public class CreateAliquotRequestDto
+{
+    [Range(0.1, 50.0, ErrorMessage = "Thể tích ống chiết (VolumeMl) phải từ 0.1 đến 50 ml.")]
+    public double VolumeMl { get; set; } = 1.0;
+
+    [StringLength(100)]
+    public string? TargetLabRoom { get; set; }
+
+    [StringLength(50)]
+    public string? SampleType { get; set; }
+
+    [StringLength(500)]
+    public string? Notes { get; set; }
 }
 
 /// <summary>

@@ -42,7 +42,7 @@ public class RoleService : IRoleService
         var responseItems = new List<RoleResponseDto>();
         foreach (var role in items)
         {
-            var userCount = await _userRepository.CountUsersByRoleIdAsync(role.Id, ct);
+            var userCount = await _userRepository.CountUsersByRoleIdAsync(ResolveNumericOrCodeRoleKey(role), ct);
             responseItems.Add(MapToDto(role, userCount));
         }
 
@@ -63,7 +63,7 @@ public class RoleService : IRoleService
         var role = await _roleRepository.GetByIdAsync(id, ct);
         if (role == null) return null;
 
-        var userCount = await _userRepository.CountUsersByRoleIdAsync(role.Id, ct);
+        var userCount = await _userRepository.CountUsersByRoleIdAsync(ResolveNumericOrCodeRoleKey(role), ct);
         return MapToDto(role, userCount);
     }
 
@@ -120,7 +120,7 @@ public class RoleService : IRoleService
         role.UpdatedAt = DateTime.UtcNow;
 
         await _roleRepository.UpdateAsync(role, ct);
-        var userCount = await _userRepository.CountUsersByRoleIdAsync(role.Id, ct);
+        var userCount = await _userRepository.CountUsersByRoleIdAsync(ResolveNumericOrCodeRoleKey(role), ct);
         return (true, "Role updated successfully.", MapToDto(role, userCount));
     }
 
@@ -142,7 +142,7 @@ public class RoleService : IRoleService
         }
 
         // Rule BR-ROLE-02: Prevent deletion if users are assigned
-        var userCount = await _userRepository.CountUsersByRoleIdAsync(role.Id, ct);
+        var userCount = await _userRepository.CountUsersByRoleIdAsync(ResolveNumericOrCodeRoleKey(role), ct);
         if (userCount > 0)
         {
             return (false, $"Cannot delete role because {userCount} active user(s) are currently assigned to it (BR-ROLE-02).");
@@ -158,6 +158,21 @@ public class RoleService : IRoleService
     public Dictionary<string, List<string>> GetPermissionMatrix()
     {
         return SystemPermissions.PermissionMatrix;
+    }
+
+    private static string ResolveNumericOrCodeRoleKey(RoleEntity role)
+    {
+        var code = (role.RoleCode ?? string.Empty).Trim().ToUpperInvariant();
+        return code switch
+        {
+            "ADMIN" or "SYSTEM_ADMIN" => "1",
+            "DOCTOR" => "2",
+            "LAB" or "LAB_TECHNICIAN" or "LAB_TECH" => "3",
+            "RECEPTIONIST" => "4",
+            "PATIENT" => "5",
+            "MANAGER" or "LAB_MANAGER" or "LAB_HEAD" => "6",
+            _ => !string.IsNullOrWhiteSpace(role.RoleCode) ? role.RoleCode : role.Id
+        };
     }
 
     private static RoleResponseDto MapToDto(RoleEntity role, long userCount)

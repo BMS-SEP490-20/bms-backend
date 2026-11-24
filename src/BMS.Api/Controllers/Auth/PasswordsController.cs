@@ -175,6 +175,37 @@ public sealed class PasswordsController : ControllerBase
     }
 
     /// <summary>
+    /// Xác thực OTP đặt lại mật khẩu (bước 2) — không tiêu thụ OTP.
+    /// </summary>
+    [HttpPost("verify-reset-otp")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyPasswordResetOtp(
+        [FromBody] VerifyPasswordResetOtpDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = "Dữ liệu OTP không hợp lệ."
+            });
+        }
+
+        var result = await _authService.VerifyPasswordResetOtpAsync(request);
+
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "OTP_LOCKED")
+            {
+                return StatusCode(StatusCodes.Status423Locked, result);
+            }
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Đặt lại mật khẩu bằng OTP theo luồng của main.
     /// </summary>
     [HttpPost("reset")]

@@ -373,13 +373,14 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Validate sample is not already in a post-collection or processing state (Record Sample Time is only valid for PendingCollection)
-        if (sample != null && sample.Status != SampleStatus.PendingCollection)
+        // Validate sample is not already in a terminal state (Completed / Rejected).
+        // Updating collection time on a Collected sample is permitted with mandatory ISO 27789 Audit Trail.
+        if (sample != null && sample.Status is SampleStatus.Completed or SampleStatus.Rejected)
         {
             throw new InvalidSampleStatusTransitionException(
                 sample.StatusString,
                 SampleStatus.Collected.ToString(),
-                $"Mẫu '{sample.Barcode}' đã được ghi nhận lấy mẫu lúc {sample.CollectedAt:dd/MM/yyyy HH:mm} và đang ở trạng thái '{sample.StatusString}'. Không thể ghi nhận lại thời gian lấy mẫu cho mẫu đã chuyển vào quy trình Lab.");
+                $"Mẫu '{sample.Barcode}' đã ở trạng thái kết thúc '{sample.StatusString}'. Không thể cập nhật thời gian lấy mẫu.");
         }
 
         var collectorId = !string.IsNullOrWhiteSpace(request.CollectedBy)
@@ -1862,6 +1863,101 @@ public class LabQueueService : ILabQueueService
         }
     }
 
+    public async Task<LabQueueItemDto> CreateAliquotAsync(
+        string idOrBarcode,
+        CreateAliquotRequestDto request,
+        string? operatorUserId = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(idOrBarcode))
+            throw new SampleNotFoundException(idOrBarcode);
+
+        var parent = await FindSampleAsync(idOrBarcode.Trim(), ct)
+                     ?? throw new SampleNotFoundException(idOrBarcode);
+
+        if (parent.Status is SampleStatus.PendingCollection or SampleStatus.Rejected)
+        {
+            throw new InvalidSampleStatusTransitionException(
+                parent.StatusString,
+                "Aliquot",
+                $"Mẫu '{parent.Barcode}' đang ở trạng thái '{parent.StatusString}' nên chưa thể chiết mẫu phụ (Aliquot).");
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var vol = request.VolumeMl is >= 0.1 and <= 50.0 ? request.VolumeMl : 1.0;
+
+        int nextSub = 1;
+        if (SamplesCol != null)
+        {
+            try
+            {
+                var existingAliquots = await SamplesCol.CountDocumentsAsync(
+                    Builders<Sample>.Filter.Eq(s => s.ParentSampleId, parent.Id),
+                    cancellationToken: ct);
+                nextSub = (int)existingAliquots + 1;
+            }
+            catch { }
+        }
+
+        var childBarcode = $"{parent.Barcode}-A{nextSub:D2}";
+        var operatorName = await ResolveUserFullNameAsync(operatorUserId, ct) ?? operatorUserId ?? "KTV Phòng Lab";
+
+        var aliquot = new Sample
+        {
+            Id = childBarcode,
+            Barcode = childBarcode,
+            ParentSampleId = parent.Id,
+            ParentBarcode = parent.Barcode,
+            IsAliquot = true,
+            TestOrderId = parent.TestOrderId,
+            PatientId = parent.PatientId,
+            PatientName = parent.PatientName,
+            PatientGender = parent.PatientGender,
+            PatientAge = parent.PatientAge,
+            TestPackageName = parent.TestPackageName,
+            PackageId = parent.PackageId,
+            PackageCode = parent.PackageCode,
+            SampleType = !string.IsNullOrWhiteSpace(request.SampleType) ? request.SampleType.Trim() : parent.SampleType,
+            TubeColor = parent.TubeColor,
+            Anticoagulant = parent.Anticoagulant,
+            VolumeMl = vol,
+            StatusString = parent.Status == SampleStatus.Completed ? SampleStatus.Received.ToString() : parent.StatusString,
+            PriorityString = parent.PriorityString,
+            LabRoom = !string.IsNullOrWhiteSpace(request.TargetLabRoom) ? request.TargetLabRoom.Trim() : parent.LabRoom,
+            CollectedBy = parent.CollectedBy,
+            CollectorName = parent.CollectorName,
+            CollectedAt = parent.CollectedAt,
+            ReceivedAt = parent.ReceivedAt ?? now,
+            ReceivedBy = operatorUserId,
+            Notes = !string.IsNullOrWhiteSpace(request.Notes)
+                ? $"[Aliquot từ {parent.Barcode}] {request.Notes.Trim()}"
+                : $"Ống mẫu chiết phụ (Aliquot #{nextSub}) tách từ ống gốc {parent.Barcode}",
+            CreatedAt = now,
+            UpdatedAt = now,
+            StatusHistory =
+            [
+                new SampleStatusHistoryEntry
+                {
+                    FromStatus = parent.StatusString,
+                    ToStatus = parent.Status == SampleStatus.Completed ? SampleStatus.Received.ToString() : parent.StatusString,
+                    ChangedAt = now,
+                    ChangedBy = operatorUserId,
+                    OperatorName = operatorName,
+                    Notes = $"Chiết mẫu phụ (Aliquot) {vol:0.1} ml từ ống gốc {parent.Barcode}"
+                }
+            ]
+        };
+
+        if (SamplesCol != null)
+        {
+            await SamplesCol.InsertOneAsync(aliquot, cancellationToken: ct);
+        }
+        _context.Samples.Add(aliquot);
+
+        await EnrichSampleMetadataAsync([aliquot], ct);
+        return MapToDto(aliquot);
+    }
+
     private static LabQueueItemDto MapToDto(Sample s) => new()
     {
         Id = s.Id,
@@ -1912,6 +2008,9 @@ public class LabQueueService : ILabQueueService
         RejectedAt = s.RejectedAt,
         RejectedBy = s.RejectedBy,
         Notes = s.Notes,
+        ParentSampleId = s.ParentSampleId,
+        ParentBarcode = s.ParentBarcode,
+        IsAliquot = s.IsAliquot,
         StatusHistory = (s.StatusHistory ?? []).Select(h => new SampleStatusHistoryDto
         {
             FromStatus = h.FromStatus,

@@ -299,15 +299,14 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
             qcService != null)
         {
             var activeFlags = await qcService.GetActiveQcFlagsAsync(ct);
-            var lockedOrRejected = activeFlags.FirstOrDefault(f =>
-                f.IsLocked ||
-                (f.ViolatedRules != null && f.ViolatedRules.Any(r => r.Contains("1_3s", StringComparison.OrdinalIgnoreCase))) ||
-                (f.Status != null && f.Status.Contains("REJECT_1_3S", StringComparison.OrdinalIgnoreCase)));
+            // Chỉ chặn khi máy còn IsLocked. Sau Manager ký corrective action, IsLocked=false
+            // nhưng Status vẫn giữ REJECT_1_3S (lịch sử IQC) — không được tiếp tục khóa Testing.
+            var lockedFlag = activeFlags.FirstOrDefault(f => f.IsLocked);
 
-            if (lockedOrRejected != null)
+            if (lockedFlag != null)
             {
-                var ruleText = lockedOrRejected.ViolatedRules != null && lockedOrRejected.ViolatedRules.Count > 0
-                    ? string.Join(", ", lockedOrRejected.ViolatedRules)
+                var ruleText = lockedFlag.ViolatedRules != null && lockedFlag.ViolatedRules.Count > 0
+                    ? string.Join(", ", lockedFlag.ViolatedRules)
                     : "Westgard 1_3s";
 
                 return Conflict(new ProblemDetails
@@ -318,9 +317,9 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
                     Extensions =
                     {
                         ["code"] = "ANALYZER_QC_LOCKED",
-                        ["runId"] = lockedOrRejected.RunId,
-                        ["status"] = lockedOrRejected.Status,
-                        ["violatedRules"] = lockedOrRejected.ViolatedRules,
+                        ["runId"] = lockedFlag.RunId,
+                        ["status"] = lockedFlag.Status,
+                        ["violatedRules"] = lockedFlag.ViolatedRules,
                         ["traceId"] = HttpContext.TraceIdentifier
                     }
                 });
@@ -488,6 +487,56 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
                 title = "Không thể tải chi tiết yêu cầu chạy lại mẫu.",
                 detail = "Không thể tải chi tiết yêu cầu chạy lại mẫu.",
                 message = "Không thể tải chi tiết yêu cầu chạy lại mẫu."
+            });
+        }
+    }
+
+    /// <summary>
+    /// BR-PHL-02 - Chiết mẫu phụ (Aliquoting) từ một ống mẫu gốc đã thu thập/tiếp nhận.
+    /// </summary>
+    [Authorize(Roles = RoleSets.LabOrManager)]
+    [HttpPost("{id}/aliquot")]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateAliquot(
+        string id,
+        [FromBody] CreateAliquotRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var created = await labQueueService.CreateAliquotAsync(id, request ?? new CreateAliquotRequestDto(), CurrentUserId, ct);
+            return StatusCode(StatusCodes.Status201Created, new
+            {
+                success = true,
+                message = $"Đã chiết mẫu phụ (Aliquot) '{created.Barcode}' từ mẫu gốc '{created.ParentBarcode}' thành công.",
+                data = created
+            });
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new
+            {
+                success = false,
+                status = (int)ex.StatusCode,
+                code = ex.Code,
+                title = ex.Message,
+                detail = ex.Message,
+                message = ex.Message
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = StatusCodes.Status500InternalServerError,
+                code = "INTERNAL_SERVER_ERROR",
+                title = "Không thể chiết mẫu phụ (Aliquot) lúc này.",
+                detail = "Không thể chiết mẫu phụ (Aliquot) lúc này.",
+                message = "Không thể chiết mẫu phụ (Aliquot) lúc này."
             });
         }
     }

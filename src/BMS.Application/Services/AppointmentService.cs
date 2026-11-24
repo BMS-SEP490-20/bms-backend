@@ -809,7 +809,8 @@ namespace BMS.Application.Services
                 AppointmentType = a.Type.ToString(),
                 Notes = a.Notes,
                 CollectionAddress = a.CollectionAddress,
-                RoomName = a.RoomId
+                RoomName = a.RoomId,
+                QueueNumber = a.QueueNumber
             };
         }
 

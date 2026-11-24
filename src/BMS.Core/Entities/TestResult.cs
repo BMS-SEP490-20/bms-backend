@@ -29,7 +29,8 @@ public static class TestResultRules
     public static bool IsSigned(TestResult r) =>
         r.ValidationStatus == ResultValidationStatus.DoctorApproved
         || r.ApprovedAt != null
-        || string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase);
+        || string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase)
+        || !string.IsNullOrWhiteSpace(r.DigitalSignature);
 }
 
 /// <summary>

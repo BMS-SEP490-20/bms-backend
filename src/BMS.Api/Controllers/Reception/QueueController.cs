@@ -63,6 +63,7 @@ public class QueueController : ControllerBase
     /// UC27 – Issues the next sequential queue ticket.
     /// </summary>
     [HttpPost("issue")]
+    [Authorize(Roles = RoleNames.Receptionist)]
     [ProducesResponseType(typeof(QueueTicketDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -91,6 +92,7 @@ public class QueueController : ControllerBase
     /// alternate 1:1, first come first served within each group (BA:L33).
     /// </summary>
     [HttpPost("call-next")]
+    [Authorize(Roles = RoleNames.Receptionist)]
     [ProducesResponseType(typeof(QueueTicketDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> CallNext([FromBody] CallTicketRequestDto request, CancellationToken ct)
@@ -103,6 +105,7 @@ public class QueueController : ControllerBase
     /// UC27 – Calls a ticket to an active collection counter.
     /// </summary>
     [HttpPut("{id}/call")]
+    [Authorize(Roles = RoleNames.Receptionist)]
     public async Task<IActionResult> CallTicket(
         string id,
         [FromBody] CallTicketRequestDto request,
@@ -125,6 +128,7 @@ public class QueueController : ControllerBase
     /// UC27 – Updates the lifecycle status of a ticket (Collecting, Completed, Skipped).
     /// </summary>
     [HttpPut("{id}/status")]
+    [Authorize(Roles = RoleNames.Receptionist)]
     public async Task<IActionResult> UpdateStatus(
         string id,
         [FromBody] UpdateTicketStatusRequestDto request,

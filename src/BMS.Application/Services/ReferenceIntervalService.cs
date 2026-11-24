@@ -120,24 +120,21 @@ public class ReferenceIntervalService : IReferenceIntervalService
             ? dto.Unit.Trim()
             : (criterion?.Unit ?? string.Empty);
 
-        // 2b. Chặn tạo trùng lặp: Mỗi loại Chỉ Số Xét Nghiệm chỉ có tối đa 2 khoảng tham chiếu (1 Nam, 1 Nữ)
+        // 2b. Chặn tạo trùng lặp: Mỗi loại Chỉ Số Xét Nghiệm chỉ có tối đa 2 khoảng tham chiếu (1 Nam, 1 Nữ) hoặc 1 khoảng chung (All)
         var targetGender = NormalizeGender(dto.Gender);
-        if (targetGender != "Male" && targetGender != "Female")
-        {
-            return (false, "Giới tính áp dụng cho khoảng tham chiếu phải là 'Nam' (Male) hoặc 'Nữ' (Female).", null);
-        }
 
         var existingIntervals = await _repository.GetByCriterionCodeAsync(normalizedCode, activeOnly: false, ct);
         var activeIntervals = existingIntervals.Where(x => !x.IsDeleted && x.IsActive).ToList();
 
-        // 1. Kiểm tra xem đã có khoảng tham chiếu cho giới tính này chưa
-        var duplicateGender = activeIntervals.FirstOrDefault(x => 
+        // 1. Kiểm tra xem đã có khoảng tham chiếu cho giới tính này chưa (hoặc đã có khoảng 'All', hoặc tạo 'All' khi đã có khoảng khác)
+        var duplicateGender = activeIntervals.FirstOrDefault(x =>
+            targetGender == "All" ||
             string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
 
         if (duplicateGender != null)
         {
-            var genderVi = targetGender == "Male" ? "Nam" : "Nữ";
+            var genderVi = targetGender == "Male" ? "Nam" : targetGender == "Female" ? "Nữ" : "Chung (All)";
             return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateGender.Id}). Mỗi loại chỉ số xét nghiệm chỉ được cấu hình tối đa 2 khoảng tham chiếu: 1 cho Nam và 1 cho Nữ.", null);
         }
 
@@ -152,11 +149,12 @@ public class ReferenceIntervalService : IReferenceIntervalService
             var byId = await _repository.GetByCriterionIdAsync(criterionId, activeOnly: false, ct);
             var activeById = byId.Where(x => !x.IsDeleted && x.IsActive).ToList();
             var duplicateById = activeById.FirstOrDefault(x =>
+                targetGender == "All" ||
                 string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
             if (duplicateById != null)
             {
-                var genderVi = targetGender == "Male" ? "Nam" : "Nữ";
+                var genderVi = targetGender == "Male" ? "Nam" : targetGender == "Female" ? "Nữ" : "Chung (All)";
                 return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateById.Id}). Mỗi loại chỉ số xét nghiệm chỉ được cấu hình tối đa 2 khoảng tham chiếu: 1 cho Nam và 1 cho Nữ.", null);
             }
             if (activeById.Count >= 2)
@@ -263,12 +261,8 @@ public class ReferenceIntervalService : IReferenceIntervalService
             }
         }
 
-        // Chặn trùng lặp giới tính khi cập nhật: Mỗi chỉ số xét nghiệm chỉ có 1 Nam và 1 Nữ
+        // Chặn trùng lặp giới tính khi cập nhật: Mỗi chỉ số xét nghiệm chỉ có 1 Nam và 1 Nữ (hoặc 1 All)
         var newGender = NormalizeGender(dto.Gender);
-        if (newGender != "Male" && newGender != "Female")
-        {
-            return (false, "Giới tính áp dụng cho khoảng tham chiếu phải là 'Nam' (Male) hoặc 'Nữ' (Female).", null);
-        }
 
         if (!string.Equals(existing.Gender, newGender, StringComparison.OrdinalIgnoreCase))
         {
@@ -277,11 +271,11 @@ public class ReferenceIntervalService : IReferenceIntervalService
                 !x.IsDeleted &&
                 x.IsActive &&
                 x.Id != id &&
-                (string.Equals(x.Gender, newGender, StringComparison.OrdinalIgnoreCase) || string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase)));
+                (newGender == "All" || string.Equals(x.Gender, newGender, StringComparison.OrdinalIgnoreCase) || string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase)));
 
             if (duplicateGender != null)
             {
-                var genderVi = newGender == "Male" ? "Nam" : "Nữ";
+                var genderVi = newGender == "Male" ? "Nam" : newGender == "Female" ? "Nữ" : "Chung (All)";
                 return (false, $"Không thể đổi giới tính sang {genderVi} vì chỉ số '{existing.CriterionCode}' đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateGender.Id}). Mỗi loại chỉ số chỉ được cấu hình tối đa 1 khoảng cho Nam và 1 khoảng cho Nữ.", null);
             }
         }
