@@ -106,10 +106,25 @@ public class LabQueueService : ILabQueueService
     /// Retrieves filtered, prioritized specimen list for clinical laboratory technicians.
     /// Merges MongoDB <c>blood_samples</c> with <c>BmsDbContext.Samples</c>.
     /// </summary>
+    // ISO 15189 – statuses that are eligible to appear in the Lab Queue (Bước 3).
+    // Samples must have completed Bước 1 (Barcode/Collection) AND Bước 2 (Check-in/Receive)
+    // before they are shown in the queue. PendingCollection, Collected, and InTransit are pre-Step-2.
+    private static readonly HashSet<SampleStatus> QueueEligibleStatuses =
+    [
+        SampleStatus.Received,
+        SampleStatus.Processing,
+        SampleStatus.Testing,
+        SampleStatus.Completed,
+        SampleStatus.RerunRequested
+    ];
+
     public async Task<(List<LabQueueItemDto> Items, int TotalCount)> GetQueueAsync(QueueFilterDto filter)
     {
         var allSamples = await LoadAllSamplesEnrichedAsync();
         var query = allSamples.AsQueryable();
+
+        // 0. ALWAYS enforce workflow gate: only show samples that have passed Step 2 (Received or later)
+        query = query.Where(s => QueueEligibleStatuses.Contains(s.Status));
 
         // 1. Status filter
         if (!string.IsNullOrWhiteSpace(filter.Status) && !filter.Status.Equals("All", StringComparison.OrdinalIgnoreCase))

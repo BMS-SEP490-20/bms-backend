@@ -399,7 +399,10 @@ public class SampleListService : ISampleListService
                     SampleType = tubeType is "EDTA" or "CITRATE" ? "Blood" : "Serum",
                     TubeColor = TubeColorFromPrint(tubeType),
                     VolumeMl = tubeType == "EDTA" ? 2.0 : 4.0,
-                    Status = SampleStatus.PendingCollection,
+                    Status = SampleStatus.Collected,
+                    CollectedAt = DateTime.UtcNow,
+                    CollectedBy = collectorId,
+                    CollectorName = collectorDisplayName,
                     Priority = SamplePriority.Normal,
                     LabRoom = request.Location,
                     Notes = $"Batch {batchCode}. Patient {patientId}. Apt {apptDoc.AppointmentCode ?? aptId}. Target {request.TargetTime}",
@@ -430,7 +433,7 @@ public class SampleListService : ISampleListService
                 Tubes = createdTubeCodes,
                 CollectorId = collectorId,
                 CollectorName = collectorDisplayName,
-                Status = "PendingCollection"
+                Status = "Collected"
             });
         }
 

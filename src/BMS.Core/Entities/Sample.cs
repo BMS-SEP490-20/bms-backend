@@ -138,7 +138,7 @@ public class Sample : ISupportInitialize
     public double VolumeMl { get; set; } = 2.0;
 
     [BsonElement("status")]
-    public string StatusString { get; set; } = SampleStatus.Received.ToString();
+    public string StatusString { get; set; } = SampleStatus.PendingCollection.ToString();
 
     [BsonIgnore]
     public SampleStatus Status
