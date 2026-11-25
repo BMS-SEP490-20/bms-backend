@@ -32,7 +32,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves feedback entries filtered by rating, category, status, or search keywords.
         /// </summary>
-        [Authorize(Roles = RoleNames.Manager)]
+        [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int? rating, [FromQuery] string? category, [FromQuery] string? status, [FromQuery] string? searchTerm, CancellationToken ct)
         {
@@ -48,7 +48,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves statistical breakdown of feedbacks (average rating, distribution, response rate).
         /// </summary>
-        [Authorize(Roles = RoleNames.Manager)]
+        [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpGet("statistics")]
         public async Task<IActionResult> GetStatistics(CancellationToken ct)
         {
@@ -63,7 +63,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves all feedback submitted by a specific patient.
         /// </summary>
-        [Authorize(Roles = RoleSets.ManagerOrPatient)]
+        [Authorize(Roles = RoleSets.AdminOrManager + "," + RoleNames.Patient)]
         [HttpGet("patient/{patientId}")]
         public async Task<IActionResult> GetByPatient(string patientId, CancellationToken ct)
         {
@@ -80,7 +80,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves a single feedback entry by ID.
         /// </summary>
-        [Authorize(Roles = RoleSets.ManagerOrPatient)]
+        [Authorize(Roles = RoleSets.AdminOrManager + "," + RoleNames.Patient)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id, CancellationToken ct)
         {
@@ -142,9 +142,9 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
-        /// Responds to a feedback entry (submitted by Clinic Manager).
+        /// Responds to a feedback entry (submitted by Clinic Manager or Admin).
         /// </summary>
-        [Authorize(Roles = RoleNames.Manager)]
+        [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpPut("{id}/respond")]
         public async Task<IActionResult> Respond(string id, [FromBody] RespondFeedbackDto dto, CancellationToken ct)
         {
@@ -166,13 +166,13 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
-        /// Deletes a feedback entry (by patient or admin/manager).
+        /// Deletes a feedback entry (by patient owner or Admin moderator).
         /// </summary>
-        [Authorize(Roles = RoleNames.Patient)]
+        [Authorize(Roles = RoleNames.Admin + "," + RoleNames.Patient)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
-            if (!await OwnsFeedbackAsync(id, ct))
+            if (!User.IsInRole(RoleNames.Admin) && !await OwnsFeedbackAsync(id, ct))
                 return NotFound(new { message = $"Feedback '{id}' not found." });
             var success = await _service.DeleteAsync(id, ct);
             if (!success)
