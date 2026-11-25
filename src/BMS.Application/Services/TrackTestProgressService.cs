@@ -269,20 +269,35 @@ public class TrackTestProgressService : ITrackTestProgressService
 
             if (entity != null)
             {
-                // Ensure ResultCode is populated even when stored only as snake_case _id / result_code
+                // Ensure canonical fields are populated even when stored only as snake_case on legacy docs
                 if (string.IsNullOrWhiteSpace(entity.ResultCode) && !string.IsNullOrWhiteSpace(codeStr))
                     entity.ResultCode = codeStr;
                 if (string.IsNullOrWhiteSpace(entity.ResultCode) && id.StartsWith("TRE-", StringComparison.OrdinalIgnoreCase))
                     entity.ResultCode = id;
+                if (string.IsNullOrWhiteSpace(entity.PackageId))
+                    entity.PackageId = GetDocString(best, "packageId", "package_id");
+                if (string.IsNullOrWhiteSpace(entity.DeviceId))
+                    entity.DeviceId = GetDocString(best, "deviceId", "equipment_code");
+                if (string.IsNullOrWhiteSpace(entity.EnteredByUserId))
+                    entity.EnteredByUserId = GetDocString(best, "enteredByUserId", "technician_id", "entered_by");
+                if (string.IsNullOrWhiteSpace(entity.ApprovedByDoctorId))
+                    entity.ApprovedByDoctorId = GetDocString(best, "approvedByDoctorId", "approved_by", "approvedBy");
+                if (string.IsNullOrWhiteSpace(entity.ReviewedBy))
+                    entity.ReviewedBy = GetDocString(best, "reviewedBy", "reviewed_by");
                 return entity;
             }
 
-            // Last resort: synthesize minimal result so tracking can expose ResultCode to FE
+            // Last resort: synthesize minimal result preserving real DB actor and signature fields
             return new TestResult
             {
                 Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString() : id,
                 ResultCode = !string.IsNullOrWhiteSpace(codeStr) ? codeStr : id,
                 SampleId = sample.Id,
+                PackageId = GetDocString(best, "packageId", "package_id"),
+                DeviceId = GetDocString(best, "deviceId", "equipment_code"),
+                EnteredByUserId = GetDocString(best, "enteredByUserId", "technician_id", "entered_by"),
+                ApprovedByDoctorId = GetDocString(best, "approvedByDoctorId", "approved_by", "approvedBy"),
+                ReviewedBy = GetDocString(best, "reviewedBy", "reviewed_by"),
                 Status = best.GetValue("status", "Approved").ToString() ?? "Approved",
                 DigitalSignature = best.GetValue("digitalSignature", best.GetValue("digital_signature", BsonNull.Value)) is var s && s.IsString ? s.AsString : null,
                 ApprovedAt = best.GetValue("approvedAt", best.GetValue("approved_at", BsonNull.Value)) is var a && a.IsBsonDateTime ? a.ToUniversalTime() : null,
@@ -378,7 +393,234 @@ public class TrackTestProgressService : ITrackTestProgressService
             }
         }
 
-        return BuildTrackingResponse(order, sample, result, isPublicQuery, resolvedPatientName, resolvedGender, resolvedAge, resolvedPackageName);
+        var handlers = await ResolveStepHandlersAsync(order, sample, result, ct);
+        return BuildTrackingResponse(order, sample, result, isPublicQuery, resolvedPatientName, resolvedGender, resolvedAge, resolvedPackageName, handlers);
+    }
+
+    private sealed record ResolvedStepHandlers(
+        string? Step1Handler,
+        string? Step2Handler,
+        string? Step3Handler,
+        string? Step4Handler,
+        string? Step5Handler,
+        string? Step6Handler);
+
+    private async Task<ResolvedStepHandlers> ResolveStepHandlersAsync(
+        TestOrder? order,
+        Sample? sample,
+        TestResult? result,
+        CancellationToken ct)
+    {
+        var cache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        async Task<string?> PickFirstResolvedAsync(params string?[] candidates)
+        {
+            foreach (var raw in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var resolved = await ResolveStaffDisplayNameAsync(raw, cache, ct);
+                if (!string.IsNullOrWhiteSpace(resolved)) return resolved;
+            }
+            return null;
+        }
+
+        string? HistoryActor(params string[] targetStatuses)
+        {
+            if (sample?.StatusHistory == null || sample.StatusHistory.Count == 0) return null;
+            var hit = sample.StatusHistory
+                .Where(h => targetStatuses.Any(s => string.Equals(h.ToStatus, s, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(h => h.ChangedAt)
+                .FirstOrDefault();
+            if (hit == null) return null;
+            return !string.IsNullOrWhiteSpace(hit.OperatorName) ? hit.OperatorName : hit.ChangedBy;
+        }
+
+        // Gather linked clinical identifiers (appointmentId / orderId) to resolve ordering doctor on legacy samples
+        var linkedIds = new[] { order?.AppointmentId, sample?.TestOrderId, order?.Id, result?.AppointmentId }
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        string? appointmentDoctorCandidate = null;
+        string? assessmentDoctorCandidate = null;
+        string? commentAuthorCandidate = null;
+        string? paymentCashierCandidate = null;
+
+        if (linkedIds.Count > 0)
+        {
+            var idValues = new BsonArray();
+            foreach (var id in linkedIds)
+            {
+                idValues.Add(id);
+                if (ObjectId.TryParse(id, out var oid)) idValues.Add(oid);
+            }
+
+            try
+            {
+                var apptCol = _database.GetCollection<BsonDocument>("appointments");
+                var af = Builders<BsonDocument>.Filter;
+                var apptDoc = await apptCol.Find(af.Or(
+                    af.In("_id", idValues),
+                    af.In("appointmentCode", idValues),
+                    af.In("appointment_code", idValues))).FirstOrDefaultAsync(ct);
+                if (apptDoc != null)
+                {
+                    appointmentDoctorCandidate = GetDocString(apptDoc, "doctorName", "doctor_name", "doctorId", "doctor_id", "createdBy", "created_by");
+                }
+            }
+            catch { /* non-fatal */ }
+
+            if (string.IsNullOrWhiteSpace(order?.DoctorName) && string.IsNullOrWhiteSpace(order?.DoctorId) && string.IsNullOrWhiteSpace(appointmentDoctorCandidate))
+            {
+                try
+                {
+                    var maCol = _database.GetCollection<BsonDocument>("medical_assessments");
+                    var mf = Builders<BsonDocument>.Filter;
+                    var maDoc = await maCol.Find(mf.Or(
+                        mf.In("appointment_id", idValues),
+                        mf.In("appointmentId", idValues),
+                        mf.In("test_order_id", idValues),
+                        mf.In("testOrderId", idValues))).FirstOrDefaultAsync(ct);
+                    if (maDoc != null)
+                    {
+                        assessmentDoctorCandidate = GetDocString(maDoc, "doctor_name", "doctorName", "doctor_id", "doctorId");
+                    }
+                }
+                catch { /* non-fatal */ }
+
+                try
+                {
+                    var cmtCol = _database.GetCollection<BsonDocument>("test_order_comments");
+                    var cf = Builders<BsonDocument>.Filter;
+                    var cmtDoc = await cmtCol.Find(cf.Or(
+                        cf.In("appointment_id", idValues),
+                        cf.In("appointmentId", idValues),
+                        cf.In("test_order_id", idValues),
+                        cf.In("testOrderId", idValues))).FirstOrDefaultAsync(ct);
+                    if (cmtDoc != null)
+                    {
+                        commentAuthorCandidate = GetDocString(cmtDoc, "author_name", "authorName", "author_id", "authorId");
+                    }
+                }
+                catch { /* non-fatal */ }
+
+                try
+                {
+                    var payCol = _database.GetCollection<BsonDocument>("payments");
+                    var pf = Builders<BsonDocument>.Filter;
+                    var payDoc = await payCol.Find(pf.Or(
+                        pf.In("appointment_id", idValues),
+                        pf.In("appointmentId", idValues))).FirstOrDefaultAsync(ct);
+                    if (payDoc != null)
+                    {
+                        paymentCashierCandidate = GetDocString(payDoc, "cashier_name", "cashierName", "cashier_id", "cashierId");
+                    }
+                }
+                catch { /* non-fatal */ }
+            }
+        }
+
+        // Step 1: Ordering physician / intake staff
+        var step1 = await PickFirstResolvedAsync(
+            order?.DoctorName,
+            order?.DoctorId,
+            appointmentDoctorCandidate,
+            assessmentDoctorCandidate,
+            commentAuthorCandidate,
+            paymentCashierCandidate);
+
+        // Step 2: Phlebotomist / specimen collector
+        var step2 = await PickFirstResolvedAsync(
+            sample?.CollectorName,
+            sample?.CollectedBy,
+            HistoryActor("Collected", "InTransit"),
+            sample?.HandoverBy,
+            sample?.HandoverById);
+
+        // Step 3: LIS receiving technician (or rejecting technician)
+        var isRejected = sample?.Status == SampleStatus.Rejected || !string.IsNullOrEmpty(sample?.RejectionReason);
+        var step3 = await PickFirstResolvedAsync(
+            isRejected ? sample?.RejectedBy : null,
+            sample?.ReceivedBy,
+            HistoryActor("Received"),
+            sample?.AssignedTechnicianName,
+            sample?.AssignedTechnicianId,
+            result?.EnteredByUserId);
+
+        // Step 4: Analyzer / lab technician entering results
+        var step4 = await PickFirstResolvedAsync(
+            result?.EnteredByUserId,
+            sample?.AssignedTechnicianName,
+            sample?.AssignedTechnicianId,
+            HistoryActor("Processing", "Testing", "Completed"),
+            step3);
+
+        // Step 5: Approving / reviewing specialist doctor
+        var step5 = await PickFirstResolvedAsync(
+            result?.ApprovedByDoctorId,
+            result?.ReviewedBy,
+            order?.DoctorName,
+            order?.DoctorId,
+            step1);
+
+        // Step 6: Digital signature / release authority (actual signing doctor from DB)
+        var step6 = await PickFirstResolvedAsync(
+            result?.ApprovedByDoctorId,
+            result?.ReviewedBy,
+            step5);
+
+        return new ResolvedStepHandlers(step1, step2, step3, step4, step5, step6);
+    }
+
+    private async Task<string?> ResolveStaffDisplayNameAsync(string? raw, Dictionary<string, string?> cache, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var key = raw.Trim();
+        if (cache.TryGetValue(key, out var cached)) return cached;
+
+        string? resolved = null;
+        var idValues = new BsonArray { key };
+        if (ObjectId.TryParse(key, out var oid)) idValues.Add(oid);
+
+        foreach (var colName in new[] { "accounts", "employees" })
+        {
+            try
+            {
+                var col = _database.GetCollection<BsonDocument>(colName);
+                var f = Builders<BsonDocument>.Filter;
+                var doc = await col.Find(f.Or(
+                    f.In("_id", idValues),
+                    f.In("accountId", idValues),
+                    f.In("account_id", idValues),
+                    f.In("userId", idValues),
+                    f.Eq("username", key),
+                    f.Eq("employeeCode", key),
+                    f.Eq("employee_code", key))).FirstOrDefaultAsync(ct);
+
+                if (doc != null)
+                {
+                    resolved = GetDocString(doc, "fullName", "FullName", "fullname", "displayName", "name", "username");
+                    if (!string.IsNullOrWhiteSpace(resolved)) break;
+                }
+            }
+            catch { /* non-fatal */ }
+        }
+
+        // If not found in accounts/employees, only keep raw string if it is already a human name (not an opaque ID/code)
+        if (string.IsNullOrWhiteSpace(resolved))
+        {
+            bool looksLikeOpaqueId = ObjectId.TryParse(key, out _)
+                || Guid.TryParse(key, out _)
+                || System.Text.RegularExpressions.Regex.IsMatch(key, @"^[A-Z]{2,8}[-_][A-Z0-9-]+$");
+            if (!looksLikeOpaqueId)
+            {
+                resolved = key;
+            }
+        }
+
+        cache[key] = resolved;
+        return resolved;
     }
 
     private async Task<string?> ResolvePackageNameAsync(string pkgKey, CancellationToken ct)
@@ -435,7 +677,8 @@ public class TrackTestProgressService : ITrackTestProgressService
         string? resolvedPatientName,
         string? resolvedGender,
         int? resolvedAge,
-        string? resolvedPackageName)
+        string? resolvedPackageName,
+        ResolvedStepHandlers handlers)
     {
         // Prefer human ORD-/barcode over raw sample GUID so BN list/export never shows opaque IDs.
         var orderNumber = !string.IsNullOrWhiteSpace(order?.OrderNumber)
@@ -483,7 +726,7 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = TrackingStepStatus.Completed,
             StatusText = "Đã hoàn thành",
             Timestamp = orderedAt,
-            HandlerName = order?.DoctorName ?? "Bác sĩ phụ trách",
+            HandlerName = handlers.Step1Handler,
             Department = "Phòng Khám Lâm Sàng"
         });
 
@@ -498,7 +741,7 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step2Done ? TrackingStepStatus.Completed : TrackingStepStatus.InProgress,
             StatusText = step2Done ? "Đã lấy mẫu" : "Đang chờ lấy mẫu",
             Timestamp = step2Done ? (sample?.CollectedAt ?? orderedAt.AddMinutes(15)) : null,
-            HandlerName = sample?.CollectorName ?? "Điều dưỡng lấy mẫu",
+            HandlerName = step2Done ? handlers.Step2Handler : null,
             Department = "Phòng Lấy Mẫu Bệnh Phẩm"
         });
 
@@ -541,9 +784,7 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step3Status,
             StatusText = step3Text,
             Timestamp = step3Done ? (sample?.ReceivedAt ?? (sample?.CollectedAt.AddMinutes(10) ?? orderedAt.AddMinutes(25))) : null,
-            HandlerName = !string.IsNullOrWhiteSpace(sample?.AssignedTechnicianName)
-                ? sample.AssignedTechnicianName
-                : (!string.IsNullOrWhiteSpace(sample?.ReceivedBy) && !MongoDB.Bson.ObjectId.TryParse(sample.ReceivedBy, out _) ? sample.ReceivedBy : "KTV Tiếp Nhận"),
+            HandlerName = (step3Done || isRejected) ? handlers.Step3Handler : null,
             Department = "Khoa Xét Nghiệm Trung Tâm",
             Notes = step3Notes
         });
@@ -581,7 +822,7 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step4Status,
             StatusText = step4Text,
             Timestamp = step4Done ? (sample?.ProcessedAt ?? result?.EnteredAt ?? result?.CreatedAt ?? orderedAt.AddMinutes(50)) : null,
-            HandlerName = sample?.AssignedTechnicianName ?? "KTV Phân Tích",
+            HandlerName = (step4Done || isRerun || step4Status == TrackingStepStatus.InProgress) ? handlers.Step4Handler : null,
             Department = "Phòng Máy Tự Động Hóa",
             Notes = step4Notes
         });
@@ -612,9 +853,7 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step5Status,
             StatusText = step5Text,
             Timestamp = step5Done ? (result?.ApprovedAt ?? sample?.CompletedAt ?? result?.CreatedAt ?? orderedAt.AddMinutes(75)) : null,
-            HandlerName = !string.IsNullOrWhiteSpace(result?.ReviewedBy) && !MongoDB.Bson.ObjectId.TryParse(result.ReviewedBy, out _)
-                ? result.ReviewedBy
-                : (!string.IsNullOrWhiteSpace(order?.DoctorName) ? order.DoctorName : "Bác sĩ / Trưởng Khoa Xét Nghiệm"),
+            HandlerName = step5Done ? handlers.Step5Handler : null,
             Department = "Hội Đồng Thẩm Định Y Khoa"
         });
 
@@ -631,7 +870,7 @@ public class TrackTestProgressService : ITrackTestProgressService
             Status = step6Status,
             StatusText = step6Done ? "Đã có kết quả" : "Chờ phát hành",
             Timestamp = step6Done ? (result?.ApprovedAt ?? sample?.CompletedAt ?? result?.CreatedAt ?? orderedAt.AddMinutes(90)) : null,
-            HandlerName = "Hệ Thống BMS LIS (ISO 15189)",
+            HandlerName = step6Done ? handlers.Step6Handler : null,
             Department = "Cổng Kết Quả Bệnh Nhân"
         });
 
