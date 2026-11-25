@@ -148,6 +148,34 @@ namespace BMS.Application.Services
                 throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", $"Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic ({panicDetail}).");
             }
             var now = DateTime.UtcNow;
+            Reagent? selectedLot = null;
+            if (_inventory != null && !string.IsNullOrWhiteSpace(dto.ReagentCode))
+            {
+                if (dto.Quantity <= 0)
+                    throw new DomainValidationException("INVALID_REAGENT_QUANTITY", "Số lượng vật tư/hóa chất tiêu hao phải lớn hơn 0.");
+
+                var reagentKey = dto.ReagentCode.Trim();
+                selectedLot = await _inventory.GetAsync(reagentKey, ct);
+                if (selectedLot is null)
+                {
+                    var pageResult = await _inventory.ListAsync(new InventorySearch(reagentKey, null, null, null, 1, 50), now.Date, ct);
+                    var matchingByCode = pageResult.Items
+                        .Where(x => string.Equals(x.Code, reagentKey, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    selectedLot = matchingByCode.FirstOrDefault(x =>
+                            (!x.ExpiryDate.HasValue || x.ExpiryDate.Value.Date >= now.Date) && x.Quantity >= dto.Quantity)
+                        ?? matchingByCode.FirstOrDefault(x => !x.ExpiryDate.HasValue || x.ExpiryDate.Value.Date >= now.Date)
+                        ?? matchingByCode.FirstOrDefault();
+                }
+
+                if (selectedLot is null)
+                    throw new DomainValidationException("REAGENT_NOT_FOUND", $"Không tìm thấy lô hóa chất/vật tư '{reagentKey}' trong kho.");
+                if (selectedLot.ExpiryDate.HasValue && selectedLot.ExpiryDate.Value.Date < now.Date)
+                    throw new DomainValidationException("REAGENT_EXPIRED", $"Lô hóa chất {selectedLot.Code} ({selectedLot.LotNumber}) đã hết hạn sử dụng.");
+                if (selectedLot.Quantity < dto.Quantity)
+                    throw new DomainValidationException("INSUFFICIENT_REAGENT_STOCK", $"Tồn kho lô {selectedLot.Code} ({selectedLot.LotNumber}) không đủ: còn {selectedLot.Quantity} {selectedLot.Unit}, cần {dto.Quantity} {selectedLot.Unit}.");
+            }
+
             // Server-generated, collision-resistant id (was "TRE" + Random 6 digits).
             var resultId = $"TRE-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
             var entity = new TestResult
@@ -158,7 +186,7 @@ namespace BMS.Application.Services
                 SampleId = sample.Id,
                 PatientId = sample.PatientId,
                 PackageId = resolvedPackageId,
-                ReagentCode = dto.ReagentCode,
+                ReagentCode = selectedLot?.Code ?? dto.ReagentCode,
                 Quantity = dto.Quantity,
                 DeviceId = dto.DeviceId,
                 ReviewedBy = dto.ActorId,
@@ -175,40 +203,45 @@ namespace BMS.Application.Services
             await _repo.AddAsync(entity, ct);
 
             // Auto-consume reagent stock (BR-LAB-05 / UC56) when ReagentCode and Quantity > 0 are provided
-            if (_inventory != null && !string.IsNullOrWhiteSpace(dto.ReagentCode) && dto.Quantity > 0)
+            if (_inventory != null && selectedLot != null && dto.Quantity > 0)
             {
                 try
                 {
-                    var lot = await _inventory.GetAsync(dto.ReagentCode.Trim(), ct);
-                    if (lot != null && lot.Quantity >= dto.Quantity)
+                    var currentLot = selectedLot;
+                    for (var attempt = 0; attempt < 2; attempt++)
                     {
-                        var nextQty = Math.Max(0m, lot.Quantity - dto.Quantity);
+                        if (currentLot.Quantity < dto.Quantity) break;
+                        var nextQty = Math.Max(0m, currentLot.Quantity - dto.Quantity);
                         var nextLot = new Reagent
                         {
-                            Id = lot.Id,
-                            Code = lot.Code,
-                            LotNumber = lot.LotNumber,
-                            Unit = lot.Unit,
-                            Name = lot.Name,
-                            Manufacturer = lot.Manufacturer,
+                            Id = currentLot.Id,
+                            Code = currentLot.Code,
+                            LotNumber = currentLot.LotNumber,
+                            Unit = currentLot.Unit,
+                            Name = currentLot.Name,
+                            Manufacturer = currentLot.Manufacturer,
                             Quantity = nextQty,
-                            MinimumStock = lot.MinimumStock,
-                            ExpiryDate = lot.ExpiryDate,
-                            OpenedDate = lot.OpenedDate ?? now,
-                            StorageCondition = lot.StorageCondition,
-                            ImportBatchNumber = lot.ImportBatchNumber
+                            MinimumStock = currentLot.MinimumStock,
+                            ExpiryDate = currentLot.ExpiryDate,
+                            OpenedDate = currentLot.OpenedDate ?? now,
+                            StorageCondition = currentLot.StorageCondition,
+                            ImportBatchNumber = currentLot.ImportBatchNumber
                         };
                         var change = new InventoryChange
                         {
                             Action = "CONSUME_TEST_RUN",
                             ActorId = dto.ActorId,
                             ActorName = dto.ActorId,
-                            Reason = $"Tiêu hao hóa chất cho kết quả {resultId} (Mẫu {sample.Barcode})",
+                            Reason = $"Tiêu hao {dto.Quantity} {currentLot.Unit} cho kết quả {resultId} (Mẫu {sample.Barcode})",
                             At = now,
-                            Before = new InventorySnapshot(lot.Name, lot.Manufacturer, lot.Quantity, lot.MinimumStock, lot.ExpiryDate),
+                            Before = new InventorySnapshot(currentLot.Name, currentLot.Manufacturer, currentLot.Quantity, currentLot.MinimumStock, currentLot.ExpiryDate),
                             After = new InventorySnapshot(nextLot.Name, nextLot.Manufacturer, nextLot.Quantity, nextLot.MinimumStock, nextLot.ExpiryDate)
                         };
-                        await _inventory.UpdateAsync(nextLot, lot.Revision, change, ct);
+                        var updated = await _inventory.UpdateAsync(nextLot, currentLot.Revision, change, ct);
+                        if (updated != null) break;
+                        var reloaded = await _inventory.GetAsync(currentLot.Id, ct);
+                        if (reloaded is null) break;
+                        currentLot = reloaded;
                     }
                 }
                 catch (Exception ex)
