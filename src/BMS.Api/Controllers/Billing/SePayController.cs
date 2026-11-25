@@ -58,9 +58,8 @@ public sealed class SePayController(SePayPaymentService sePay) : ControllerBase
         });
     }
 
-    // WHY: Allows Demo / Sandbox SePay payment simulation for the appointment owner (Patient, verified via BOLA ownership check)
-    // as well as Receptionist, Lab Manager, and Admin.
-    [Authorize(Roles = RoleSets.ReceptionOrPatient + "," + RoleSets.ReceptionOrManager + "," + RoleNames.Admin)]
+    // WHY: Allows Demo / Sandbox SePay payment simulation strictly for Receptionist, Manager, and Admin (never Patient).
+    [Authorize(Roles = RoleSets.ReceptionOrManager + "," + RoleNames.Admin)]
     [HttpPost("simulate/{appointmentId}")]
     public async Task<IActionResult> SimulateSuccess(string appointmentId, CancellationToken ct)
     {

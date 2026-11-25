@@ -129,8 +129,8 @@ namespace BMS.Api.Controllers.Laboratory
         /// <param name="dto">Approval payload containing approver info and digital stamp.</param>
         /// <param name="ct">Request cancellation token.</param>
         /// <returns>HTTP response containing approval status and updated result.</returns>
-        // Bác sĩ khám lâm sàng hoặc Trưởng Lab/Quản lý đều có thẩm quyền ký duyệt kết quả để trả cho bệnh nhân.
-        [Authorize(Roles = RoleNames.Doctor + "," + RoleNames.Manager)]
+        // Chỉ Bác sĩ lâm sàng có thẩm quyền ký duyệt cuối cùng để công bố kết quả cho bệnh nhân.
+        [Authorize(Roles = RoleNames.Doctor)]
         [HttpPost("{id}/approve")]
         [HttpPut("{id}/approve")]
         public async Task<IActionResult> Approve(string id, [FromBody] ApproveTestResultDto dto, CancellationToken ct)
