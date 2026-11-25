@@ -21,7 +21,7 @@ public class EmailSettings
     /// <summary>
     /// Authenticated sender email account.
     /// </summary>
-    public string SenderEmail { get; set; } = "bms.mec.lab@gmail.com";
+    public string SenderEmail { get; set; } = string.Empty;
 
     /// <summary>
     /// Display name shown in recipient's mail clients.

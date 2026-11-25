@@ -266,7 +266,6 @@ static void LoadDotEnvFiles()
     foreach (var root in roots)
     {
         if (TryLoadDotEnv(Path.Combine(root, ".env"))) return;
-        if (TryLoadDotEnv(Path.Combine(root, "src", "BMS.Api", ".env"))) return;
     }
 }
 

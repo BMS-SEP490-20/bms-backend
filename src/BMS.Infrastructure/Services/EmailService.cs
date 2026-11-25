@@ -38,7 +38,7 @@ public class EmailService : IEmailService
         {
             SmtpServer = FirstNonEmpty(emailSection["Host"], legacySection["SmtpServer"]) ?? "smtp.gmail.com",
             Port = int.TryParse(FirstNonEmpty(emailSection["Port"], legacySection["Port"]), out var port) ? port : 587,
-            SenderEmail = FirstNonEmpty(emailSection["Username"], emailSection["FromAddress"], legacySection["SenderEmail"]) ?? "bms.mec.lab@gmail.com",
+            SenderEmail = FirstNonEmpty(emailSection["Username"], emailSection["FromAddress"], legacySection["SenderEmail"]) ?? string.Empty,
             SenderName = FirstNonEmpty(emailSection["FromName"], legacySection["SenderName"]) ?? "Hệ Thống Xét Nghiệm Y Khoa BMS",
             AppPassword = (FirstNonEmpty(emailSection["Password"], legacySection["AppPassword"]) ?? "").Replace(" ", "").Trim(),
             EnableSsl = !bool.TryParse(FirstNonEmpty(emailSection["EnableSsl"], legacySection["EnableSsl"]), out var ssl) || ssl
