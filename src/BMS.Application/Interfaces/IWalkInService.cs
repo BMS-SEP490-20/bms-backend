@@ -16,4 +16,8 @@ public interface IWalkInService
     Task<PatientLookupResponse> LookupByPhoneAsync(
         string phone,
         CancellationToken ct = default);
+
+    Task<PatientLookupResponse> LookupByEmailAsync(
+        string email,
+        CancellationToken ct = default);
 }
