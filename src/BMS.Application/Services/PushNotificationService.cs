@@ -207,6 +207,42 @@ public class PushNotificationService : IPushNotificationService
         return Task.FromResult(count);
     }
 
+    public Task<DispatchNotificationResultDto?> ResendNotificationAsync(string notificationId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(notificationId)) return Task.FromResult<DispatchNotificationResultDto?>(null);
+
+        string nid = notificationId.Trim();
+        if (!_notificationLogs.TryGetValue(nid, out var log))
+            return Task.FromResult<DispatchNotificationResultDto?>(null);
+
+        bool dispatchSuccess = SimulateDispatch(log);
+        if (dispatchSuccess)
+        {
+            log.Status = "DELIVERED";
+            log.DeliveredAt = DateTime.UtcNow;
+            log.FailureReason = null;
+        }
+        else
+        {
+            log.Status = "FAILED";
+            log.FailureReason = "Gateway temporarily unreachable on resend.";
+        }
+
+        return Task.FromResult<DispatchNotificationResultDto?>(new DispatchNotificationResultDto
+        {
+            Success = dispatchSuccess,
+            NotificationId = log.NotificationId,
+            RecipientUserId = log.RecipientUserId,
+            Status = log.Status,
+            Channel = log.Channel,
+            Priority = log.Priority,
+            DispatchedAt = DateTime.UtcNow,
+            DeliveredAt = log.DeliveredAt,
+            RetryCount = log.RetryCount,
+            Message = dispatchSuccess ? "Đã gửi lại thông báo thành công." : "Gửi lại thông báo thất bại."
+        });
+    }
+
     public Task<PagedResult<PushNotificationLog>> GetAuditLogsAsync(PushNotificationQueryParameters query, CancellationToken cancellationToken = default)
     {
         var logs = _notificationLogs.Values.AsEnumerable();

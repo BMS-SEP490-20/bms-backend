@@ -11,7 +11,6 @@ namespace BMS.Api.Controllers.Laboratory
     /// Supports room listing, retrieval, creation, updating, and deletion.
     /// </summary>
     [Route("TestOrder/[controller]")]
-    [Route("TestOrder/labroom")]
     [Route("gateway/testorder/labroom")]
     [Route("gateway/testorder/lab-rooms")]
     [Route("api/gateway/testorder/labroom")]

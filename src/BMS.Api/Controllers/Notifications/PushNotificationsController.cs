@@ -31,7 +31,7 @@ public class PushNotificationsController : ControllerBase
     /// <summary>
     /// Dispatches a push notification to a recipient user across channels (UC58).
     /// </summary>
-    [Authorize(Roles = RoleSets.NotificationDispatchers)]
+    [Authorize(Roles = RoleSets.NotificationDispatchers + "," + RoleNames.Admin)]
     [HttpPost("dispatch")]
     public async Task<IActionResult> DispatchNotification([FromBody] DispatchNotificationRequestDto request, CancellationToken cancellationToken = default)
     {
@@ -210,6 +210,28 @@ public class PushNotificationsController : ControllerBase
                 message = "An error occurred while marking notifications as read: " + ex.Message
             });
         }
+    }
+
+    /// <summary>
+    /// Resends an existing push notification by identifier (UC58).
+    /// </summary>
+    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [HttpPost("{id}/resend")]
+    public async Task<IActionResult> ResendNotification(string id, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return BadRequest(new { success = false, message = "Notification ID is required." });
+
+        var result = await _notificationService.ResendNotificationAsync(id, cancellationToken);
+        if (result == null)
+            return NotFound(new { success = false, message = $"Notification '{id}' was not found." });
+
+        return Ok(new
+        {
+            success = result.Success,
+            data = result,
+            message = result.Message
+        });
     }
 
     /// <summary>
