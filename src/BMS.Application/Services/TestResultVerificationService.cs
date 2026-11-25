@@ -693,7 +693,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                 StatusType = abnormalItems.Count > 0 ? "warn" : "ok",
                 Details = abnormalItems.Count > 0
                     ? $"Phát hiện {abnormalItems.Count} chỉ số ngoài khoảng tham chiếu: {string.Join(", ", abnormalItems.Select(a => $"{a.CriterionCode}={a.MeasuredValue} {a.Unit}"))}"
-                    : $"Toàn bộ {parsed.Items.Count} chỉ số đều nằm trong khoảng tham chiếu chuẩn ISO 15189"
+                    : $"Toàn bộ {parsed.Items.Count} chỉ số đều nằm trong khoảng tham chiếu chuẩn y khoa"
             },
             new()
             {

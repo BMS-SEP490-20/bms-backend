@@ -213,7 +213,9 @@ public class AppointmentsController : ControllerBase
 
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase) && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase)
+            && !await this.MayAccessPatientAsync(result.PatientId ?? string.Empty, ct))
         {
             return Forbid();
         }
@@ -237,7 +239,9 @@ public class AppointmentsController : ControllerBase
 
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase) && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase)
+            && !await this.MayAccessPatientAsync(result.PatientId ?? string.Empty, ct))
         {
             return Forbid();
         }
