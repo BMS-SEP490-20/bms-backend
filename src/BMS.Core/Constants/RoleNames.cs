@@ -82,10 +82,10 @@ public static class RoleSets
     public const string LabOrManager = RoleNames.Lab + C + RoleNames.Manager;
     /// <summary>System administration and management (lab rooms UC34, lab profiles UC61, IoT config UC67).</summary>
     public const string AdminOrManager = RoleNames.Admin + C + RoleNames.Manager;
-    /// <summary>Inventory read (UC56): Admin, Manager, Lab. Doctor denied (decision 10).</summary>
+    /// <summary>Inventory read (UC56): Admin, Manager view UI; Lab reads reagents for test run selection. Doctor denied (decision 10).</summary>
     public const string InventoryRead = RoleNames.Admin + C + RoleNames.Manager + C + RoleNames.Lab;
-    /// <summary>Inventory write (UC56): Manager, Lab.</summary>
-    public const string InventoryWrite = RoleNames.Manager + C + RoleNames.Lab;
+    /// <summary>Inventory write (UC56): Admin only (Manager reads only).</summary>
+    public const string InventoryWrite = RoleNames.Admin;
     /// <summary>Shift viewing (UC35/36): every staff role.</summary>
     public const string ShiftViewers = AllStaff;
     /// <summary>Personal schedule (UC31): Doctor, Lab, Receptionist (own).</summary>
