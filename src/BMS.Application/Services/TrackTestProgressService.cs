@@ -663,8 +663,11 @@ public class TrackTestProgressService : ITrackTestProgressService
     {
         foreach (var k in keys)
         {
-            if (doc.TryGetValue(k, out var v) && v.IsString && !string.IsNullOrWhiteSpace(v.AsString))
+            if (!doc.TryGetValue(k, out var v) || v.IsBsonNull) continue;
+            if (v.IsString && !string.IsNullOrWhiteSpace(v.AsString))
                 return v.AsString.Trim();
+            if (v.IsObjectId)
+                return v.AsObjectId.ToString();
         }
         return null;
     }
