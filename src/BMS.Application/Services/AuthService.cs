@@ -751,6 +751,25 @@ public class AuthService : IAuthService
             u.Department);
     }
 
+    public async Task<bool> IsEmailRegisteredAsync(string email, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return false;
+        var emailTrimmed = email.Trim().ToLowerInvariant();
+
+        User? existingUser = null;
+        if (_userRepository != null)
+        {
+            existingUser = await _userRepository.FindByEmailAsync(emailTrimmed)
+                        ?? await _userRepository.GetByEmailOrUsernameAsync(emailTrimmed);
+        }
+
+        existingUser ??= _context.Users.FirstOrDefault(u =>
+            u.Username.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase) ||
+            u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+
+        return existingUser != null && existingUser.EmailConfirmed;
+    }
+
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
     {
         var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
