@@ -43,6 +43,11 @@ public interface IPushNotificationService
     Task<int> MarkAllAsReadAsync(string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Resends an existing notification log entry.
+    /// </summary>
+    Task<DispatchNotificationResultDto?> ResendNotificationAsync(string notificationId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Retrieves notification audit logs with filters (Status, Channel, Priority, Date Range).
     /// </summary>
     Task<PagedResult<PushNotificationLog>> GetAuditLogsAsync(PushNotificationQueryParameters query, CancellationToken cancellationToken = default);

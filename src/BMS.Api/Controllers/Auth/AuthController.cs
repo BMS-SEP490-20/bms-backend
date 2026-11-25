@@ -233,6 +233,26 @@ public sealed class AuthController : ControllerBase
     // REGISTER
     // =========================================================
 
+    [HttpGet("check-email")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    public async Task<IActionResult> CheckEmailAvailability([FromQuery] string? email, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return BadRequest(new { success = false, available = false, exists = false, message = "Vui lòng nhập email." });
+        }
+
+        var exists = await _authService.IsEmailRegisteredAsync(email, ct);
+        return Ok(new
+        {
+            success = true,
+            available = !exists,
+            exists,
+            message = exists ? "Email này đã được sử dụng trong hệ thống." : string.Empty
+        });
+    }
+
     [HttpPost("register")]
     [AllowAnonymous]
     public async Task<IActionResult> Register(
