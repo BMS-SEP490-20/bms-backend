@@ -66,13 +66,19 @@ public class WalkInController : ControllerBase
         catch (PatientDuplicateException ex)
         {
             _logger.LogWarning("Đăng ký bệnh nhân vãng lai bị trùng: {Message} (Code: {Code})", ex.Message, ex.Code);
+            var fieldKey = ex.Code switch
+            {
+                "PATIENT_PHONE_BOUND" => "Phone",
+                "PATIENT_EMAIL_BOUND" => "Email",
+                _ => "IdentityNumber"
+            };
             return StatusCode(StatusCodes.Status409Conflict, new ApiErrorResponse
             {
                 Code = ex.Code,
                 Message = ex.Message,
                 Errors = new Dictionary<string, string[]>
                 {
-                    ["IdentityNumber"] = new[] { ex.Message }
+                    [fieldKey] = new[] { ex.Message }
                 }
             });
         }
@@ -146,6 +152,28 @@ public class WalkInController : ControllerBase
         {
             _logger.LogError(ex, "Lỗi tra cứu SĐT");
             return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse { Code = "INTERNAL_ERROR", Message = "Lỗi hệ thống khi tra cứu SĐT." });
+        }
+    }
+
+    [HttpGet("lookup/email")]
+    [ProducesResponseType(typeof(PatientLookupResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PatientLookupResponse>> LookupEmail(
+        [FromQuery] string email,
+        CancellationToken ct)
+    {
+        try
+        {
+            var result = await _service.LookupByEmailAsync(email, ct);
+            return Ok(result);
+        }
+        catch (AppException ex)
+        {
+            return StatusCode((int)ex.StatusCode, new ApiErrorResponse { Code = ex.Code, Message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi tra cứu Email");
+            return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse { Code = "INTERNAL_ERROR", Message = "Lỗi hệ thống khi tra cứu Email." });
         }
     }
 }
