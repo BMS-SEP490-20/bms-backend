@@ -10,12 +10,15 @@ public static class InfrastructureDi
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var cs = configuration.GetConnectionString("MongoDb")
+        var cs = configuration["MongoDB:ConnectionString"]
+            ?? configuration.GetConnectionString("MongoDb")
             ?? "mongodb://localhost:27017";
+        var dbName = configuration["MongoDB:DatabaseName"]
+            ?? "BMS_Database";
 
         services.AddSingleton<IMongoClient>(_ => new MongoClient(cs));
         services.AddScoped(sp =>
-            sp.GetRequiredService<IMongoClient>().GetDatabase("BMS_Database"));
+            sp.GetRequiredService<IMongoClient>().GetDatabase(dbName));
 
         return services;
     }
