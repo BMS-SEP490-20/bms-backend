@@ -166,6 +166,13 @@ public class PushNotificationService : IPushNotificationService
         return Task.FromResult(new PagedResult<PushNotificationLog>(pagedItems, page, pageSize, total));
     }
 
+    public Task<PushNotificationLog?> GetNotificationByIdAsync(string notificationId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(notificationId)) return Task.FromResult<PushNotificationLog?>(null);
+        _notificationLogs.TryGetValue(notificationId.Trim(), out var log);
+        return Task.FromResult<PushNotificationLog?>(log);
+    }
+
     public Task<bool> MarkAsReadAsync(string notificationId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(notificationId)) return Task.FromResult(false);

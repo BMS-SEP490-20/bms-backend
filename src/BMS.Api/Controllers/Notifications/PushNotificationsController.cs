@@ -154,6 +154,12 @@ public class PushNotificationsController : ControllerBase
 
         try
         {
+            var existing = await _notificationService.GetNotificationByIdAsync(id, cancellationToken);
+            if (existing == null || (!User.IsInRole(RoleNames.Admin) && !this.IsSelf(existing.RecipientUserId)))
+            {
+                return NotFound(new { success = false, message = $"Notification '{id}' was not found." });
+            }
+
             var success = await _notificationService.MarkAsReadAsync(id, cancellationToken);
             if (!success)
             {

@@ -49,6 +49,15 @@ namespace BMS.Application.Services
         }
 
         /// <summary>
+        /// Retrieves a single notification by identifier.
+        /// </summary>
+        public async Task<NotificationDto?> GetByIdAsync(string notificationId, CancellationToken ct = default)
+        {
+            var entity = await _repo.GetByIdAsync(notificationId, ct);
+            return entity == null ? null : MapToDto(entity);
+        }
+
+        /// <summary>
         /// Marks a single notification as read by the recipient.
         /// </summary>
         public Task<bool> MarkAsReadAsync(string notificationId, CancellationToken ct = default) =>
