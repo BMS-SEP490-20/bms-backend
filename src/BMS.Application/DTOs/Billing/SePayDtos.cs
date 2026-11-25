@@ -33,4 +33,5 @@ public sealed class SePayCheckoutDto
     public string BankCode { get; set; } = string.Empty;
     public string AccountName { get; set; } = string.Empty;
     public string QrUrl { get; set; } = string.Empty;
+    public bool AllowSandbox { get; set; }
 }
