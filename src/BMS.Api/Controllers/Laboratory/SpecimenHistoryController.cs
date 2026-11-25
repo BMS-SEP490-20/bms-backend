@@ -1,3 +1,4 @@
+using BMS.Api.Authorization;
 using BMS.Core.Constants;
 using BMS.Core.Exceptions;
 using System.Security.Claims;
@@ -92,7 +93,8 @@ public class SpecimenHistoryController : ControllerBase
             var role = User.FindFirstValue("role") ?? User.FindFirstValue(ClaimTypes.Role);
             if (string.Equals(role, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.Equals(result.PatientId, CurrentUserId, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(result.PatientId, CurrentUserId, StringComparison.OrdinalIgnoreCase)
+                    && !await this.MayAccessPatientAsync(result.PatientId ?? string.Empty, ct))
                 {
                     return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail(
                         "Bạn không có quyền truy cập dữ liệu lịch sử mẫu xét nghiệm của bệnh nhân khác.",
@@ -131,7 +133,8 @@ public class SpecimenHistoryController : ControllerBase
             var role = User.FindFirstValue("role") ?? User.FindFirstValue(ClaimTypes.Role);
             if (string.Equals(role, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.Equals(patientId.Trim(), CurrentUserId, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(patientId.Trim(), CurrentUserId, StringComparison.OrdinalIgnoreCase)
+                    && !await this.MayAccessPatientAsync(patientId.Trim(), ct))
                 {
                     return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail(
                         "Bạn không có quyền truy cập dữ liệu lịch sử mẫu xét nghiệm của bệnh nhân khác.",
