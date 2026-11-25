@@ -21,6 +21,11 @@ namespace BMS.Application.Interfaces
         Task<IReadOnlyList<NotificationDto>> GetNotificationsByRoleAsync(string role, CancellationToken ct = default);
 
         /// <summary>
+        /// Retrieves a single notification record by identifier.
+        /// </summary>
+        Task<NotificationDto?> GetByIdAsync(string notificationId, CancellationToken ct = default);
+
+        /// <summary>
         /// Marks a single notification record as read.
         /// </summary>
         Task<bool> MarkAsReadAsync(string notificationId, CancellationToken ct = default);

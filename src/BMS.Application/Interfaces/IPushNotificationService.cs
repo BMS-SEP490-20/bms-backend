@@ -28,6 +28,11 @@ public interface IPushNotificationService
     Task<PagedResult<PushNotificationLog>> GetUserNotificationsAsync(string userId, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retrieves a single push notification log by identifier.
+    /// </summary>
+    Task<PushNotificationLog?> GetNotificationByIdAsync(string notificationId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Marks a specific notification as READ.
     /// </summary>
     Task<bool> MarkAsReadAsync(string notificationId, CancellationToken cancellationToken = default);

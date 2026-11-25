@@ -1,3 +1,4 @@
+using BMS.Api.Authorization;
 using BMS.Core.Constants;
 using BMS.Application.DTOs.Appointment;
 using BMS.Application.Interfaces;
@@ -40,6 +41,16 @@ public class AppointmentNotificationsController : ControllerBase
     {
         var result = await _notificationService.GetConfirmationAsync(id, ct);
         if (result == null)
+        {
+            return NotFound(new
+            {
+                success = false,
+                message = "Không tìm thấy thông tin xác nhận cho cuộc hẹn này."
+            });
+        }
+
+        if (User.IsInRole(RoleNames.Patient) &&
+            (string.IsNullOrWhiteSpace(result.PatientId) || !await this.MayAccessPatientAsync(result.PatientId, ct)))
         {
             return NotFound(new
             {

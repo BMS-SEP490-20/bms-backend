@@ -77,6 +77,18 @@ namespace BMS.Api.Controllers.Notifications
         [HttpPut("{id}/read")]
         public async Task<IActionResult> MarkAsRead(string id, CancellationToken ct)
         {
+            var existing = await _service.GetByIdAsync(id, ct);
+            if (existing == null)
+                return NotFound(new { message = $"Notification '{id}' was not found." });
+
+            var isBroadcastUser = string.Equals(existing.UserId, "ALL", StringComparison.OrdinalIgnoreCase);
+            var canAccess = User.IsInRole(RoleNames.Admin)
+                || this.IsSelf(existing.UserId)
+                || (isBroadcastUser && (string.Equals(existing.Role, "All", StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrWhiteSpace(existing.Role) && User.IsInRole(existing.Role))));
+            if (!canAccess)
+                return NotFound(new { message = $"Notification '{id}' was not found." });
+
             var success = await _service.MarkAsReadAsync(id, ct);
             if (!success)
                 return NotFound(new { message = $"Notification '{id}' was not found." });

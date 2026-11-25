@@ -143,6 +143,15 @@ public class AppointmentsController : ControllerBase
     [ProducesResponseType(typeof(AppointmentReadDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] AppointmentCreateDto dto, CancellationToken ct)
     {
+        if (dto == null)
+            return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "Dữ liệu lịch hẹn không hợp lệ." });
+
+        if (User.IsInRole(RoleNames.Patient) &&
+            (string.IsNullOrWhiteSpace(dto.PatientId) || !await this.MayAccessPatientAsync(dto.PatientId, ct)))
+        {
+            return Forbid();
+        }
+
         var result = await _service.CreateAsync(dto, ct);
         return CreatedAtAction(nameof(GetById), new { id = result.AppointmentId }, result);
     }
