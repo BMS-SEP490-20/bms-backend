@@ -62,7 +62,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Lấy danh sách tiêu chí xét nghiệm có phân trang.
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet]
     [ProducesResponseType(
         typeof(ApiResponse<PagedResult<TestCriterionResponseDto>>),
@@ -83,7 +83,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Lấy chi tiết tiêu chí xét nghiệm.
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -115,7 +115,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Tạo tiêu chí xét nghiệm mới.
     /// </summary>
-    [Authorize(Roles = RoleNames.Manager)]
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -172,7 +172,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Cập nhật tiêu chí xét nghiệm.
     /// </summary>
-    [Authorize(Roles = RoleNames.Manager)]
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPut("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -229,7 +229,7 @@ public class TestCriteriaController : ControllerBase
     /// Ngừng kích hoạt tiêu chí xét nghiệm,
     /// không xóa dữ liệu lịch sử.
     /// </summary>
-    [Authorize(Roles = RoleNames.Manager)]
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpDelete("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<object>),
