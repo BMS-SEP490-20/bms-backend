@@ -13,7 +13,17 @@ namespace BMS.Core.Interfaces
         /// <summary>
         /// Retrieves filtered patient feedback entries from MongoDB (newest first, bounded).
         /// </summary>
-        Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, CancellationToken ct = default);
+        Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, string? servicePackageId = null, CancellationToken ct = default);
+
+        /// <summary>
+        /// Retrieves all active (non-deleted) feedback entries tied to a service package.
+        /// </summary>
+        Task<IReadOnlyList<PatientFeedback>> GetActiveWithPackageAsync(CancellationToken ct = default);
+
+        /// <summary>
+        /// Retrieves active (non-deleted) feedback entries matching a package ID or package code.
+        /// </summary>
+        Task<IReadOnlyList<PatientFeedback>> GetByPackageAsync(string packageIdOrCode, string? alternateCode = null, CancellationToken ct = default);
 
         /// <summary>
         /// Retrieves feedback entries submitted by a specific patient ID.

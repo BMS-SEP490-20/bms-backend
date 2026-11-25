@@ -12,9 +12,24 @@ namespace BMS.Application.Interfaces
     public interface IPatientFeedbackService
     {
         /// <summary>
-        /// Retrieves all feedback records filtered by rating, category, status, or search term.
+        /// Retrieves all feedback records filtered by rating, category, status, package, or search term.
         /// </summary>
-        Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, CancellationToken ct = default);
+        Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, string? servicePackageId = null, CancellationToken ct = default);
+
+        /// <summary>
+        /// Retrieves anonymized rating summaries across all reviewed service packages.
+        /// </summary>
+        Task<IReadOnlyList<PackageFeedbackSummaryDto>> GetPackageRatingSummariesAsync(CancellationToken ct = default);
+
+        /// <summary>
+        /// Retrieves anonymized public feedback summary and review items for a specific service package.
+        /// </summary>
+        Task<PackageFeedbackDetailResponseDto> GetPublicPackageFeedbackAsync(string packageIdOrCode, CancellationToken ct = default);
+
+        /// <summary>
+        /// Retrieves service packages from used/completed appointments eligible for a patient to review.
+        /// </summary>
+        Task<IReadOnlyList<EligibleFeedbackPackageDto>> GetEligiblePackagesForPatientAsync(string patientId, CancellationToken ct = default);
 
         /// <summary>
         /// Retrieves all feedback submitted by a specific patient.
