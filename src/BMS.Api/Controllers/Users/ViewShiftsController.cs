@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using BMS.Core.Constants;
 using BMS.Core.Exceptions;
 using BMS.Application.DTOs.Common;
@@ -41,12 +42,16 @@ public class ViewShiftsController(IShiftService shifts) : ControllerBase
             var fromDate = (from ?? DateTime.UtcNow.Date).Date;
             var toDate = (to ?? fromDate.AddDays(7)).Date;
 
+            var isSupervisor = User.IsInRole(RoleNames.Manager) || User.IsInRole(RoleNames.Admin);
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+            var scopedDoctorId = isSupervisor ? doctorId : currentUserId;
+
             var filter = new ShiftFilterRequest
             {
                 FromDate = fromDate,
                 ToDate = toDate,
-                DoctorId = doctorId,
-                EmployeeId = doctorId,
+                DoctorId = scopedDoctorId,
+                EmployeeId = scopedDoctorId,
                 Department = department ?? specialty,
                 Status = status,
                 Page = page,

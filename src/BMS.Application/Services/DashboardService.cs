@@ -161,13 +161,11 @@ public class DashboardService : IDashboardService
                 long pendingSamplesCount = 0;
                 long notificationsCount = 0;
 
-                if (_appointmentsCol != null)
+                if (_appointmentsCol != null && !string.IsNullOrWhiteSpace(resolvedPatientId))
                 {
                     try
                     {
-                        var apptFilter = !string.IsNullOrWhiteSpace(resolvedPatientId)
-                            ? Builders<BsonDocument>.Filter.Eq("patient_id", resolvedPatientId)
-                            : Builders<BsonDocument>.Filter.Empty;
+                        var apptFilter = Builders<BsonDocument>.Filter.Eq("patient_id", resolvedPatientId);
 
                         var apptDocs = await _appointmentsCol.Find(apptFilter)
                             .Sort(Builders<BsonDocument>.Sort.Descending("appointment_date"))
@@ -203,13 +201,11 @@ public class DashboardService : IDashboardService
                     catch { }
                 }
 
-                if (_testResultsCol != null)
+                if (_testResultsCol != null && !string.IsNullOrWhiteSpace(resolvedPatientId))
                 {
                     try
                     {
-                        var resFilter = !string.IsNullOrWhiteSpace(resolvedPatientId)
-                            ? Builders<BsonDocument>.Filter.Eq("patient_id", resolvedPatientId)
-                            : Builders<BsonDocument>.Filter.Empty;
+                        var resFilter = Builders<BsonDocument>.Filter.Eq("patient_id", resolvedPatientId);
 
                         var resultDocs = await _testResultsCol.Find(resFilter)
                             .Sort(Builders<BsonDocument>.Sort.Descending("created_at"))
@@ -241,27 +237,26 @@ public class DashboardService : IDashboardService
                     catch { }
                 }
 
-                if (_samplesCol != null)
+                if (_samplesCol != null && !string.IsNullOrWhiteSpace(resolvedPatientId))
                 {
                     try
                     {
-                        var sampleFilter = !string.IsNullOrWhiteSpace(resolvedPatientId)
-                            ? Builders<BsonDocument>.Filter.And(
-                                Builders<BsonDocument>.Filter.Eq("patient_id", resolvedPatientId),
-                                Builders<BsonDocument>.Filter.Nin("status", new[] { "Completed", "Rejected" })
-                              )
-                            : Builders<BsonDocument>.Filter.Nin("status", new[] { "Completed", "Rejected" });
+                        var sampleFilter = Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.Eq("patient_id", resolvedPatientId),
+                            Builders<BsonDocument>.Filter.Nin("status", new[] { "Completed", "Rejected" })
+                        );
 
                         pendingSamplesCount = await _samplesCol.CountDocumentsAsync(sampleFilter);
                     }
                     catch { }
                 }
 
-                if (_notificationsCol != null)
+                if (_notificationsCol != null && !string.IsNullOrWhiteSpace(userId))
                 {
                     try
                     {
-                        notificationsCount = await _notificationsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty);
+                        var notifFilter = Builders<BsonDocument>.Filter.Eq("user_id", userId);
+                        notificationsCount = await _notificationsCol.CountDocumentsAsync(notifFilter);
                     }
                     catch { }
                 }
@@ -269,7 +264,7 @@ public class DashboardService : IDashboardService
                 stats.SummaryCards = new List<StatCardDto>
                 {
                     new() { Key = "appointments", Title = "Lịch hẹn sắp tới", Value = upcomingCount.ToString(), Icon = "calendar-check", ColorVariant = "primary", Subtitle = upcomingCount > 0 ? "Theo lịch đăng ký" : "Chưa có lịch hẹn" },
-                    new() { Key = "results", Title = "Kết quả đã có", Value = readyResultsCount.ToString(), Icon = "file-earmark-medical", ColorVariant = "success", Subtitle = "Bản PDF đã ký số" },
+                    new() { Key = "results", Title = "Kết quả đã có", Value = readyResultsCount.ToString(), Icon = "file-earmark-medical", ColorVariant = "success", Subtitle = "Bác sĩ đã duyệt" },
                     new() { Key = "pending", Title = "Đang xét nghiệm", Value = pendingSamplesCount.ToString(), Icon = "hourglass-split", ColorVariant = "warning", Subtitle = pendingSamplesCount > 0 ? "Đang xử lý tại Lab" : "Không có mẫu tồn" },
                     new() { Key = "notifications", Title = "Thông báo mới", Value = notificationsCount.ToString(), Icon = "bell", ColorVariant = "info", Subtitle = "Hệ thống BMS" }
                 };
