@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using BMS.Application.DTOs.AuditLogs;
 using BMS.Application.DTOs.Laboratory;
+using BMS.Application.DTOs.Notifications;
 using BMS.Application.Interfaces;
 using BMS.Core.Constants;
 using BMS.Core.Entities;
@@ -29,7 +30,8 @@ public sealed partial class TestOrderService(
     IOrderRefundService refunds,
     TimeProvider clock,
     ILogger<TestOrderService> logger,
-    IAppointmentRepository? appointments = null) : ITestOrderService
+    IAppointmentRepository? appointments = null,
+    INotificationService? notifications = null) : ITestOrderService
 {
     /// <summary>ICD-10 format accepted (GAP C4; QĐ C7: format only, no WHO list lookup).</summary>
     [GeneratedRegex(@"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$")]
@@ -198,8 +200,38 @@ public sealed partial class TestOrderService(
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning(ex, "Could not auto-complete appointment after test order {OrderNumber}", order.OrderNumber);
+                    logger.LogWarning(ex, "Could not auto-complete appointment for order {OrderNumber}", order.OrderNumber);
                 }
+            }
+
+            if (notifications != null)
+            {
+                try
+                {
+                    await notifications.CreateNotificationAsync(new CreateNotificationDto
+                    {
+                        UserId = "ROLE_LAB",
+                        Role = RoleNames.Lab,
+                        Title = $"Y lệnh xét nghiệm mới #{order.OrderNumber}",
+                        Message = $"BS. {order.DoctorName} vừa chỉ định xét nghiệm #{order.OrderNumber} cho bệnh nhân {order.PatientName}. Vui lòng tiếp nhận lấy mẫu.",
+                        Type = "TestOrderCreated",
+                        ReferenceId = order.Id
+                    }, ct);
+
+                    if (!string.IsNullOrWhiteSpace(order.PatientId))
+                    {
+                        await notifications.CreateNotificationAsync(new CreateNotificationDto
+                        {
+                            UserId = order.PatientId,
+                            Role = RoleNames.Patient,
+                            Title = $"Chỉ định xét nghiệm #{order.OrderNumber}",
+                            Message = $"Bác sĩ đã tạo phiếu chỉ định xét nghiệm #{order.OrderNumber}. Vui lòng đến khu vực lấy mẫu.",
+                            Type = "TestOrderCreated",
+                            ReferenceId = order.Id
+                        }, ct);
+                    }
+                }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to send test order notifications"); }
             }
             try
             {

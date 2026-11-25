@@ -1,3 +1,4 @@
+using BMS.Application.DTOs.Notifications;
 using BMS.Application.DTOs.Reception;
 using BMS.Application.Interfaces;
 using BMS.Core.Constants;
@@ -20,7 +21,8 @@ public class QueueService(
     ISequenceGenerator sequences,
     TimeProvider clock,
     ILogger<QueueService> logger,
-    IAppointmentRepository? appointmentRepository = null) : IQueueService
+    IAppointmentRepository? appointmentRepository = null,
+    INotificationService? notifications = null) : IQueueService
 {
     /// <summary>Highest number of a day (BA:L33: after Q-999 the queue is closed, never Q-1000).</summary>
     public const int MaxTicketsPerDay = 999;
@@ -124,6 +126,22 @@ public class QueueService(
         }
         logger.LogInformation("Queue ticket {TicketNumber} issued ({Priority}) for {Patient}",
             ticket.TicketNumber, ticket.Priority, PiiMasker.MaskName(ticket.PatientName));
+        if (notifications != null && !string.IsNullOrWhiteSpace(ticket.PatientId))
+        {
+            try
+            {
+                await notifications.CreateNotificationAsync(new CreateNotificationDto
+                {
+                    UserId = ticket.PatientId,
+                    Role = RoleNames.Patient,
+                    Title = $"Check-in thành công · Số {ticket.TicketNumber}",
+                    Message = $"Lễ tân đã tiếp nhận hồ sơ và cấp số thứ tự {ticket.TicketNumber} cho bạn. Vui lòng theo dõi bảng gọi số.",
+                    Type = "QueueCheckIn",
+                    ReferenceId = ticket.Id
+                }, ct);
+            }
+            catch (Exception ex) { logger.LogWarning(ex, "Failed to send check-in notification"); }
+        }
         return ToDto(ticket, now);
     }
 
@@ -145,7 +163,26 @@ public class QueueService(
             var order = await sequences.NextAsync($"queue-call:{day}", ct);
             var claimed = await repository.TryTransitionAsync(next.Id, [QueueTicketStatus.Waiting],
                 QueueTicketStatus.Called, counterName.Trim(), now, order, ct);
-            if (claimed != null) return ToDto(claimed, now);
+            if (claimed != null)
+            {
+                if (notifications != null && !string.IsNullOrWhiteSpace(claimed.PatientId))
+                {
+                    try
+                    {
+                        await notifications.CreateNotificationAsync(new CreateNotificationDto
+                        {
+                            UserId = claimed.PatientId,
+                            Role = RoleNames.Patient,
+                            Title = $"Mời số {claimed.TicketNumber} vào khám",
+                            Message = $"Bác sĩ / Quầy {claimed.CounterName} đang gọi số {claimed.TicketNumber}. Vui lòng di chuyển vào phòng.",
+                            Type = "QueueCalled",
+                            ReferenceId = claimed.Id
+                        }, ct);
+                    }
+                    catch (Exception ex) { logger.LogWarning(ex, "Failed to send queue call notification"); }
+                }
+                return ToDto(claimed, now);
+            }
         }
         throw new ConflictStateException("QUEUE_BUSY", "Hàng chờ đang được cập nhật, vui lòng thử lại.");
     }
@@ -170,6 +207,22 @@ public class QueueService(
         if (updated == null)
             throw new ConflictStateException("QUEUE_INVALID_TRANSITION",
                 $"Không thể chuyển số {ticket.TicketNumber} từ '{ticket.Status}' sang '{to}'.");
+        if (to == QueueTicketStatus.Called && notifications != null && !string.IsNullOrWhiteSpace(updated.PatientId))
+        {
+            try
+            {
+                await notifications.CreateNotificationAsync(new CreateNotificationDto
+                {
+                    UserId = updated.PatientId,
+                    Role = RoleNames.Patient,
+                    Title = $"Mời số {updated.TicketNumber} vào khám",
+                    Message = $"Bác sĩ / Quầy {updated.CounterName ?? counterName} đang gọi số {updated.TicketNumber}. Vui lòng di chuyển vào phòng.",
+                    Type = "QueueCalled",
+                    ReferenceId = updated.Id
+                }, ct);
+            }
+            catch (Exception ex) { logger.LogWarning(ex, "Failed to send queue transition notification"); }
+        }
         return true;
     }
 
