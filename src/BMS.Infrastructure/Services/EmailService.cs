@@ -18,20 +18,30 @@ public class EmailService : IEmailService
     private readonly ILogger<EmailService> _logger;
     private readonly EmailSettings _emailSettings;
 
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+        }
+        return null;
+    }
+
     public EmailService(ILogger<EmailService> logger, IConfiguration configuration)
     {
         _logger = logger;
-        var section = configuration.GetSection(EmailSettings.SectionName);
+        // Single source of truth: Email:* section (with legacy fallback to EmailSettings:* for backward compatibility)
         var emailSection = configuration.GetSection("Email");
+        var legacySection = configuration.GetSection(EmailSettings.SectionName);
 
         _emailSettings = new EmailSettings
         {
-            SmtpServer = section["SmtpServer"] ?? emailSection["Host"] ?? "smtp.gmail.com",
-            Port = int.TryParse(section["Port"] ?? emailSection["Port"], out var port) ? port : 587,
-            SenderEmail = section["SenderEmail"] ?? emailSection["Username"] ?? emailSection["FromAddress"] ?? "bms.mec.lab@gmail.com",
-            SenderName = section["SenderName"] ?? emailSection["FromName"] ?? "BMS-Blood Laboratory and Clinic Management System",
-            AppPassword = (section["AppPassword"] ?? emailSection["Password"] ?? "").Replace(" ", "").Trim(),
-            EnableSsl = !bool.TryParse(section["EnableSsl"] ?? emailSection["EnableSsl"], out var ssl) || ssl
+            SmtpServer = FirstNonEmpty(emailSection["Host"], legacySection["SmtpServer"]) ?? "smtp.gmail.com",
+            Port = int.TryParse(FirstNonEmpty(emailSection["Port"], legacySection["Port"]), out var port) ? port : 587,
+            SenderEmail = FirstNonEmpty(emailSection["Username"], emailSection["FromAddress"], legacySection["SenderEmail"]) ?? "bms.mec.lab@gmail.com",
+            SenderName = FirstNonEmpty(emailSection["FromName"], legacySection["SenderName"]) ?? "Hệ Thống Xét Nghiệm Y Khoa BMS",
+            AppPassword = (FirstNonEmpty(emailSection["Password"], legacySection["AppPassword"]) ?? "").Replace(" ", "").Trim(),
+            EnableSsl = !bool.TryParse(FirstNonEmpty(emailSection["EnableSsl"], legacySection["EnableSsl"]), out var ssl) || ssl
         };
     }
 
