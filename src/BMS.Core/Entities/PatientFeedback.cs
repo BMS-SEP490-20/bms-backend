@@ -47,6 +47,20 @@ namespace BMS.Core.Entities
 
         public bool IsAnonymous { get; set; } = false;
 
+        public bool AdminDeleteRequested { get; set; } = false;
+
+        public string? AdminDeleteReason { get; set; }
+
+        public string? AdminDeleteRequestedBy { get; set; }
+
+        public DateTime? AdminDeleteRequestedAt { get; set; }
+
+        public bool PatientApprovedDelete { get; set; } = false;
+
+        public bool HiddenByAdminWithConsent { get; set; } = false;
+
+        public bool PatientDeleted { get; set; } = false;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

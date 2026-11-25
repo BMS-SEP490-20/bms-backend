@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BMS.Core.Entities;
+using BMS.Core.Entities;
 
 namespace BMS.Core.Interfaces
 {
@@ -36,8 +37,20 @@ namespace BMS.Core.Interfaces
         Task<bool> UpdateAsync(PatientFeedback entity, CancellationToken ct = default);
 
         /// <summary>
+        /// Hard-deletes a feedback document (used when the patient author deletes their own feedback).
+        /// </summary>
+        Task<bool> DeleteAsync(string id, CancellationToken ct = default);
+
+        /// <summary>
         /// Computes feedback statistics with a server-side aggregation (DELETED entries excluded).
         /// </summary>
         Task<PatientFeedbackStatistics> GetStatisticsAsync(CancellationToken ct = default);
     }
+
+    public record PatientFeedbackStatistics(
+        long Total,
+        double Average,
+        long Responded,
+        long Pending,
+        Dictionary<int, long> Distribution);
 }
