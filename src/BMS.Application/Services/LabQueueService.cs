@@ -171,11 +171,11 @@ public class LabQueueService : ILabQueueService
         var page = Math.Max(1, filter.Page);
         var pageSize = Math.Clamp(filter.PageSize, 1, 100);
 
-        // Sort by priority first (Stat, Urgent, Normal), then newest updated/created first so new doctor orders appear at top
+        // Sort newest updated/created first so freshly ordered or updated tubes always appear at row #1
         var paged = query
-            .OrderByDescending(s => s.Priority)
-            .ThenByDescending(s => s.UpdatedAt)
+            .OrderByDescending(s => s.UpdatedAt > s.CreatedAt ? s.UpdatedAt : s.CreatedAt)
             .ThenByDescending(s => s.CreatedAt)
+            .ThenByDescending(s => s.Priority)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(MapToDto)
