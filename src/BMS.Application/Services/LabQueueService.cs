@@ -171,10 +171,11 @@ public class LabQueueService : ILabQueueService
         var page = Math.Max(1, filter.Page);
         var pageSize = Math.Clamp(filter.PageSize, 1, 100);
 
-        // Sort by priority first (Stat, Urgent, Normal), then CollectedAt descending
+        // Sort by priority first (Stat, Urgent, Normal), then newest updated/created first so new doctor orders appear at top
         var paged = query
             .OrderByDescending(s => s.Priority)
-            .ThenByDescending(s => s.CollectedAt)
+            .ThenByDescending(s => s.UpdatedAt)
+            .ThenByDescending(s => s.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(MapToDto)

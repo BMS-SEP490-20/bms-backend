@@ -55,11 +55,12 @@ namespace BMS.Application.Services
 
             var endTime = startTime.Add(TimeSpan.FromMinutes(DefaultSlotDurationMinutes));
             var appointmentDateTime = request.AppointmentDate.Date.Add(startTime);
+            var vnNow = DateTime.UtcNow.AddHours(7);
 
-            if (appointmentDateTime <= DateTime.UtcNow.AddMinutes(-5))
+            if (appointmentDateTime <= vnNow.AddMinutes(-5))
                 throw new InvalidOperationException("MSG-ERR-APPT-01: Không thể đặt lịch trong quá khứ.");
 
-            if (request.AppointmentDate.Date > DateTime.UtcNow.Date.AddDays(30))
+            if (request.AppointmentDate.Date > vnNow.Date.AddDays(30))
                 throw new InvalidOperationException("MSG-ERR-APPT-02: Chỉ được đặt lịch trong vòng 30 ngày tới.");
 
             var shifts = await _repository.GetDoctorShiftsAsync(request.DoctorId, request.AppointmentDate, ct);
@@ -196,6 +197,10 @@ namespace BMS.Application.Services
             var dayMax = shifts.Sum(s => s.MaxPatients);
             var dayStillOpen = booked.Count < dayMax;
 
+            var vnNow = DateTime.UtcNow.AddHours(7);
+            var isTodayVn = date.Date == vnNow.Date;
+            var isPastDayVn = date.Date < vnNow.Date;
+
             var slots = new List<AvailableSlotDto>();
             foreach (var window in windows)
             {
@@ -203,7 +208,11 @@ namespace BMS.Application.Services
                 {
                     var used = bookedLookup.GetValueOrDefault(slot, 0);
                     var remaining = DefaultMaxPatientsPerSlot - used;
-                    if (!dayStillOpen) remaining = 0;
+                    if (!dayStillOpen || isPastDayVn) remaining = 0;
+                    if (isTodayVn && TryParseSlot(slot, out var slotTs) && date.Date.Add(slotTs) <= vnNow.AddMinutes(-5))
+                    {
+                        remaining = 0;
+                    }
                     slots.Add(new AvailableSlotDto
                     {
                         SlotTime = slot,
