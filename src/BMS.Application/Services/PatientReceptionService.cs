@@ -1,5 +1,7 @@
+using BMS.Application.DTOs.Notifications;
 using BMS.Application.DTOs.Reception;
 using BMS.Application.Interfaces;
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -24,6 +26,7 @@ public class PatientReceptionService : IPatientReceptionService
     private readonly ILogger<PatientReceptionService> _logger;
     private readonly IQueueRepository? _queueRepository;
     private readonly ITestOrderRepository? _testOrderRepository;
+    private readonly INotificationService? _notificationService;
     private readonly ITestPackageRepository? _packageRepository;
 
     public PatientReceptionService(
@@ -33,6 +36,7 @@ public class PatientReceptionService : IPatientReceptionService
         ILogger<PatientReceptionService> logger,
         IQueueRepository? queueRepository = null,
         ITestOrderRepository? testOrderRepository = null,
+        INotificationService? notificationService = null,
         ITestPackageRepository? packageRepository = null)
     {
         _appointmentRepository = appointmentRepository;
@@ -41,6 +45,7 @@ public class PatientReceptionService : IPatientReceptionService
         _logger = logger;
         _queueRepository = queueRepository;
         _testOrderRepository = testOrderRepository;
+        _notificationService = notificationService;
         _packageRepository = packageRepository;
     }
 
@@ -160,6 +165,24 @@ public class PatientReceptionService : IPatientReceptionService
 
         await _queueNotifier.NotifyQueueUpdatedAsync(roomId, new { roomId }, ct);
 
+        if (_notificationService != null && !string.IsNullOrWhiteSpace(dto.PatientId))
+        {
+            try
+            {
+                var docLabel = string.IsNullOrWhiteSpace(dto.DoctorName) ? "Bác sĩ" : $"BS. {dto.DoctorName}";
+                await _notificationService.CreateNotificationAsync(new CreateNotificationDto
+                {
+                    UserId = dto.PatientId,
+                    Role = RoleNames.Patient,
+                    Title = $"Mời số {dto.QueueNumberFormatted} vào phòng khám",
+                    Message = $"{docLabel} đang gọi số {dto.QueueNumberFormatted} tại phòng {roomId}. Vui lòng vào phòng khám.",
+                    Type = "QueueCalled",
+                    ReferenceId = dto.AppointmentId
+                }, ct);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to send call-next notification"); }
+        }
+
         _logger.LogInformation("Patient {PatientName} ({QueueNumber}) called to {RoomId} by {DoctorId}",
             dto.PatientName, dto.QueueNumberFormatted, roomId, request.DoctorId);
 
@@ -267,6 +290,23 @@ public class PatientReceptionService : IPatientReceptionService
         await _appointmentRepository.UpdateAsync(apt, ct);
 
         await _queueNotifier.NotifyQueueUpdatedAsync(apt.RoomId, new { roomId = apt.RoomId }, ct);
+
+        if (_notificationService != null && !string.IsNullOrWhiteSpace(apt.PatientId))
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new CreateNotificationDto
+                {
+                    UserId = apt.PatientId,
+                    Role = RoleNames.Patient,
+                    Title = "Hoàn tất lượt khám",
+                    Message = $"Lượt khám {apt.AppointmentCode ?? apt.Id} của bạn đã hoàn tất.",
+                    Type = "AppointmentCompleted",
+                    ReferenceId = apt.Id
+                }, ct);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to send completion notification"); }
+        }
 
         _logger.LogInformation("Appointment {Id} consultation completed", apt.Id);
         return true;

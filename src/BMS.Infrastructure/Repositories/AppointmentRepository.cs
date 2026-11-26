@@ -16,12 +16,14 @@ namespace BMS.Infrastructure.Repositories
         private readonly IMongoCollection<Appointment> _collection;
         private readonly IMongoCollection<DoctorShift> _shiftCollection;
         private readonly IMongoCollection<Doctor> _doctorCollection;
+        private readonly IMongoCollection<User> _userCollection;
 
         public AppointmentRepository(IMongoDatabase database)
         {
             _collection = database.GetCollection<Appointment>("appointments");
             _shiftCollection = database.GetCollection<DoctorShift>("doctor_shifts");
             _doctorCollection = database.GetCollection<Doctor>("doctors");
+            _userCollection = database.GetCollection<User>("accounts");
 
             try
             {
@@ -193,14 +195,57 @@ namespace BMS.Infrastructure.Repositories
         }
 
         public async Task<Doctor?> GetDoctorAsync(string doctorId, CancellationToken ct = default)
-            => await _doctorCollection.Find(x => x.Id == doctorId).FirstOrDefaultAsync(ct);
+        {
+            var doc = await _doctorCollection.Find(x => x.Id == doctorId).FirstOrDefaultAsync(ct);
+            if (doc != null) return doc;
+
+            // Fallback to accounts collection (in case doctorId references an account)
+            var user = await _userCollection.Find(x => x.Id == doctorId).FirstOrDefaultAsync(ct);
+            if (user != null)
+            {
+                return new Doctor
+                {
+                    Id = user.Id,
+                    FullName = user.FullName,
+                    Specialty = "Đa khoa",
+                    RoomId = string.Empty
+                };
+            }
+
+            return null;
+        }
 
         public async Task<List<Doctor>> GetDoctorsByIdsAsync(
             IEnumerable<string> doctorIds, CancellationToken ct = default)
         {
-            var ids = doctorIds.Where(id => MongoDB.Bson.ObjectId.TryParse(id, out _)).Distinct().ToList();
-            if (ids.Count == 0) return new List<Doctor>();
-            return await _doctorCollection.Find(x => ids.Contains(x.Id)).ToListAsync(ct);
+            var rawIds = doctorIds.Where(id => !string.IsNullOrWhiteSpace(id)).Where(id => MongoDB.Bson.ObjectId.TryParse(id, out _)).Distinct().ToList();
+            if (rawIds.Count == 0) return new List<Doctor>();
+
+            var validOids = rawIds.Where(id => MongoDB.Bson.ObjectId.TryParse(id, out _)).ToList();
+            var result = new List<Doctor>();
+            if (validOids.Count > 0)
+            {
+                result = await _doctorCollection.Find(x => validOids.Contains(x.Id)).ToListAsync(ct);
+            }
+
+            var foundIds = new HashSet<string>(result.Select(d => d.Id), StringComparer.OrdinalIgnoreCase);
+            var missingIds = rawIds.Where(id => !foundIds.Contains(id)).ToList();
+            if (missingIds.Count > 0)
+            {
+                var missingUsers = await _userCollection.Find(x => missingIds.Contains(x.Id)).ToListAsync(ct);
+                foreach (var u in missingUsers)
+                {
+                    result.Add(new Doctor
+                    {
+                        Id = u.Id,
+                        FullName = u.FullName,
+                        Specialty = "Đa khoa",
+                        RoomId = string.Empty
+                    });
+                }
+            }
+
+            return result;
         }
 
         // UC23: View & Filter Appointments

@@ -1,4 +1,5 @@
 using BMS.Api.Authorization;
+using BMS.Core.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using BMS.Core.Constants;
 using System;
@@ -30,18 +31,33 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
-        /// Retrieves feedback entries filtered by rating, category, status, service package, or search keywords.
+        /// Retrieves feedback entries filtered by rating, category, status, or search keywords.
+        /// Any authenticated role can view feedbacks; anonymous authors have PII masked for non-owners.
         /// </summary>
-        [Authorize(Roles = RoleSets.AdminOrManager)]
+        [Authorize(Roles = RoleSets.AnyRole)]
+        [Authorize(Roles = RoleNames.Manager)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int? rating, [FromQuery] string? category, [FromQuery] string? status, [FromQuery] string? searchTerm, [FromQuery] string? servicePackageId, CancellationToken ct)
         {
+            var currentAccountId = User.AccountId();
             var feedbacks = await _service.GetAllAsync(rating, category, status, searchTerm, servicePackageId, ct);
+            var masked = feedbacks.Select(f =>
+            {
+                var isOwner = !string.IsNullOrWhiteSpace(currentAccountId) && string.Equals(f.PatientId, currentAccountId, StringComparison.OrdinalIgnoreCase);
+                if (f.IsAnonymous && !isOwner)
+                {
+                    f.PatientName = "Bệnh nhân ẩn danh";
+                    f.PatientEmail = "";
+                    f.PatientPhone = null;
+                }
+                return f;
+            }).ToList();
+
             return Ok(new
             {
                 message = "Retrieved patient feedbacks successfully.",
-                count = feedbacks.Count(),
-                data = feedbacks
+                count = masked.Count,
+                data = masked
             });
         }
 
@@ -97,6 +113,8 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves statistical breakdown of feedbacks (average rating, distribution, response rate).
         /// </summary>
+        [Authorize(Roles = RoleSets.AnyRole)]
+        [Authorize(Roles = RoleNames.Manager)]
         [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpGet("statistics")]
         public async Task<IActionResult> GetStatistics(CancellationToken ct)
@@ -106,6 +124,22 @@ namespace BMS.Api.Controllers.PatientFeedback
             {
                 message = "Retrieved feedback statistics.",
                 data = stats
+            });
+        }
+
+        /// <summary>
+        /// Checks whether the logged-in patient has at least one completed (non-refunded) order to submit feedback.
+        /// </summary>
+        [Authorize(Roles = RoleNames.Patient)]
+        [HttpGet("eligibility")]
+        public async Task<IActionResult> GetEligibility(CancellationToken ct)
+        {
+            var accountId = User.AccountId() ?? string.Empty;
+            var eligibility = await _service.CheckEligibilityAsync(accountId, ct);
+            return Ok(new
+            {
+                message = eligibility.Reason,
+                data = eligibility
             });
         }
 
@@ -157,14 +191,21 @@ namespace BMS.Api.Controllers.PatientFeedback
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // WHY (R14): the author is the logged-in patient; a client-supplied PatientId is ignored.
-            dto.PatientId = User.AccountId();
-            var created = await _service.CreateAsync(dto, ct);
-            return StatusCode(201, new
+            try
             {
-                message = "Feedback submitted successfully.",
-                data = created
-            });
+                // WHY (R14): the author is the logged-in patient; a client-supplied PatientId is ignored.
+                dto.PatientId = User.AccountId();
+                var created = await _service.CreateAsync(dto, ct);
+                return StatusCode(201, new
+                {
+                    message = "Feedback submitted successfully.",
+                    data = created
+                });
+            }
+            catch (DomainValidationException ex)
+            {
+                return BadRequest(new { message = ex.Message, code = ex.Code });
+            }
         }
 
         /// <summary>
@@ -228,6 +269,48 @@ namespace BMS.Api.Controllers.PatientFeedback
                 return NotFound(new { message = $"Feedback '{id}' not found." });
 
             return Ok(new { message = "Feedback deleted successfully.", success });
+        }
+
+        /// <summary>
+        /// Admin requests to hide/delete a feedback; requires patient owner's consent before hiding.
+        /// </summary>
+        [Authorize(Roles = RoleNames.Admin)]
+        [HttpPost("{id}/request-delete")]
+        public async Task<IActionResult> RequestAdminDelete(string id, [FromBody] AdminDeleteRequestDto? dto, CancellationToken ct)
+        {
+            var adminName = User.Identity?.Name ?? "Quản trị viên (Admin)";
+            var updated = await _service.RequestAdminDeleteAsync(id, adminName, dto?.Reason, ct);
+            if (updated == null)
+                return NotFound(new { message = $"Feedback '{id}' not found." });
+
+            return Ok(new
+            {
+                message = "Đã gửi yêu cầu xóa/ẩn đến bệnh nhân. Feedback chỉ được ẩn khi bệnh nhân đồng ý.",
+                data = updated
+            });
+        }
+
+        /// <summary>
+        /// Patient author approves or rejects Admin's delete request.
+        /// </summary>
+        [Authorize(Roles = RoleNames.Patient)]
+        [HttpPost("{id}/consent-delete")]
+        public async Task<IActionResult> RespondAdminDeleteConsent(string id, [FromBody] PatientDeleteConsentDto dto, CancellationToken ct)
+        {
+            if (!await OwnsFeedbackAsync(id, ct))
+                return NotFound(new { message = $"Feedback '{id}' not found." });
+
+            var updated = await _service.RespondAdminDeleteConsentAsync(id, dto.Approved, ct);
+            if (updated == null)
+                return NotFound(new { message = $"Feedback '{id}' not found." });
+
+            return Ok(new
+            {
+                message = dto.Approved
+                    ? "Bạn đã đồng ý. Feedback đã được ẩn bởi admin theo sự đồng ý của bạn."
+                    : "Bạn đã từ chối yêu cầu xóa của admin.",
+                data = updated
+            });
         }
 
         /// <summary>Matrix UC79 "BN (own)": a patient edits/deletes only their own feedback (same 404 otherwise).</summary>

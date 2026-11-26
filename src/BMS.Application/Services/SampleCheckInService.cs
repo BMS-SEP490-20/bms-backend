@@ -1,5 +1,7 @@
+using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.SampleCheckIn.DTOs;
+using BMS.Application.DTOs.Notifications;
 using BMS.Application.Interfaces;
 using BMS.Core.Interfaces;
 
@@ -13,8 +15,13 @@ public class SampleCheckInService : ISampleCheckInService
     };
 
     private readonly ISampleRepository _repository;
+    private readonly INotificationService? _notifications;
 
-    public SampleCheckInService(ISampleRepository repository) => _repository = repository;
+    public SampleCheckInService(ISampleRepository repository, INotificationService? notifications = null)
+    {
+        _repository = repository;
+        _notifications = notifications;
+    }
 
     /// <summary>
     /// Lab receives sample → SampleStatus.Received (or Rejected). Appends status_history.
@@ -62,6 +69,51 @@ public class SampleCheckInService : ISampleCheckInService
         sample.UpdatedAt = DateTime.UtcNow;
 
         await _repository.UpdateAsync(sample, ct);
+
+        if (_notifications != null)
+        {
+            try
+            {
+                if (sample.Status == SampleStatus.Rejected)
+                {
+                    if (!string.IsNullOrWhiteSpace(sample.PatientId))
+                    {
+                        await _notifications.CreateNotificationAsync(new CreateNotificationDto
+                        {
+                            UserId = sample.PatientId,
+                            Role = RoleNames.Patient,
+                            Title = $"Mẫu {sample.Barcode} cần lấy lại",
+                            Message = $"Mẫu bệnh phẩm {sample.Barcode} bị từ chối tại phòng Lab ({sample.RejectionReason}). Vui lòng liên hệ nhân viên y tế.",
+                            Type = "SampleRejected",
+                            ReferenceId = sample.Id
+                        }, ct);
+                    }
+                    await _notifications.CreateNotificationAsync(new CreateNotificationDto
+                    {
+                        UserId = "ROLE_DOCTOR",
+                        Role = RoleNames.Doctor,
+                        Title = $"Mẫu {sample.Barcode} bị từ chối",
+                        Message = $"Phòng Lab đã từ chối mẫu {sample.Barcode} của BN {sample.PatientName}: {sample.RejectionReason}.",
+                        Type = "SampleRejected",
+                        ReferenceId = sample.Id
+                    }, ct);
+                }
+                else if (!string.IsNullOrWhiteSpace(sample.PatientId))
+                {
+                    await _notifications.CreateNotificationAsync(new CreateNotificationDto
+                    {
+                        UserId = sample.PatientId,
+                        Role = RoleNames.Patient,
+                        Title = $"Phòng Lab đã tiếp nhận mẫu {sample.Barcode}",
+                        Message = $"Mẫu xét nghiệm {sample.Barcode} của bạn đã được tiếp nhận và chuẩn bị đưa vào máy phân tích.",
+                        Type = "SampleReceived",
+                        ReferenceId = sample.Id
+                    }, ct);
+                }
+            }
+            catch { /* non-blocking */ }
+        }
+
         return Map(sample);
     }
 

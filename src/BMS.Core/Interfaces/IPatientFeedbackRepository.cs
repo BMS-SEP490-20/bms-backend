@@ -46,6 +46,11 @@ namespace BMS.Core.Interfaces
         Task<bool> UpdateAsync(PatientFeedback entity, CancellationToken ct = default);
 
         /// <summary>
+        /// Hard-deletes a feedback document (used when the patient author deletes their own feedback).
+        /// </summary>
+        Task<bool> DeleteAsync(string id, CancellationToken ct = default);
+
+        /// <summary>
         /// Computes feedback statistics with a server-side aggregation (DELETED entries excluded).
         /// </summary>
         Task<PatientFeedbackStatistics> GetStatisticsAsync(CancellationToken ct = default);

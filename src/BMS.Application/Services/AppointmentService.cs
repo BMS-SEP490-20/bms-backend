@@ -277,6 +277,7 @@ namespace BMS.Application.Services
             {
                 "afternoon" => ("13:00", "17:00"),
                 "evening" => ("17:30", "20:30"),
+                "fullday" or "full_day" or "full-day" => ("07:00", "17:00"),
                 _ => ("07:00", "11:30")
             };
 
@@ -575,43 +576,14 @@ namespace BMS.Application.Services
             entity.UpdatedAt = DateTime.UtcNow;
             await _repository.UpdateAsync(entity, ct);
 
-            // Business logic: if transitioned to CheckedIn, auto create sample
-            if (oldStatus != AppointmentStatus.CheckedIn && entity.Status == AppointmentStatus.CheckedIn)
-            {
-                try
-                {
-                    var pkg = string.IsNullOrWhiteSpace(entity.PackageId)
-                        ? null
-                        : await _packageRepository.GetByIdOrCodeAsync(entity.PackageId, includeInactive: true, ct);
-                    var pat = !string.IsNullOrWhiteSpace(entity.PatientId)
-                        ? await _patientRepository.GetByIdOrCodeAsync(entity.PatientId, ct)
-                        : null;
-                    var random = new Random();
-                    var sample = new Sample
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        Barcode = $"SA{random.Next(0, 999999):D6}",
-                        TestOrderId = entity.Id,
-                        AppointmentId = entity.Id,
-                        PatientId = entity.PatientId,
-                        PatientName = pat?.FullName ?? string.Empty,
-                        PackageId = pkg?.Id ?? entity.PackageId,
-                        PackageCode = pkg?.PackageCode ?? entity.PackageCode ?? entity.PackageId,
-                        TestPackageName = pkg?.PackageName ?? string.Empty,
-                        Status = SampleStatus.Received,
-                        CollectedAt = DateTime.UtcNow,
-                        ReceivedAt = DateTime.UtcNow,
-                        Notes = "Auto-generated after patient checked in"
-                    };
-
-                    await _sampleRepository.CreateAsync(sample, ct);
-                    _logger.LogInformation("✅ Auto-generated sample {Barcode} for checked-in appointment {Id}", sample.Barcode, entity.Id);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "❌ Failed to create auto sample on check-in for appointment {Id}", entity.Id);
-                }
-            }
+            // NOTE: Auto-creating samples on CheckedIn is intentionally REMOVED.
+            // ISO 15189 workflow requires:
+            //   Bước 1: KTV lấy mẫu & in Barcode (status = PendingCollection → Collected)
+            //   Bước 2: Quét tiếp nhận ống mẫu (status = Collected/InTransit → Received)
+            //   Bước 3: Hàng đợi mẫu bệnh phẩm (chỉ hiện khi status = Received+)
+            // Mẫu chỉ được tạo tại Bước 1 bởi KTV Lab, KHÔNG tự động sinh khi bác sĩ ra y lệnh.
+            // ⚠️ Code cũ dưới đây đã bị xoá để tránh lỗi logic nhảy cóc 2 bước.
+            // Nếu cần tạo mẫu dự kiến (tube placeholder) → thực hiện tại SampleListService với status = PendingCollection.
 
             return true;
         }
@@ -642,34 +614,39 @@ namespace BMS.Application.Services
             var windows = new HashSet<string>(StringComparer.Ordinal);
             foreach (var shift in shifts)
             {
+                var sType = shift.ShiftType?.Trim().ToLowerInvariant();
+                var isFullDay = sType is "fullday" or "full_day" or "full-day";
+
+                // Nếu là ca FullDay, chia thành 2 khoảng làm việc rõ ràng tránh giờ nghỉ trưa: Sáng 07:00-11:30 & Chiều 13:00-17:00
+                if (isFullDay)
+                {
+                    windows.Add("07:00-11:30");
+                    windows.Add("13:00-17:00");
+                    continue;
+                }
+
                 if (!string.IsNullOrWhiteSpace(shift.ShiftStart) && !string.IsNullOrWhiteSpace(shift.ShiftEnd))
                 {
                     windows.Add($"{shift.ShiftStart}-{shift.ShiftEnd}");
                     continue;
                 }
 
-                switch (shift.ShiftType?.Trim().ToLowerInvariant())
+                switch (sType)
                 {
                     case "morning":
-                        windows.Add("08:00-12:00");
+                        windows.Add("07:00-11:30");
                         break;
                     case "afternoon":
-                        windows.Add("13:30-17:00");
+                        windows.Add("13:00-17:00");
                         break;
                     case "evening":
-                        windows.Add("17:00-20:00");
+                        windows.Add("17:30-20:30");
                         break;
                     case "night":
                         windows.Add("20:00-23:00");
                         break;
-                    case "fullday":
-                    case "full_day":
-                    case "full-day":
-                        windows.Add("08:00-12:00");
-                        windows.Add("13:30-17:00");
-                        break;
                     default:
-                        windows.Add("08:00-12:00");
+                        windows.Add("07:00-11:30");
                         break;
                 }
             }
@@ -855,7 +832,21 @@ namespace BMS.Application.Services
 
         private static bool ShiftCovers(TimeSpan time, DoctorShift shift)
         {
-            if (!TimeSpan.TryParse(shift.ShiftStart, out var start) || !TimeSpan.TryParse(shift.ShiftEnd, out var end))
+            var startStr = shift.ShiftStart;
+            var endStr = shift.ShiftEnd;
+            if (string.IsNullOrWhiteSpace(startStr) || string.IsNullOrWhiteSpace(endStr))
+            {
+                var sType = shift.ShiftType?.Trim().ToLowerInvariant();
+                (startStr, endStr) = sType switch
+                {
+                    "afternoon" => ("13:00", "17:00"),
+                    "evening" => ("17:30", "20:30"),
+                    "fullday" or "full_day" or "full-day" => ("07:00", "17:00"),
+                    _ => ("07:00", "11:30")
+                };
+            }
+
+            if (!TimeSpan.TryParse(startStr, out var start) || !TimeSpan.TryParse(endStr, out var end))
                 return false;
             return time >= start && time < end;
         }
