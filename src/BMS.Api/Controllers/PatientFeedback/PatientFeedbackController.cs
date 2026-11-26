@@ -2,9 +2,6 @@ using BMS.Api.Authorization;
 using BMS.Core.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using BMS.Core.Constants;
-using BMS.Api.Authorization;
-using Microsoft.AspNetCore.Authorization;
-using BMS.Core.Constants;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -43,7 +40,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         public async Task<IActionResult> GetAll([FromQuery] int? rating, [FromQuery] string? category, [FromQuery] string? status, [FromQuery] string? searchTerm, [FromQuery] string? servicePackageId, CancellationToken ct)
         {
             var currentAccountId = User.AccountId();
-            var feedbacks = await _service.GetAllAsync(rating, category, status, searchTerm, ct, ct);
+            var feedbacks = await _service.GetAllAsync(rating, category, status, searchTerm, servicePackageId, ct);
             var masked = feedbacks.Select(f =>
             {
                 var isOwner = !string.IsNullOrWhiteSpace(currentAccountId) && string.Equals(f.PatientId, currentAccountId, StringComparison.OrdinalIgnoreCase);
@@ -56,7 +53,6 @@ namespace BMS.Api.Controllers.PatientFeedback
                 return f;
             }).ToList();
 
-            var feedbacks = await _service.GetAllAsync(rating, category, status, searchTerm, servicePackageId, ct);
             return Ok(new
             {
                 message = "Retrieved patient feedbacks successfully.",
@@ -138,7 +134,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         [HttpGet("eligibility")]
         public async Task<IActionResult> GetEligibility(CancellationToken ct)
         {
-            var accountId = User.AccountId();
+            var accountId = User.AccountId() ?? string.Empty;
             var eligibility = await _service.CheckEligibilityAsync(accountId, ct);
             return Ok(new
             {
@@ -199,9 +195,7 @@ namespace BMS.Api.Controllers.PatientFeedback
             {
                 // WHY (R14): the author is the logged-in patient; a client-supplied PatientId is ignored.
                 dto.PatientId = User.AccountId();
-                // WHY (R14): the author is the logged-in patient; a client-supplied PatientId is ignored.
-            dto.PatientId = User.AccountId();
-            var created = await _service.CreateAsync(dto, ct, ct);
+                var created = await _service.CreateAsync(dto, ct);
                 return StatusCode(201, new
                 {
                     message = "Feedback submitted successfully.",
@@ -317,13 +311,6 @@ namespace BMS.Api.Controllers.PatientFeedback
                     : "Bạn đã từ chối yêu cầu xóa của admin.",
                 data = updated
             });
-        }
-
-        /// <summary>Matrix UC79 "BN (own)": a patient edits/deletes only their own feedback (same 404 otherwise).</summary>
-        private async Task<bool> OwnsFeedbackAsync(string id, CancellationToken ct)
-        {
-            var feedback = await _service.GetByIdAsync(id, ct);
-            return feedback != null && await this.MayAccessPatientAsync(feedback.PatientId ?? string.Empty, ct);
         }
 
         /// <summary>Matrix UC79 "BN (own)": a patient edits/deletes only their own feedback (same 404 otherwise).</summary>

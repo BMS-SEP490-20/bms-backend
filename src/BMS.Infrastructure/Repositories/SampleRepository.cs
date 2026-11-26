@@ -33,7 +33,8 @@ public class SampleRepository : ISampleRepository
                        || x.StatusString == "InTransit"
                        || x.StatusString == nameof(SampleStatus.Collected)
                        || x.StatusString == nameof(SampleStatus.InTransit))
-            .SortByDescending(x => x.CollectedAt)
+            .SortByDescending(x => x.UpdatedAt)
+            .ThenByDescending(x => x.CollectedAt)
             .Limit(100)
             .ToListAsync(ct);
     }

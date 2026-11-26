@@ -27,6 +27,7 @@ public class PatientReceptionService : IPatientReceptionService
     private readonly IQueueRepository? _queueRepository;
     private readonly ITestOrderRepository? _testOrderRepository;
     private readonly INotificationService? _notificationService;
+    private readonly ITestPackageRepository? _packageRepository;
 
     public PatientReceptionService(
         IAppointmentRepository appointmentRepository,
@@ -35,7 +36,8 @@ public class PatientReceptionService : IPatientReceptionService
         ILogger<PatientReceptionService> logger,
         IQueueRepository? queueRepository = null,
         ITestOrderRepository? testOrderRepository = null,
-        INotificationService? notificationService = null)
+        INotificationService? notificationService = null,
+        ITestPackageRepository? packageRepository = null)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -44,6 +46,23 @@ public class PatientReceptionService : IPatientReceptionService
         _queueRepository = queueRepository;
         _testOrderRepository = testOrderRepository;
         _notificationService = notificationService;
+        _packageRepository = packageRepository;
+    }
+
+    private async Task<string?> ResolvePackageNameAsync(Appointment apt, CancellationToken ct)
+    {
+        var key = !string.IsNullOrWhiteSpace(apt.PackageCode) ? apt.PackageCode : apt.PackageId;
+        if (_packageRepository != null && !string.IsNullOrWhiteSpace(key))
+        {
+            try
+            {
+                var pkg = await _packageRepository.GetByIdOrCodeAsync(key, includeInactive: true, ct);
+                if (pkg != null && !string.IsNullOrWhiteSpace(pkg.PackageName))
+                    return pkg.PackageName;
+            }
+            catch { /* non-fatal */ }
+        }
+        return !string.IsNullOrWhiteSpace(key) ? key : null;
     }
 
     private async Task<int?> ResolveEffectiveQueueNumberAsync(Appointment apt, CancellationToken ct)
@@ -346,6 +365,7 @@ public class PatientReceptionService : IPatientReceptionService
         if (inProgress != null)
         {
             var effectiveQueueNum = await ResolveEffectiveQueueNumberAsync(inProgress, ct);
+            var pkgName = await ResolvePackageNameAsync(inProgress, ct);
             doctors.TryGetValue(inProgress.DoctorId ?? string.Empty, out var doc);
             patientDict.TryGetValue(inProgress.PatientId, out var p);
             currentServing = new QueueItemDto
@@ -361,7 +381,7 @@ public class PatientReceptionService : IPatientReceptionService
                 DoctorId = inProgress.DoctorId,
                 DoctorName = doc?.FullName ?? "Bác sĩ phụ trách",
                 PackageId = inProgress.PackageId,
-                PackageName = inProgress.Notes,
+                PackageName = pkgName,
                 RecallCount = inProgress.RecallCount,
                 ConsultationStartTime = inProgress.ConsultationStartTime,
                 CreatedAt = inProgress.CreatedAt
@@ -372,6 +392,7 @@ public class PatientReceptionService : IPatientReceptionService
         foreach (var a in appointments.Where(a => a.Status == AppointmentStatus.CheckedIn))
         {
             var effectiveQueueNum = await ResolveEffectiveQueueNumberAsync(a, ct);
+            var pkgName = await ResolvePackageNameAsync(a, ct);
             doctors.TryGetValue(a.DoctorId ?? string.Empty, out var doc);
             patientDict.TryGetValue(a.PatientId, out var p);
             waiting.Add(new QueueItemDto
@@ -387,7 +408,7 @@ public class PatientReceptionService : IPatientReceptionService
                 DoctorId = a.DoctorId,
                 DoctorName = doc?.FullName,
                 PackageId = a.PackageId,
-                PackageName = a.Notes,
+                PackageName = pkgName,
                 RecallCount = a.RecallCount,
                 ConsultationStartTime = a.ConsultationStartTime,
                 CreatedAt = a.CreatedAt

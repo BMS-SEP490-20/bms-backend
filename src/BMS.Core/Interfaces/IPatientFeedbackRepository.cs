@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BMS.Core.Entities;
-using BMS.Core.Entities;
 
 namespace BMS.Core.Interfaces
 {
@@ -56,11 +55,4 @@ namespace BMS.Core.Interfaces
         /// </summary>
         Task<PatientFeedbackStatistics> GetStatisticsAsync(CancellationToken ct = default);
     }
-
-    public record PatientFeedbackStatistics(
-        long Total,
-        double Average,
-        long Responded,
-        long Pending,
-        Dictionary<int, long> Distribution);
 }

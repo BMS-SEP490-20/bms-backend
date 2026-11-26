@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
 using BMS.Application.DTOs.Notifications;
+using BMS.Application.DTOs.PatientFeedback;
 using BMS.Application.Interfaces;
 using BMS.Core.Constants;
 using BMS.Core.Entities;
@@ -11,8 +12,6 @@ using BMS.Core.Exceptions;
 using BMS.Core.Interfaces;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
 
 namespace BMS.Application.Services
 {
@@ -25,29 +24,25 @@ namespace BMS.Application.Services
         private readonly IPatientFeedbackRepository _repository;
         private readonly IPatientRepository? _patients;
         private readonly IMongoDatabase? _database;
+        private readonly IAppointmentRepository? _appointmentRepository;
+        private readonly ITestPackageRepository? _packageRepository;
+        private readonly INotificationService? _notifications;
 
-        /// <summary>Creates the service over the feedback repository.</summary>
-        /// <summary>Creates the service over the feedback repository.</summary>
+        /// <summary>Creates the service over the feedback repository and optional lookups.</summary>
         public PatientFeedbackService(
             IPatientFeedbackRepository repository,
             IPatientRepository? patients = null,
-            IMongoDatabase? database = null)
+            IMongoDatabase? database = null,
+            IAppointmentRepository? appointmentRepository = null,
+            ITestPackageRepository? packageRepository = null,
+            INotificationService? notifications = null)
         {
             _repository = repository;
             _patients = patients;
             _database = database;
-        private readonly IAppointmentRepository? _appointmentRepository;
-        private readonly ITestPackageRepository? _packageRepository;
-
-        /// <summary>Creates the service over the feedback repository and optional appointment/package lookups.</summary>
-        public PatientFeedbackService(
-            IPatientFeedbackRepository repository,
-            IAppointmentRepository? appointmentRepository = null,
-            ITestPackageRepository? packageRepository = null)
-        {
-            _repository = repository;
             _appointmentRepository = appointmentRepository;
             _packageRepository = packageRepository;
+            _notifications = notifications;
         }
 
         /// <summary>
@@ -77,6 +72,8 @@ namespace BMS.Application.Services
             if (!eligibility.IsEligible)
             {
                 throw new DomainValidationException("FEEDBACK_NOT_ELIGIBLE", eligibility.Reason);
+            }
+
             var packageId = dto.ServicePackageId?.Trim();
             var packageCode = dto.ServicePackageCode?.Trim();
             var packageName = dto.ServicePackageName?.Trim();
@@ -124,10 +121,7 @@ namespace BMS.Application.Services
                 PatientName = dto.IsAnonymous ? "Bệnh nhân ẩn danh" : (!string.IsNullOrWhiteSpace(dto.PatientName) ? dto.PatientName : "Bệnh nhân"),
                 PatientEmail = dto.PatientEmail ?? "",
                 PatientPhone = dto.PatientPhone,
-                AppointmentId = !string.IsNullOrWhiteSpace(dto.AppointmentId) ? dto.AppointmentId : eligibility.CompletedReferenceCodes.FirstOrDefault(),
-                DoctorName = dto.DoctorName,
-                ServiceCategory = !string.IsNullOrWhiteSpace(dto.ServiceCategory) ? dto.ServiceCategory : "Dịch vụ chung",
-                AppointmentId = appointmentCodeOrId,
+                AppointmentId = !string.IsNullOrWhiteSpace(appointmentCodeOrId) ? appointmentCodeOrId : eligibility.CompletedReferenceCodes.FirstOrDefault(),
                 DoctorName = doctorName,
                 ServicePackageId = packageId,
                 ServicePackageCode = packageCode,

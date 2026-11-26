@@ -363,8 +363,8 @@ namespace BMS.Infrastructure.Repositories
             var total = await _collection.CountDocumentsAsync(filter, cancellationToken: ct);
 
             var items = await _collection.Find(filter)
-                .SortByDescending(x => x.AppointmentDate)
-                .ThenByDescending(x => x.CreatedAt)
+                .SortByDescending(x => x.CreatedAt)
+                .ThenByDescending(x => x.AppointmentDate)
                 .Skip((page - 1) * pageSize)
                 .Limit(pageSize)
                 .ToListAsync(ct);
@@ -387,7 +387,8 @@ namespace BMS.Infrastructure.Repositories
                 fb.Eq(x => x.Status, AppointmentStatus.CheckedIn),
                 fb.Or(
                     fb.And(fb.Gte(x => x.AppointmentDate, startUtc), fb.Lt(x => x.AppointmentDate, endUtc)),
-                    fb.And(fb.Gte(x => x.AppointmentDate, dateOnlyStart), fb.Lt(x => x.AppointmentDate, dateOnlyEnd))),
+                    fb.And(fb.Gte(x => x.AppointmentDate, dateOnlyStart), fb.Lt(x => x.AppointmentDate, dateOnlyEnd)),
+                    fb.And(fb.Gte(x => x.UpdatedAt, startUtc), fb.Lt(x => x.UpdatedAt, endUtc))),
                 // Prefer this doctor's queue; also allow unassigned doctorId so reception can feed the desk.
                 fb.Or(
                     fb.Eq(x => x.DoctorId, doctorId),
@@ -437,7 +438,10 @@ namespace BMS.Infrastructure.Repositories
                         filterBuilder.Lt(x => x.AppointmentDate, endUtc)),
                     filterBuilder.And(
                         filterBuilder.Gte(x => x.AppointmentDate, dateOnlyStart),
-                        filterBuilder.Lt(x => x.AppointmentDate, dateOnlyEnd)))
+                        filterBuilder.Lt(x => x.AppointmentDate, dateOnlyEnd)),
+                    filterBuilder.And(
+                        filterBuilder.Gte(x => x.UpdatedAt, startUtc),
+                        filterBuilder.Lt(x => x.UpdatedAt, endUtc)))
             );
 
             if (!string.IsNullOrWhiteSpace(doctorId))

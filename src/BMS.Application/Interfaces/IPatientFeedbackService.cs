@@ -1,10 +1,9 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using BMS.Application.DTOs.PatientFeedback;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
-using Testorder_service.Models.DTO;
-using Testorder_service.Models.Entities;
 
 namespace BMS.Application.Interfaces
 {
