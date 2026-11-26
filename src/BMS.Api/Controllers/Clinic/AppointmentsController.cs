@@ -143,6 +143,15 @@ public class AppointmentsController : ControllerBase
     [ProducesResponseType(typeof(AppointmentReadDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] AppointmentCreateDto dto, CancellationToken ct)
     {
+        if (dto == null)
+            return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "Dữ liệu lịch hẹn không hợp lệ." });
+
+        if (User.IsInRole(RoleNames.Patient) &&
+            (string.IsNullOrWhiteSpace(dto.PatientId) || !await this.MayAccessPatientAsync(dto.PatientId, ct)))
+        {
+            return Forbid();
+        }
+
         var result = await _service.CreateAsync(dto, ct);
         return CreatedAtAction(nameof(GetById), new { id = result.AppointmentId }, result);
     }
@@ -204,7 +213,9 @@ public class AppointmentsController : ControllerBase
 
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase) && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase)
+            && !await this.MayAccessPatientAsync(result.PatientId ?? string.Empty, ct))
         {
             return Forbid();
         }
@@ -228,7 +239,9 @@ public class AppointmentsController : ControllerBase
 
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         var role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase) && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(role, "Patient", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(result.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase)
+            && !await this.MayAccessPatientAsync(result.PatientId ?? string.Empty, ct))
         {
             return Forbid();
         }

@@ -312,6 +312,7 @@ public class SensorLogsController : ControllerBase
         });
     }
 
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet("outages")]
     public async Task<IActionResult> GetOutages([FromQuery] string? deviceId, CancellationToken ct)
     {

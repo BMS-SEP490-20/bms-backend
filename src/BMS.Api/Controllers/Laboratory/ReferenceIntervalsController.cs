@@ -43,7 +43,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Lấy danh sách khoảng tham chiếu có phân trang và bộ lọc (UC57).
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<ReferenceIntervalResponseDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetIntervals(
@@ -72,7 +72,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Lấy tất cả khoảng tham chiếu đã cấu hình cho một chỉ số xét nghiệm cụ thể (theo mã chỉ số).
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet("criterion/{criterionCode}")]
     [ProducesResponseType(typeof(ApiResponse<List<ReferenceIntervalResponseDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByCriterionCode(
@@ -102,7 +102,7 @@ public class ReferenceIntervalsController : ControllerBase
     /// <summary>
     /// Lấy thông tin chi tiết một khoảng tham chiếu theo ID.
     /// </summary>
-    [Authorize(Roles = RoleSets.ClinicalStaff)]
+    [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<ReferenceIntervalResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

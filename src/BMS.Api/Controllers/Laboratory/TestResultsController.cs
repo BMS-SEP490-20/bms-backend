@@ -490,7 +490,12 @@ public class TestResultsController : ControllerBase
             });
         }
 
-        return Ok(new { success = true, message = "Cập nhật kết quả xét nghiệm thành công." });
+        return StatusCode(StatusCodes.Status501NotImplemented, new
+        {
+            success = false,
+            code = "RESULT_DIRECT_PUT_UNSUPPORTED",
+            message = "Vui lòng cập nhật kết quả qua quy trình nhập chỉ số xét nghiệm hoặc tạo lần chạy lại (Rerun)."
+        });
     }
 
     private static string ReadString(BsonDocument doc, params string[] keys)
@@ -1104,6 +1109,14 @@ public class TestResultsController : ControllerBase
     [HttpGet("patient/order/{orderId}/export-pdf")]
     public async Task<IActionResult> ExportPatientPdf(string orderId)
     {
+        if (User.IsInRole(RoleNames.Patient))
+        {
+            var detail = await _patientResultExportService.GetPatientResultDetailAsync(orderId);
+            if (detail == null || !await this.MayAccessPatientAsync(detail.PatientId, HttpContext.RequestAborted))
+            {
+                return Forbid();
+            }
+        }
         var export = await _patientResultExportService.ExportResultPdfAsync(orderId);
         if (export == null)
         {
@@ -1119,6 +1132,14 @@ public class TestResultsController : ControllerBase
     [HttpPost("patient/order/{orderId}/share")]
     public async Task<IActionResult> ShareResult(string orderId)
     {
+        if (User.IsInRole(RoleNames.Patient))
+        {
+            var detail = await _patientResultExportService.GetPatientResultDetailAsync(orderId);
+            if (detail == null || !await this.MayAccessPatientAsync(detail.PatientId, HttpContext.RequestAborted))
+            {
+                return Forbid();
+            }
+        }
         var share = await _patientResultExportService.GenerateShareLinkAsync(orderId);
         return Ok(new { success = true, data = share });
     }

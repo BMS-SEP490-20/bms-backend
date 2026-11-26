@@ -28,6 +28,12 @@ namespace BMS.Core.Entities
 
         public string? DoctorName { get; set; }
 
+        public string? ServicePackageId { get; set; }
+
+        public string? ServicePackageCode { get; set; }
+
+        public string? ServicePackageName { get; set; }
+
         public string ServiceCategory { get; set; } = "Dịch vụ chung"; // Đón tiếp & Lễ tân, Lấy mẫu máu & Xét nghiệm, Tư vấn bác sĩ, v.v.
 
         [Range(1, 5)]

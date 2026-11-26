@@ -18,15 +18,40 @@ public sealed class AuthController : ControllerBase
     private readonly IAuthService _authService;
     private readonly IOtpService _otpService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IConfiguration? _configuration;
 
     public AuthController(
         IAuthService authService,
         IOtpService otpService,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        IConfiguration? configuration = null)
     {
         _authService = authService;
         _otpService = otpService;
         _logger = logger;
+        _configuration = configuration;
+    }
+
+    /// <summary>Public client-safe OAuth configuration so frontend reads Google Client ID from backend (single source of truth).</summary>
+    [HttpGet("public-config")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult GetPublicConfig()
+    {
+        var rawClientId = (_configuration?["Google:ClientId"]
+            ?? Environment.GetEnvironmentVariable("Google__ClientId")
+            ?? string.Empty).Trim();
+
+        var googleClientId = string.IsNullOrWhiteSpace(rawClientId)
+            || rawClientId.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : rawClientId;
+
+        return Ok(new
+        {
+            googleClientId,
+            googleEnabled = !string.IsNullOrEmpty(googleClientId)
+        });
     }
 
     // =========================================================
@@ -232,6 +257,26 @@ public sealed class AuthController : ControllerBase
     // =========================================================
     // REGISTER
     // =========================================================
+
+    [HttpGet("check-email")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    public async Task<IActionResult> CheckEmailAvailability([FromQuery] string? email, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return BadRequest(new { success = false, available = false, exists = false, message = "Vui lòng nhập email." });
+        }
+
+        var exists = await _authService.IsEmailRegisteredAsync(email, ct);
+        return Ok(new
+        {
+            success = true,
+            available = !exists,
+            exists,
+            message = exists ? "Email này đã được sử dụng trong hệ thống." : string.Empty
+        });
+    }
 
     [HttpPost("register")]
     [AllowAnonymous]

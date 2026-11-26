@@ -10,4 +10,6 @@ public sealed class SePayOptions
     public string AccountName { get; set; } = string.Empty;
     public string WebhookApiKey { get; set; } = string.Empty;
     public string PaymentPrefix { get; set; } = "SEVQR";
+    /// <summary>Allows demo/sandbox instant payment simulation for the owning patient (Development/Demo only; false in Production).</summary>
+    public bool EnableSandbox { get; set; }
 }

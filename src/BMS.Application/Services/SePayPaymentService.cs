@@ -28,6 +28,8 @@ public sealed class SePayPaymentService(
         !string.IsNullOrWhiteSpace(options.Value.AccountNumber) &&
         !string.IsNullOrWhiteSpace(options.Value.BankCode);
 
+    public bool CanSimulate(bool isPatient) => !isPatient || options.Value.EnableSandbox;
+
     public bool ApiKeyMatches(string? authorizationHeader)
     {
         var expected = options.Value.WebhookApiKey?.Trim();
@@ -93,12 +95,14 @@ public sealed class SePayPaymentService(
             AccountNumber = account,
             BankCode = bank,
             AccountName = options.Value.AccountName?.Trim() ?? string.Empty,
-            QrUrl = qr
+            QrUrl = qr,
+            AllowSandbox = CanSimulate(isPatient)
         };
     }
 
     public async Task<bool> SimulatePaymentSuccessAsync(string appointmentId, string? currentUserId, bool isPatient, CancellationToken ct)
     {
+        if (!CanSimulate(isPatient)) return false;
         var appointment = await FindAppointmentAsync(appointmentId, ct);
         if (appointment == null) return false;
         if (isPatient && !string.IsNullOrWhiteSpace(currentUserId))

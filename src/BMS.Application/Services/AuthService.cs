@@ -155,18 +155,8 @@ public class AuthService : IAuthService
             }
         }
 
-        // 3. Verify password against BCrypt hash (with fallback to BmsDbContext SHA256 for dev memory accounts)
+        // 3. Verify password against stored hash (no cross-store in-memory fallback for Mongo accounts)
         bool passwordValid = VerifyUserPassword(request.Password, user.PasswordHash);
-        if (!passwordValid && fromMongo)
-        {
-            var memUser = _context.Users.FirstOrDefault(u =>
-                u.Username.Equals(login, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(login, StringComparison.OrdinalIgnoreCase));
-            if (memUser != null && VerifyUserPassword(request.Password, memUser.PasswordHash))
-            {
-                passwordValid = true;
-            }
-        }
 
         if (!passwordValid)
         {
@@ -761,6 +751,25 @@ public class AuthService : IAuthService
             u.Department);
     }
 
+    public async Task<bool> IsEmailRegisteredAsync(string email, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return false;
+        var emailTrimmed = email.Trim().ToLowerInvariant();
+
+        User? existingUser = null;
+        if (_userRepository != null)
+        {
+            existingUser = await _userRepository.FindByEmailAsync(emailTrimmed)
+                        ?? await _userRepository.GetByEmailOrUsernameAsync(emailTrimmed);
+        }
+
+        existingUser ??= _context.Users.FirstOrDefault(u =>
+            u.Username.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase) ||
+            u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+
+        return existingUser != null && existingUser.EmailConfirmed;
+    }
+
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
     {
         var emailTrimmed = dto.Email.Trim().ToLowerInvariant();
@@ -1111,14 +1120,26 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> ChangePasswordAsync(string userId, ChangePasswordDto dto)
     {
-        await Task.Yield();
-        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return new AuthResponseDto { Success = false, Message = "Không xác định được người dùng." };
+        }
+
+        User? user = null;
+        bool fromMongo = false;
+        if (_userRepository != null)
+        {
+            user = await _userRepository.GetByIdAsync(userId);
+            fromMongo = user != null;
+        }
+
+        user ??= _context.Users.FirstOrDefault(u => u.Id == userId);
         if (user == null)
         {
             return new AuthResponseDto { Success = false, Message = "Không tìm thấy người dùng." };
         }
 
-        if (!BmsDbContext.VerifyPassword(dto.CurrentPassword, user.PasswordHash))
+        if (!VerifyUserPassword(dto.CurrentPassword, user.PasswordHash))
         {
             return new AuthResponseDto { Success = false, Message = "Mật khẩu hiện tại không chính xác." };
         }
@@ -1128,8 +1149,39 @@ public class AuthService : IAuthService
             return new AuthResponseDto { Success = false, Message = "Mật khẩu mới không được trùng với mật khẩu cũ." };
         }
 
-        user.PasswordHash = BmsDbContext.HashPassword(dto.NewPassword);
-        user.UpdatedAt = DateTime.UtcNow;
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var newHash = _passwordHasher != null
+            ? _passwordHasher.Hash(dto.NewPassword)
+            : BmsDbContext.HashPassword(dto.NewPassword);
+
+        if (fromMongo && _userRepository != null)
+        {
+            await _userRepository.UpdatePasswordAsync(user.Id, newHash);
+        }
+
+        user.PasswordHash = newHash;
+        user.Password = newHash;
+        user.UpdatedAt = now;
+
+        var memUser = _context.Users.FirstOrDefault(u => u.Id == user.Id);
+        if (memUser != null && !ReferenceEquals(memUser, user))
+        {
+            memUser.PasswordHash = newHash;
+            memUser.Password = newHash;
+            memUser.UpdatedAt = now;
+        }
+
+        if (_refreshTokenRepository != null)
+        {
+            try
+            {
+                await _refreshTokenRepository.RevokeAllForUserAsync(user.Id, now, "password_changed");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to revoke refresh tokens after password change for user {UserId}", user.Id);
+            }
+        }
 
         return new AuthResponseDto
         {

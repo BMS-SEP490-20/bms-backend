@@ -445,8 +445,8 @@ public class UsersController : ControllerBase
         bool isActive = GetBoolSafe(doc, true, "isActive", "IsActive", "status", "Status");
 
         // 6-role seed (decision 30/10 point 1). Lower-case canonical names keep the existing web contract shape.
-        // Legacy RoleId 9 (old self-registration) is a patient.
-        string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? 6 : roleId) ?? "unknown").ToLowerInvariant();
+        // Legacy RoleId 9 (old self-registration) is a patient (RoleId 5).
+        string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? (int)BMS.Core.Entities.UserRole.Patient : roleId) ?? "unknown").ToLowerInvariant();
 
         var created = GetDateSafe(doc, "CreatedAt", "createdAt");
 
@@ -472,7 +472,7 @@ public class CreateUserAccountDto
     public string FullName { get; set; } = string.Empty;
     public string? Email { get; set; }
     public string? PhoneNumber { get; set; }
-    /// <summary>Required: 1 Admin, 2 Manager, 3 Lab, 4 Doctor, 5 Receptionist, 6 Patient (0 = not supplied => 400).</summary>
+    /// <summary>Required: 1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager (0 = not supplied => 400).</summary>
     public int RoleId { get; set; }
     public string? Password { get; set; }
 }

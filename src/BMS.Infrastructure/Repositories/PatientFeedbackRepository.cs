@@ -27,19 +27,58 @@ namespace BMS.Infrastructure.Repositories
         private static bool IsSet(string? v) => !string.IsNullOrWhiteSpace(v) && v != AllFilterValue;
 
         /// <inheritdoc />
-        public async Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, CancellationToken ct = default)
+        public async Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, string? servicePackageId = null, CancellationToken ct = default)
         {
             var filter = F.Ne(f => f.PatientDeleted, true) & F.Ne(f => f.Status, "PATIENT_DELETED");
             if (rating is > 0) filter &= F.Eq(f => f.Rating, rating.Value);
             if (IsSet(category)) filter &= F.Eq(f => f.ServiceCategory, category);
             if (IsSet(status)) filter &= F.Eq(f => f.Status, status);
+            if (IsSet(servicePackageId))
+            {
+                var pkgRegex = new BsonRegularExpression($"^{Regex.Escape(servicePackageId!.Trim())}$", "i");
+                filter &= F.Or(F.Regex(f => f.ServicePackageId, pkgRegex), F.Regex(f => f.ServicePackageCode, pkgRegex));
+            }
             if (!string.IsNullOrWhiteSpace(searchTerm))
             {
                 var regex = new BsonRegularExpression(Regex.Escape(searchTerm.Trim()), "i");
-                filter &= F.Or(F.Regex(f => f.Title, regex), F.Regex(f => f.Comment, regex),
-                    F.Regex(f => f.PatientName, regex), F.Regex(f => f.DoctorName, regex));
+                filter &= F.Or(
+                    F.Regex(f => f.Title, regex),
+                    F.Regex(f => f.Comment, regex),
+                    F.Regex(f => f.PatientName, regex),
+                    F.Regex(f => f.DoctorName, regex),
+                    F.Regex(f => f.ServicePackageName, regex),
+                    F.Regex(f => f.ServicePackageCode, regex));
             }
             return await _feedbacks.Find(filter).SortByDescending(f => f.CreatedAt).Limit(MaxResults).ToListAsync(ct);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PatientFeedback>> GetActiveWithPackageAsync(CancellationToken ct = default)
+        {
+            var active = F.Ne(f => f.Status, DeletedStatus);
+            var hasPackage = F.Or(
+                F.And(F.Ne(f => f.ServicePackageId, null), F.Ne(f => f.ServicePackageId, "")),
+                F.And(F.Ne(f => f.ServicePackageCode, null), F.Ne(f => f.ServicePackageCode, "")));
+            return await _feedbacks.Find(active & hasPackage).SortByDescending(f => f.CreatedAt).Limit(MaxResults).ToListAsync(ct);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PatientFeedback>> GetByPackageAsync(string packageIdOrCode, string? alternateCode = null, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(packageIdOrCode) && string.IsNullOrWhiteSpace(alternateCode))
+                return Array.Empty<PatientFeedback>();
+
+            var active = F.Ne(f => f.Status, DeletedStatus);
+            var matchers = new List<FilterDefinition<PatientFeedback>>();
+            foreach (var raw in new[] { packageIdOrCode, alternateCode })
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var rx = new BsonRegularExpression($"^{Regex.Escape(raw.Trim())}$", "i");
+                matchers.Add(F.Regex(f => f.ServicePackageId, rx));
+                matchers.Add(F.Regex(f => f.ServicePackageCode, rx));
+            }
+            if (matchers.Count == 0) return Array.Empty<PatientFeedback>();
+            return await _feedbacks.Find(active & F.Or(matchers)).SortByDescending(f => f.CreatedAt).Limit(MaxResults).ToListAsync(ct);
         }
 
         /// <inheritdoc />

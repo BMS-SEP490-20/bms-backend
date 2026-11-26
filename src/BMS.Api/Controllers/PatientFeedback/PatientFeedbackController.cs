@@ -40,7 +40,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         [Authorize(Roles = RoleSets.AnyRole)]
         [Authorize(Roles = RoleNames.Manager)]
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? rating, [FromQuery] string? category, [FromQuery] string? status, [FromQuery] string? searchTerm, CancellationToken ct)
+        public async Task<IActionResult> GetAll([FromQuery] int? rating, [FromQuery] string? category, [FromQuery] string? status, [FromQuery] string? searchTerm, [FromQuery] string? servicePackageId, CancellationToken ct)
         {
             var currentAccountId = User.AccountId();
             var feedbacks = await _service.GetAllAsync(rating, category, status, searchTerm, ct, ct);
@@ -56,6 +56,7 @@ namespace BMS.Api.Controllers.PatientFeedback
                 return f;
             }).ToList();
 
+            var feedbacks = await _service.GetAllAsync(rating, category, status, searchTerm, servicePackageId, ct);
             return Ok(new
             {
                 message = "Retrieved patient feedbacks successfully.",
@@ -65,10 +66,60 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
+        /// Retrieves public average star ratings and review counts per service package (no PII).
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("package-ratings")]
+        public async Task<IActionResult> GetPackageRatings(CancellationToken ct)
+        {
+            var summaries = await _service.GetPackageRatingSummariesAsync(ct);
+            return Ok(new
+            {
+                message = "Retrieved package ratings successfully.",
+                count = summaries.Count,
+                data = summaries
+            });
+        }
+
+        /// <summary>
+        /// Retrieves anonymized public feedback reviews and rating breakdown for a specific service package (no PII).
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("packages/{packageIdOrCode}")]
+        public async Task<IActionResult> GetPublicPackageFeedback(string packageIdOrCode, CancellationToken ct)
+        {
+            var detail = await _service.GetPublicPackageFeedbackAsync(packageIdOrCode, ct);
+            return Ok(new
+            {
+                message = "Retrieved public package reviews successfully.",
+                data = detail
+            });
+        }
+
+        /// <summary>
+        /// Retrieves completed/used service package appointments eligible for feedback by the logged-in patient.
+        /// </summary>
+        [Authorize(Roles = RoleNames.Patient)]
+        [HttpGet("my-eligible-packages")]
+        public async Task<IActionResult> GetMyEligiblePackages(CancellationToken ct)
+        {
+            var patientId = User.AccountId();
+            if (string.IsNullOrWhiteSpace(patientId)) return Unauthorized();
+            var items = await _service.GetEligiblePackagesForPatientAsync(patientId, ct);
+            return Ok(new
+            {
+                message = "Retrieved eligible packages for feedback successfully.",
+                count = items.Count,
+                data = items
+            });
+        }
+
+        /// <summary>
         /// Retrieves statistical breakdown of feedbacks (average rating, distribution, response rate).
         /// </summary>
         [Authorize(Roles = RoleSets.AnyRole)]
         [Authorize(Roles = RoleNames.Manager)]
+        [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpGet("statistics")]
         public async Task<IActionResult> GetStatistics(CancellationToken ct)
         {
@@ -99,7 +150,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves all feedback submitted by a specific patient.
         /// </summary>
-        [Authorize(Roles = RoleSets.ManagerOrPatient)]
+        [Authorize(Roles = RoleSets.AdminOrManager + "," + RoleNames.Patient)]
         [HttpGet("patient/{patientId}")]
         public async Task<IActionResult> GetByPatient(string patientId, CancellationToken ct)
         {
@@ -116,7 +167,7 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// <summary>
         /// Retrieves a single feedback entry by ID.
         /// </summary>
-        [Authorize(Roles = RoleSets.ManagerOrPatient)]
+        [Authorize(Roles = RoleSets.AdminOrManager + "," + RoleNames.Patient)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id, CancellationToken ct)
         {
@@ -187,9 +238,9 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
-        /// Responds to a feedback entry (submitted by Clinic Manager).
+        /// Responds to a feedback entry (submitted by Clinic Manager or Admin).
         /// </summary>
-        [Authorize(Roles = RoleNames.Manager)]
+        [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpPut("{id}/respond")]
         public async Task<IActionResult> Respond(string id, [FromBody] RespondFeedbackDto dto, CancellationToken ct)
         {
@@ -211,13 +262,13 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
-        /// Deletes a feedback entry (by patient or admin/manager).
+        /// Deletes a feedback entry (by patient owner or Admin moderator).
         /// </summary>
-        [Authorize(Roles = RoleNames.Patient)]
+        [Authorize(Roles = RoleNames.Admin + "," + RoleNames.Patient)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
-            if (!await OwnsFeedbackAsync(id, ct))
+            if (!User.IsInRole(RoleNames.Admin) && !await OwnsFeedbackAsync(id, ct))
                 return NotFound(new { message = $"Feedback '{id}' not found." });
             var success = await _service.DeleteAsync(id, ct);
             if (!success)

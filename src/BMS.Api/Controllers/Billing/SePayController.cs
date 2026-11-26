@@ -58,14 +58,17 @@ public sealed class SePayController(SePayPaymentService sePay) : ControllerBase
         });
     }
 
-    // WHY: Allows Demo / Sandbox SePay payment simulation for the appointment owner (Patient, verified via BOLA ownership check)
-    // as well as Receptionist, Lab Manager, and Admin.
-    [Authorize(Roles = RoleSets.ReceptionOrPatient + "," + RoleSets.ReceptionOrManager + "," + RoleNames.Admin)]
+    // WHY: Staff (Receptionist/Manager/Admin) can always confirm; Patient can self-simulate only when SePay:EnableSandbox is enabled.
+    [Authorize(Roles = RoleSets.ReceptionOrPatient + "," + RoleNames.Manager + "," + RoleNames.Admin)]
     [HttpPost("simulate/{appointmentId}")]
     public async Task<IActionResult> SimulateSuccess(string appointmentId, CancellationToken ct)
     {
+        var isPatient = User.IsInRole(RoleNames.Patient);
+        if (!sePay.CanSimulate(isPatient))
+            return Forbid();
+
         var userId = User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var success = await sePay.SimulatePaymentSuccessAsync(appointmentId, userId, User.IsInRole(RoleNames.Patient), ct);
+        var success = await sePay.SimulatePaymentSuccessAsync(appointmentId, userId, isPatient, ct);
         if (!success)
             return BadRequest(new { success = false, message = "Không thể mô phỏng thanh toán cho lịch hẹn này." });
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace BMS.Application.DTOs.PatientFeedback
@@ -14,6 +15,9 @@ namespace BMS.Application.DTOs.PatientFeedback
         public string? PatientPhone { get; set; }
         public string? AppointmentId { get; set; }
         public string? DoctorName { get; set; }
+        public string? ServicePackageId { get; set; }
+        public string? ServicePackageCode { get; set; }
+        public string? ServicePackageName { get; set; }
         public string ServiceCategory { get; set; } = "Dịch vụ chung";
 
         [Range(1, 5)]
@@ -39,6 +43,10 @@ namespace BMS.Application.DTOs.PatientFeedback
         [Range(1, 5)]
         public int? Rating { get; set; }
 
+        public string? AppointmentId { get; set; }
+        public string? ServicePackageId { get; set; }
+        public string? ServicePackageCode { get; set; }
+        public string? ServicePackageName { get; set; }
         public string? ServiceCategory { get; set; }
         public string? Status { get; set; }
         public bool? IsAnonymous { get; set; }
@@ -73,5 +81,59 @@ namespace BMS.Application.DTOs.PatientFeedback
         public int CompletedCount { get; set; }
         public List<string> CompletedReferenceCodes { get; set; } = [];
     }
+    /// <summary>
+    /// Sanitized public review item displayed in service package detail modals (no PII).
+    /// </summary>
+    public sealed record PublicPackageFeedbackDto(
+        string FeedbackId,
+        string DisplayAuthorName,
+        string? ServicePackageId,
+        string? ServicePackageCode,
+        string? ServicePackageName,
+        string ServiceCategory,
+        string? DoctorName,
+        int Rating,
+        string Title,
+        string Comment,
+        string? ManagerResponse,
+        string? RespondedBy,
+        DateTime? RespondedAt,
+        DateTime CreatedAt);
+
+    /// <summary>
+    /// Aggregate rating summary for a service package.
+    /// </summary>
+    public sealed record PackageFeedbackSummaryDto(
+        string Key,
+        string? ServicePackageId,
+        string? ServicePackageCode,
+        string? ServicePackageName,
+        double AverageRating,
+        long TotalReviews,
+        IReadOnlyDictionary<int, long> RatingDistribution);
+
+    /// <summary>
+    /// Response payload for public package detail reviews.
+    /// </summary>
+    public sealed record PackageFeedbackDetailResponseDto(
+        PackageFeedbackSummaryDto Summary,
+        IReadOnlyList<PublicPackageFeedbackDto> Reviews);
+
+    /// <summary>
+    /// Used appointment package item eligible for patient feedback submission.
+    /// </summary>
+    public sealed record EligibleFeedbackPackageDto(
+        string AppointmentId,
+        string AppointmentCode,
+        DateTime AppointmentDate,
+        string AppointmentStatus,
+        string? ServicePackageId,
+        string? ServicePackageCode,
+        string? ServicePackageName,
+        string? DoctorName,
+        bool AlreadyReviewed,
+        string? ExistingFeedbackId,
+        int? ExistingRating,
+        string? ExistingTitle);
 }
 

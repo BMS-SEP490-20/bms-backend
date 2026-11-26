@@ -50,7 +50,7 @@ public class BmsDbContext
                 Username = "manager",
                 Email = "manager@bms.com",
                 FullName = "Trần Quản Lý Lab",
-                Role = UserRole.Admin,
+                Role = UserRole.Manager,
                 PasswordHash = HashPassword("Manager@123"),
                 EmailConfirmed = true,
                 IsActive = true

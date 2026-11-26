@@ -36,7 +36,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves filtered list of IoT threshold violation alerts.
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet]
     public async Task<IActionResult> GetAlerts([FromQuery] IotAlertQueryParameters parameters, CancellationToken ct)
     {
@@ -53,7 +53,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves currently active IoT threshold violation alarms.
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet("active")]
     public async Task<IActionResult> GetActiveAlerts(CancellationToken ct)
     {
@@ -70,7 +70,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves executive surveillance summary KPIs (active, critical, acknowledged, resolved today).
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet("summary")]
     public async Task<IActionResult> GetAlertSummary(CancellationToken ct)
     {
@@ -86,7 +86,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Retrieves detailed record of an alert by ID.
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetAlertById(string id, CancellationToken ct)
     {
@@ -192,7 +192,7 @@ public class AlertsController : ControllerBase
     /// </summary>
     // "~/api/iot/alerts/simulate" is already produced by "simulate" under the api/iot/alerts prefix; declaring it
     // twice made POST api/iot/alerts/simulate ambiguous.
-    [Authorize(Roles = RoleNames.Admin)]
+    [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost("simulate")]
     public async Task<IActionResult> SimulateAlert([FromBody] SimulateAlertRequestDto request, CancellationToken ct)
     {

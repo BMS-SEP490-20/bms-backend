@@ -267,11 +267,14 @@ try
         Assert((await http.PostAsJsonAsync("/api/walk-in/register", Body("079090007777", "0912345678"))).StatusCode == HttpStatusCode.Unauthorized);
         foreach (var role in new[] { "Admin", "Manager", "Lab", "Doctor", "Patient" })
             Assert((await As(http, role).PostAsJsonAsync("/api/walk-in/register", Body("079090007777", "0912345678"))).StatusCode == HttpStatusCode.Forbidden);
-        var ok = await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090007777", "0912345678"));
+        var ok = await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090007777", "0912345679"));
         Assert(ok.StatusCode == HttpStatusCode.Created, ok.StatusCode + await ok.Content.ReadAsStringAsync());
-        var dup = await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090007777", "0912345678"));
+        var dup = await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090007777", "0912345679"));
         var dupText = await dup.Content.ReadAsStringAsync();
         Assert(dup.StatusCode == HttpStatusCode.Conflict && dupText.Contains("MSG-ERR-REC-01") && !dupText.Contains("079090007777"), dupText);
+        var dupPhone = await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090007778", "0912345679"));
+        var dupPhoneText = await dupPhone.Content.ReadAsStringAsync();
+        Assert(dupPhone.StatusCode == HttpStatusCode.Conflict && dupPhoneText.Contains("PATIENT_PHONE_BOUND"), dupPhoneText);
         Assert((await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090777", "0912345678"))).StatusCode == HttpStatusCode.BadRequest);
         Assert((await As(http, "Receptionist").PostAsJsonAsync("/api/walk-in/register", Body("079090008888", "0212345678"))).StatusCode == HttpStatusCode.BadRequest);
         await app.StopAsync();

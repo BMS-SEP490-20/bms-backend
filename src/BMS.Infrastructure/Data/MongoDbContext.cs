@@ -17,8 +17,8 @@ public class MongoDbContext
     public MongoDbContext(IConfiguration configuration, ILogger<MongoDbContext> logger)
     {
         _logger = logger;
-        var connectionString = configuration.GetConnectionString("MongoDb")
-            ?? configuration["MongoDB:ConnectionString"]
+        var connectionString = configuration["MongoDB:ConnectionString"]
+            ?? configuration.GetConnectionString("MongoDb")
             ?? configuration["MongoDbSettings:ConnectionString"]
             ?? "mongodb://localhost:27017";
 

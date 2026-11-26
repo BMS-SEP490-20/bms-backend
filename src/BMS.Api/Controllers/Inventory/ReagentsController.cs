@@ -8,8 +8,8 @@ using System.Security.Claims;
 namespace BMS.Api.Controllers.Inventory;
 
 /// <summary>
-/// UC56 inventory API. Read: Admin, Manager, Lab (Doctor denied, decision 10). Write: Manager, Lab
-/// (WarehouseStaff merged into Lab). Matrix rows UC56 xem / nhập-sửa-xóa.
+/// UC56 inventory API. Read: Admin, Manager (UI) and Lab (reagent lot lookup during test entry).
+/// Write: Admin only (Manager views read-only).
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
