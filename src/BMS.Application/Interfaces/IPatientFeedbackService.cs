@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using BMS.Application.DTOs.PatientFeedback;
 using BMS.Core.Entities;
+using BMS.Core.Interfaces;
+using Testorder_service.Models.DTO;
+using Testorder_service.Models.Entities;
 
 namespace BMS.Application.Interfaces
 {
@@ -65,6 +67,12 @@ namespace BMS.Application.Interfaces
         /// Computes feedback statistics including total count, average rating, and response rates.
         /// </summary>
         Task<PatientFeedbackStatistics> GetStatisticsAsync(CancellationToken ct = default);
+
+        Task<FeedbackEligibilityDto> CheckEligibilityAsync(string accountOrPatientId, CancellationToken ct = default);
+
+        Task<PatientFeedback?> RequestAdminDeleteAsync(string id, string adminName, string? reason, CancellationToken ct = default);
+
+        Task<PatientFeedback?> RespondAdminDeleteConsentAsync(string id, bool approved, CancellationToken ct = default);
     }
 }
 

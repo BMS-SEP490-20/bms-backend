@@ -64,6 +64,23 @@ namespace BMS.Application.DTOs.PatientFeedback
         public string? Status { get; set; } = "RESPONDED";
     }
 
+    public class AdminDeleteRequestDto
+    {
+        public string? Reason { get; set; }
+    }
+
+    public class PatientDeleteConsentDto
+    {
+        public bool Approved { get; set; }
+    }
+
+    public class FeedbackEligibilityDto
+    {
+        public bool IsEligible { get; set; }
+        public string Reason { get; set; } = string.Empty;
+        public int CompletedCount { get; set; }
+        public List<string> CompletedReferenceCodes { get; set; } = [];
+    }
     /// <summary>
     /// Sanitized public review item displayed in service package detail modals (no PII).
     /// </summary>

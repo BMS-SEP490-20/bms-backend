@@ -29,7 +29,7 @@ namespace BMS.Infrastructure.Repositories
         /// <inheritdoc />
         public async Task<IReadOnlyList<PatientFeedback>> GetAllAsync(int? rating, string? category, string? status, string? searchTerm, string? servicePackageId = null, CancellationToken ct = default)
         {
-            var filter = F.Empty;
+            var filter = F.Ne(f => f.PatientDeleted, true) & F.Ne(f => f.Status, "PATIENT_DELETED");
             if (rating is > 0) filter &= F.Eq(f => f.Rating, rating.Value);
             if (IsSet(category)) filter &= F.Eq(f => f.ServiceCategory, category);
             if (IsSet(status)) filter &= F.Eq(f => f.Status, status);
@@ -83,7 +83,7 @@ namespace BMS.Infrastructure.Repositories
 
         /// <inheritdoc />
         public async Task<IReadOnlyList<PatientFeedback>> GetByPatientIdAsync(string patientId, CancellationToken ct = default) =>
-            await _feedbacks.Find(F.Eq(f => f.PatientId, patientId)).SortByDescending(f => f.CreatedAt).Limit(MaxResults).ToListAsync(ct);
+            await _feedbacks.Find(F.Eq(f => f.PatientId, patientId) & F.Ne(f => f.PatientDeleted, true) & F.Ne(f => f.Status, "PATIENT_DELETED")).SortByDescending(f => f.CreatedAt).Limit(MaxResults).ToListAsync(ct);
 
         /// <inheritdoc />
         public async Task<PatientFeedback?> GetByIdAsync(string id, CancellationToken ct = default) =>
@@ -101,9 +101,16 @@ namespace BMS.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
+        {
+            var result = await _feedbacks.DeleteOneAsync(F.Eq(f => f.FeedbackId, id), cancellationToken: ct);
+            return result.DeletedCount > 0;
+        }
+
+        /// <inheritdoc />
         public async Task<PatientFeedbackStatistics> GetStatisticsAsync(CancellationToken ct = default)
         {
-            var active = F.Ne(f => f.Status, DeletedStatus);
+            var active = F.Ne(f => f.Status, DeletedStatus) & F.Ne(f => f.Status, "HIDDEN_BY_ADMIN") & F.Ne(f => f.PatientDeleted, true);
             var byRating = await _feedbacks.Aggregate().Match(active)
                 .Group(f => f.Rating, g => new { Rating = g.Key, Count = g.LongCount() })
                 .ToListAsync(ct);
