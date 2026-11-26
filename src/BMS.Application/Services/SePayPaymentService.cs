@@ -241,7 +241,21 @@ public sealed class SePayPaymentService(
 
     private static bool ShiftCovers(TimeSpan time, DoctorShift shift)
     {
-        if (!TimeSpan.TryParse(shift.ShiftStart, out var start) || !TimeSpan.TryParse(shift.ShiftEnd, out var end))
+        var startStr = shift.ShiftStart;
+        var endStr = shift.ShiftEnd;
+        if (string.IsNullOrWhiteSpace(startStr) || string.IsNullOrWhiteSpace(endStr))
+        {
+            var sType = shift.ShiftType?.Trim().ToLowerInvariant();
+            (startStr, endStr) = sType switch
+            {
+                "afternoon" => ("13:00", "17:00"),
+                "evening" => ("17:30", "20:30"),
+                "fullday" or "full_day" or "full-day" => ("07:00", "17:00"),
+                _ => ("07:00", "11:30")
+            };
+        }
+
+        if (!TimeSpan.TryParse(startStr, out var start) || !TimeSpan.TryParse(endStr, out var end))
             return false;
         return time >= start && time < end;
     }
