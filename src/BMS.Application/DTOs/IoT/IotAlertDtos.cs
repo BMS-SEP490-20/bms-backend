@@ -23,9 +23,15 @@ public class IotAlertDto
     public DateTime TriggeredAt { get; set; }
     public DateTime? AcknowledgedAt { get; set; }
     public string? AcknowledgedBy { get; set; }
+    public string? AcknowledgedByUserId { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? ResolvedBy { get; set; }
+    public string? ResolvedByUserId { get; set; }
     public string? ResolutionNotes { get; set; }
+    public bool TemperatureRecovered { get; set; }
+    public DateTime? RecoveredAt { get; set; }
+    public double? RecoveredValue { get; set; }
+    public bool CapaRequired { get; set; } = true;
     public List<string> NotificationChannelsDispatched { get; set; } = new();
     public double DurationMinutes { get; set; }
 }
@@ -59,20 +65,22 @@ public class IotAlertSummaryDto
 }
 
 /// <summary>
-/// Operator acknowledgment payload.
+/// Operator acknowledgment payload. OperatorName/OperatorUserId are enforced server-side from JWT claims.
 /// </summary>
 public class AcknowledgeAlertRequestDto
 {
     public string OperatorName { get; set; } = string.Empty;
+    public string? OperatorUserId { get; set; }
     public string? Notes { get; set; }
 }
 
 /// <summary>
-/// Corrective action & resolution payload.
+/// Corrective action &amp; resolution payload (ISO 15189 CAPA). OperatorName/OperatorUserId are enforced server-side from JWT claims.
 /// </summary>
 public class ResolveAlertRequestDto
 {
     public string OperatorName { get; set; } = string.Empty;
+    public string? OperatorUserId { get; set; }
     public string ResolutionNotes { get; set; } = string.Empty;
 }
 

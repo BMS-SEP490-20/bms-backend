@@ -194,7 +194,7 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
     /// <summary>
     /// Creates a new clinical or laboratory work shift with working time validation and employee/room conflict detection (Create Shifts).
     /// </summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPost]
     [ProducesResponseType(typeof(ShiftDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -237,7 +237,7 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
     /// <summary>
     /// Updates an existing work shift with working time validation, capacity checks, and conflict detection (Update Shifts).
     /// </summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPut("{id}")]
     [ProducesResponseType(typeof(ShiftDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -282,7 +282,7 @@ public class ShiftsController(IShiftService shifts) : ControllerBase
     /// <summary>
     /// Deletes a work shift after verifying no active patient appointments or bookings depend on it (Delete Shifts).
     /// </summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

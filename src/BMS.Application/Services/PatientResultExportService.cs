@@ -70,33 +70,78 @@ public class PatientResultExportService : IPatientResultExportService
             }
         }
 
-        // If report exists, build from report
+        // If official approved report exists, build from report
         if (report != null)
         {
             return MapReportToPatientDto(report);
         }
 
-        // If order exists, construct structured clinical result from order items
-        if (order != null)
-        {
-            return MapOrderToPatientDto(order);
-        }
-
-        // 3. Direct lookup from MongoDB test_results (supports TRE-... result IDs, sample barcodes, and appointment IDs)
+        // 3. Direct lookup from MongoDB test_results (enforces DoctorApproved gate — NEVER fabricate measurements from unapproved orders or demo mocks)
         if (_database != null)
         {
             var fromMongo = await TryLoadFromMongoTestResultAsync(orderId);
             if (fromMongo != null) return fromMongo;
-        }
 
-        // Fallback for demo mock order ORD-260927-0231 (matches docs-output/screens/02-patient.html#uc62)
-        if (orderId.Equals("ORD-260927-0231", StringComparison.OrdinalIgnoreCase) ||
-            orderId.Equals("sample-lipid", StringComparison.OrdinalIgnoreCase))
-        {
-            return GenerateStandardLipidProfileDto(orderId);
+            // Also try matching via order's OrderNumber / Id if caller passed one of them
+            if (order != null)
+            {
+                var byOrderId = await TryLoadFromMongoTestResultAsync(order.Id);
+                if (byOrderId != null) return byOrderId;
+                if (!string.IsNullOrWhiteSpace(order.OrderNumber))
+                {
+                    var byOrderNo = await TryLoadFromMongoTestResultAsync(order.OrderNumber);
+                    if (byOrderNo != null) return byOrderNo;
+                }
+            }
         }
 
         return null;
+    }
+
+    private static string FormatVnDateTime(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "—";
+        if (DateTimeOffset.TryParse(raw, out var dto))
+        {
+            var vn = dto.ToOffset(TimeSpan.FromHours(7));
+            return vn.ToString("HH:mm dd/MM/yyyy");
+        }
+        return raw;
+    }
+
+    private static string TranslateGender(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "male" or "nam" or "m" => "Nam",
+            "female" or "nữ" or "nu" or "f" => "Nữ",
+            "other" or "khác" or "khac" => "Khác",
+            _ => raw.Trim()
+        };
+    }
+
+    private static string TranslateFlagLabel(string? flag) => (flag ?? "N").ToUpperInvariant() switch
+    {
+        "HH" => "Nguy kịch (HH)",
+        "H" => "Cao (H)",
+        "LL" => "Nguy kịch (LL)",
+        "L" => "Thấp (L)",
+        _ => "Bình thường"
+    };
+
+    private static string TranslateSampleType(string? sampleType, string? anticoagulant)
+    {
+        var baseName = (sampleType ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "blood" or "whole blood" or "máu" or "máu toàn phần" => "Máu toàn phần",
+            "serum" or "huyết thanh" => "Huyết thanh",
+            "plasma" or "huyết tương" => "Huyết tương",
+            "urine" or "nước tiểu" => "Nước tiểu",
+            "" => "Mẫu máu tĩnh mạch",
+            _ => sampleType!.Trim()
+        };
+        return string.IsNullOrWhiteSpace(anticoagulant) ? baseName : $"{baseName} ({anticoagulant.Trim()})";
     }
 
     public async Task<ExportPatientPdfResponseDto?> ExportResultPdfAsync(string orderId)
@@ -104,234 +149,236 @@ public class PatientResultExportService : IPatientResultExportService
         var result = await GetPatientResultDetailAsync(orderId);
         if (result == null) return null;
 
-        var clinicName = _config["Clinic:Name"] ?? "BMS Central Clinical Laboratory";
-        var clinicAddress = _config["Clinic:Address"] ?? "123 Medical Boulevard, District 5, Ho Chi Minh City";
-        var hotline = _config["Clinic:Hotline"] ?? "+84 28 3822 5588";
+        static string Enc(string? v) => System.Net.WebUtility.HtmlEncode(v ?? string.Empty);
+
+        var clinicName = _config["Clinic:Name"] ?? "HỆ THỐNG PHÒNG XÉT NGHIỆM Y KHOA BMS MEDLAB";
+        var clinicAddress = _config["Clinic:Address"] ?? "120 Hai Bà Trưng, Phường Đa Kao, Quận 1, TP. Hồ Chí Minh";
+        var hotline = _config["Clinic:Hotline"] ?? "1900 6868";
+
+        var collectedVn = FormatVnDateTime(result.CollectionTime);
+        var releasedVn = FormatVnDateTime(result.ReleasedDate);
+        var barcodeDisplay = string.IsNullOrWhiteSpace(result.Barcode) ? "—" : result.Barcode;
+        var sampleTypeDisplay = string.IsNullOrWhiteSpace(result.SampleType) ? "Mẫu máu tĩnh mạch" : result.SampleType;
+        var performedByDisplay = string.IsNullOrWhiteSpace(result.PerformedBy) ? "KTV Phòng Xét Nghiệm BMS" : result.PerformedBy;
+        var doctorDisplay = string.IsNullOrWhiteSpace(result.ApprovedByDoctor) ? "Bác sĩ điều trị" : result.ApprovedByDoctor;
+        var specialtyDisplay = string.IsNullOrWhiteSpace(result.DoctorSpecialty) ? "Chuyên khoa Huyết học & Xét nghiệm" : result.DoctorSpecialty;
+        var appointmentCodeDisplay = string.IsNullOrWhiteSpace(result.AppointmentCode) ? result.OrderCode : result.AppointmentCode;
+        var packageDisplay = string.IsNullOrWhiteSpace(result.PackageName) ? "Xét nghiệm lâm sàng" : result.PackageName;
+        var assessmentDisplay = string.IsNullOrWhiteSpace(result.DoctorAssessment)
+            ? "Kết quả xét nghiệm đã được Bác sĩ chuyên khoa thẩm định và phê duyệt."
+            : result.DoctorAssessment;
+
+        var rowsHtml = string.Join("", result.Parameters.Select((p, idx) =>
+        {
+            var flagCode = (p.Flag ?? "N").ToUpperInvariant();
+            var isCrit = flagCode is "HH" or "LL";
+            var isWarn = flagCode is "H" or "L";
+            var rowCls = isCrit ? "crit" : (isWarn ? "warn" : "");
+            var valCls = isCrit ? "t-crit" : (flagCode == "H" ? "t-high" : (flagCode == "L" ? "t-low" : ""));
+            var delta = string.IsNullOrWhiteSpace(p.DeltaPrevious) ? "—" : p.DeltaPrevious;
+            return $@"
+            <tr class=""{rowCls}"">
+                <td class=""c-center c-muted"">{idx + 1}</td>
+                <td class=""param-name"">{Enc(p.ParameterName)}</td>
+                <td class=""num c-right {valCls}"">{Enc(p.Value)}</td>
+                <td class=""c-muted"">{Enc(p.Unit)}</td>
+                <td class=""num c-muted"">{Enc(p.ReferenceRange)}</td>
+                <td class=""num c-center c-muted"">{Enc(delta)}</td>
+                <td class=""c-center""><span class=""flag flag-{flagCode}"">{Enc(TranslateFlagLabel(flagCode))}</span></td>
+            </tr>";
+        }));
+
+        var diagBlockHtml = string.IsNullOrWhiteSpace(result.FinalDiagnosis) && string.IsNullOrWhiteSpace(result.Icd10Code)
+            ? ""
+            : $@"<div class=""diag-line""><strong>Chẩn đoán cuối cùng:</strong> {(string.IsNullOrWhiteSpace(result.Icd10Code) ? "" : $@"<span class=""icd-chip"">ICD-10: {Enc(result.Icd10Code)}</span>")}{Enc(result.FinalDiagnosis)}</div>";
+
+        var adviceBlockHtml = string.IsNullOrWhiteSpace(result.TreatmentAdvice)
+            ? ""
+            : $@"<div class=""advice-line""><strong>Hướng điều trị &amp; lời dặn:</strong> {Enc(result.TreatmentAdvice)}</div>";
+
+        var followUpHtml = string.IsNullOrWhiteSpace(result.FollowUpDate)
+            ? ""
+            : $@"<div class=""followup-line""><strong>Hẹn tái khám:</strong> {Enc(result.FollowUpDate)}</div>";
+
+        var hashDisplay = string.IsNullOrWhiteSpace(result.VerificationHash)
+            ? ComputeSha256($"{result.OrderCode}|{result.PatientId}|{result.ReleasedDate}")
+            : result.VerificationHash;
 
         var printableHtml = $@"<!DOCTYPE html>
-<html lang=""en"">
+<html lang=""vi"">
 <head>
     <meta charset=""utf-8""/>
-    <title>BMS Diagnostic Results - {result.OrderCode}</title>
+    <title>Phiếu Kết Quả Xét Nghiệm - {Enc(result.OrderCode)}</title>
     <style>
-        @page {{ size: A4; margin: 15mm; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            color: #1e293b;
-            background: #ffffff;
+        @page {{ size: A4 portrait; margin: 10mm 12mm; }}
+        * {{ box-sizing: border-box; }}
+        html, body {{
             margin: 0;
-            padding: 24px;
-            font-size: 13px;
-            line-height: 1.5;
-        }}
-        .header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            border-bottom: 2px solid #0284c7;
-            padding-bottom: 14px;
-            margin-bottom: 20px;
-        }}
-        .logo-mark {{
-            font-size: 24px;
-            font-weight: 800;
-            color: #0284c7;
-            letter-spacing: -0.5px;
-        }}
-        .clinic-sub {{
+            padding: 0;
+            background: #ffffff;
+            color: #0f172a;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             font-size: 11px;
-            color: #64748b;
-            margin-top: 2px;
+            line-height: 1.4;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }}
-        .meta-box {{
-            text-align: right;
-            font-size: 11.5px;
-            color: #475569;
-        }}
-        .patient-card {{
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 14px 18px;
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-        }}
-        .patient-card div {{
-            margin-bottom: 4px;
-        }}
-        .badge {{
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-        }}
-        .badge-err {{
-            background: #fee2e2;
-            color: #dc2626;
-        }}
-        .table-wrap {{
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }}
-        .table-wrap th {{
-            background: #f1f5f9;
-            color: #334155;
-            text-align: left;
-            padding: 10px 12px;
-            font-weight: 600;
-            font-size: 12px;
-            border-bottom: 2px solid #cbd5e1;
-        }}
-        .table-wrap td {{
-            padding: 9px 12px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 12.5px;
-        }}
-        .table-wrap tr.crit {{
-            background: #fef2f2;
-        }}
-        .flag {{
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10.5px;
-            font-weight: 700;
-            text-align: center;
-        }}
-        .flag-HH {{ background: #dc2626; color: #ffffff; }}
-        .flag-H {{ background: #f59e0b; color: #ffffff; }}
-        .flag-N {{ background: #e2e8f0; color: #475569; }}
-        .flag-L {{ background: #3b82f6; color: #ffffff; }}
-        .flag-LL {{ background: #1d4ed8; color: #ffffff; }}
+        .sheet {{ max-width: 190mm; margin: 0 auto; padding: 2mm 0; }}
+        .top-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 10px; }}
+        .brand-row {{ display: flex; align-items: center; gap: 8px; }}
+        .brand-badge {{ background: #0284c7; color: #ffffff; font-weight: 800; font-size: 11px; letter-spacing: 0.6px; padding: 3px 7px; border-radius: 4px; }}
+        .clinic-name {{ font-size: 13.5px; font-weight: 800; color: #0f172a; letter-spacing: 0.2px; }}
+        .clinic-sub {{ font-size: 9.8px; color: #475569; margin-top: 2px; }}
+        .meta-right {{ text-align: right; font-size: 10px; color: #334155; white-space: nowrap; }}
+        .meta-right div {{ margin-bottom: 1.5px; }}
+        .status-pill {{ display: inline-block; background: #dcfce7; color: #15803d; border: 1px solid #86efac; border-radius: 10px; padding: 1.5px 8px; font-size: 9.5px; font-weight: 700; margin-top: 2px; }}
+        .doc-title-wrap {{ text-align: center; margin: 8px 0 10px; }}
+        .doc-title {{ margin: 0; font-size: 16.5px; font-weight: 800; color: #0c4a6e; letter-spacing: 0.5px; text-transform: uppercase; }}
+        .doc-package {{ font-size: 11.5px; font-weight: 600; color: #334155; margin-top: 2px; }}
+        .patient-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 10.5px; }}
+        .info-row {{ display: flex; gap: 6px; }}
+        .info-label {{ color: #64748b; min-width: 112px; flex-shrink: 0; }}
+        .info-val {{ color: #0f172a; font-weight: 600; }}
+        .mono {{ font-family: Consolas, 'Courier New', monospace; }}
+        .section-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
+        .section-title {{ margin: 0; font-size: 12px; font-weight: 700; color: #0f172a; text-transform: uppercase; }}
+        .summary-chip {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 9.8px; font-weight: 700; }}
+        .chip-err {{ background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }}
+        .chip-ok {{ background: #dcfce7; color: #15803d; border: 1px solid #86efac; }}
+        table.results-table {{ width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 10.5px; }}
+        table.results-table thead {{ display: table-header-group; }}
+        table.results-table tr {{ page-break-inside: avoid; }}
+        table.results-table th {{ background: #e0f2fe; color: #0c4a6e; font-weight: 700; font-size: 10px; text-align: left; padding: 5.5px 6px; border: 1px solid #bae6fd; }}
+        table.results-table td {{ padding: 4.5px 6px; border: 1px solid #e2e8f0; vertical-align: middle; }}
+        table.results-table tr.crit {{ background: #fef2f2; }}
+        table.results-table tr.warn {{ background: #fffbeb; }}
+        .param-name {{ font-weight: 600; color: #0f172a; }}
         .num {{ font-variant-numeric: tabular-nums; }}
-        .t-crit {{ color: #dc2626; font-weight: 700; }}
-        .t-warn {{ color: #d97706; font-weight: 600; }}
-        .assessment-box {{
-            background: #eff6ff;
-            border-left: 4px solid #0284c7;
-            padding: 14px 16px;
-            border-radius: 0 8px 8px 0;
-            margin-bottom: 24px;
-        }}
-        .assessment-title {{
-            font-size: 13px;
-            font-weight: 700;
-            color: #0369a1;
-            margin-bottom: 6px;
-        }}
-        .signatures {{
-            display: flex;
-            justify-content: space-between;
-            margin-top: 36px;
-            padding-top: 14px;
-            border-top: 1px dashed #cbd5e1;
-        }}
-        .sig-block {{
-            text-align: center;
-            width: 200px;
-        }}
-        .sig-space {{
-            height: 50px;
-        }}
-        .footer {{
-            margin-top: 32px;
-            font-size: 10.5px;
-            color: #94a3b8;
-            text-align: center;
-            border-top: 1px solid #e2e8f0;
-            padding-top: 10px;
-        }}
+        .c-center {{ text-align: center !important; }}
+        .c-right {{ text-align: right !important; }}
+        .c-muted {{ color: #475569; }}
+        .t-crit {{ color: #dc2626; font-weight: 800; }}
+        .t-high {{ color: #b45309; font-weight: 700; }}
+        .t-low {{ color: #1d4ed8; font-weight: 700; }}
+        .flag {{ display: inline-block; padding: 1.5px 6px; border-radius: 4px; font-size: 9.2px; font-weight: 700; white-space: nowrap; }}
+        .flag-HH, .flag-LL {{ background: #dc2626; color: #ffffff; }}
+        .flag-H {{ background: #f59e0b; color: #ffffff; }}
+        .flag-L {{ background: #1d4ed8; color: #ffffff; }}
+        .flag-N {{ background: #f1f5f9; color: #15803d; border: 1px solid #bbf7d0; }}
+        .ref-note {{ font-size: 9.5px; color: #64748b; font-style: italic; margin-bottom: 9px; }}
+        .assessment-box {{ background: #f0f9ff; border: 1px solid #bae6fd; border-left: 3.5px solid #0284c7; border-radius: 4px; padding: 8px 11px; margin-bottom: 12px; page-break-inside: avoid; }}
+        .assessment-title {{ font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; margin-bottom: 4px; }}
+        .diag-line {{ font-size: 10.8px; margin-bottom: 4px; }}
+        .icd-chip {{ display: inline-block; background: #dbeafe; color: #1e40af; padding: 1px 5px; border-radius: 3px; font-weight: 700; font-size: 9.8px; margin-right: 5px; }}
+        .assessment-body {{ font-size: 10.8px; line-height: 1.45; color: #0f172a; }}
+        .advice-line {{ margin-top: 4px; font-size: 10.5px; }}
+        .followup-line {{ margin-top: 3px; font-size: 10.2px; color: #0369a1; }}
+        .assessment-meta {{ margin-top: 5px; font-size: 9.6px; color: #475569; }}
+        .signatures {{ display: flex; justify-content: space-between; gap: 24px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #cbd5e1; page-break-inside: avoid; }}
+        .sig-block {{ flex: 1; text-align: center; }}
+        .sig-role {{ font-size: 10.5px; font-weight: 700; color: #0f172a; text-transform: uppercase; }}
+        .sig-sub {{ font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; }}
+        .sig-stamp {{ margin: 8px auto; display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 9.3px; font-weight: 700; }}
+        .stamp-lab {{ background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; }}
+        .stamp-doc {{ background: #f0fdf4; color: #15803d; border: 1px solid #86efac; }}
+        .sig-name {{ font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 2px; }}
+        .footer {{ margin-top: 10px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #64748b; text-align: center; line-height: 1.45; page-break-inside: avoid; }}
     </style>
 </head>
 <body>
-    <div class=""header"">
+<div class=""sheet"">
+    <div class=""top-header"">
         <div>
-            <div class=""logo-mark"">BMS HEALTHCARE</div>
-            <div class=""clinic-sub"">{clinicName} · {clinicAddress} · Hotline: {hotline}</div>
+            <div class=""brand-row"">
+                <span class=""brand-badge"">BMS LAB</span>
+                <span class=""clinic-name"">{Enc(clinicName)}</span>
+            </div>
+            <div class=""clinic-sub"">Địa chỉ: {Enc(clinicAddress)} · Hotline: {Enc(hotline)}</div>
+            <div class=""clinic-sub"">Hệ thống quản lý chất lượng phòng xét nghiệm y khoa đạt chuẩn ISO 15189:2022</div>
         </div>
-        <div class=""meta-box"">
-            <div>Order No: <strong>{result.OrderCode}</strong></div>
-            <div>Collected: <strong>{result.CollectionTime}</strong></div>
-            <div>Released: <strong>{result.ReleasedDate}</strong></div>
-            <div>Status: <strong style=""color:#16a34a"">{result.OverallStatus}</strong></div>
+        <div class=""meta-right"">
+            <div>Mã phiếu KQ: <strong class=""mono"">{Enc(result.OrderCode)}</strong></div>
+            <div>Mã chỉ định: <strong class=""mono"">{Enc(appointmentCodeDisplay)}</strong></div>
+            <div>Barcode mẫu: <strong class=""mono"">{Enc(barcodeDisplay)}</strong></div>
+            <div><span class=""status-pill"">Đã Bác sĩ phê duyệt</span></div>
         </div>
     </div>
 
-    <div class=""patient-card"">
-        <div>
-            <div><strong>Patient Name:</strong> {result.PatientName}</div>
-            <div><strong>Patient Code:</strong> {result.PatientId}</div>
-            <div><strong>Age / Gender:</strong> {result.DobAgeSex}</div>
-        </div>
-        <div>
-            <div><strong>Test Package:</strong> {result.PackageName}</div>
-            <div><strong>Attending Physician:</strong> {result.ApprovedByDoctor}</div>
-            <div><strong>Specialty:</strong> {result.DoctorSpecialty}</div>
-        </div>
+    <div class=""doc-title-wrap"">
+        <h1 class=""doc-title"">Phiếu Kết Quả Xét Nghiệm Y Khoa</h1>
+        <div class=""doc-package"">Gói dịch vụ: {Enc(packageDisplay)}</div>
     </div>
 
-    <div style=""display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"">
-        <h3 style=""margin:0; font-size:15px; color:#0f172a;"">{result.PackageName} Ã¢â‚¬â€ Laboratory Results</h3>
-        {(result.AbnormalCount > 0 ? $@"<span class=""badge badge-err"">{result.AbnormalCount} abnormal results flagged</span>" : @"<span class=""badge"" style=""background:#dcfce7;color:#15803d;"">All results within reference range</span>")}
+    <div class=""patient-grid"">
+        <div class=""info-row""><span class=""info-label"">Họ và tên bệnh nhân:</span><span class=""info-val"" style=""text-transform:uppercase;"">{Enc(result.PatientName)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Bác sĩ phê duyệt:</span><span class=""info-val"">{Enc(doctorDisplay)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Mã bệnh nhân (PID):</span><span class=""info-val mono"" style=""color:#0369a1;"">{Enc(result.PatientId)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Chuyên khoa:</span><span class=""info-val"">{Enc(specialtyDisplay)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Ngày sinh / Giới tính:</span><span class=""info-val"">{Enc(result.DobAgeSex)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Thời điểm lấy mẫu:</span><span class=""info-val"">{Enc(collectedVn)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Loại mẫu bệnh phẩm:</span><span class=""info-val"">{Enc(sampleTypeDisplay)}</span></div>
+        <div class=""info-row""><span class=""info-label"">Thời điểm trả kết quả:</span><span class=""info-val"">{Enc(releasedVn)}</span></div>
     </div>
 
-    <table class=""table-wrap"">
+    <div class=""section-bar"">
+        <h2 class=""section-title"">Bảng Kết Quả Phân Tích Chỉ Số Sinh Học ({result.Parameters.Count} chỉ số)</h2>
+        {(result.AbnormalCount > 0
+            ? $@"<span class=""summary-chip chip-err"">{result.AbnormalCount} chỉ số ngoài khoảng tham chiếu</span>"
+            : @"<span class=""summary-chip chip-ok"">Tất cả chỉ số trong khoảng bình thường</span>")}
+    </div>
+
+    <table class=""results-table"">
         <thead>
             <tr>
-                <th style=""width:30%"">Parameter</th>
-                <th>Result</th>
-                <th>Unit</th>
-                <th>Reference Range</th>
-                <th>Delta vs Previous</th>
-                <th style=""text-align:center"">Flag</th>
+                <th class=""c-center"" style=""width:5%"">STT</th>
+                <th style=""width:36%"">Tên Chỉ Số Xét Nghiệm</th>
+                <th class=""c-right"" style=""width:10%"">Kết Quả</th>
+                <th style=""width:9%"">Đơn Vị</th>
+                <th style=""width:15%"">Khoảng Tham Chiếu</th>
+                <th class=""c-center"" style=""width:11%"">So Lần Trước</th>
+                <th class=""c-center"" style=""width:14%"">Đánh Giá</th>
             </tr>
         </thead>
         <tbody>
-            {string.Join("", result.Parameters.Select(p => $@"
-            <tr class=""{(p.Flag == "HH" || p.Flag == "LL" ? "crit" : "")}"">
-                <td><strong>{p.ParameterName}</strong></td>
-                <td class=""num {(p.Flag == "HH" ? "t-crit" : (p.Flag == "H" ? "t-warn" : ""))}"">{p.Value}</td>
-                <td>{p.Unit}</td>
-                <td>{p.ReferenceRange}</td>
-                <td class=""num"">{p.DeltaPrevious ?? "Ã¢â‚¬â€"}</td>
-                <td style=""text-align:center""><span class=""flag flag-{p.Flag}"">{p.Flag}</span></td>
-            </tr>"))}
+            {rowsHtml}
         </tbody>
     </table>
 
-    <div style=""font-size:11px; color:#64748b; margin-bottom:18px;"">
-        <em>Notes on reference intervals: {result.ReferenceIntervalNotes}</em>
+    <div class=""ref-note"">
+        * Ghi chú: {Enc(result.ReferenceIntervalNotes)}. Khoảng tham chiếu mang tính tham khảo theo độ tuổi và giới tính; giá trị in đậm nằm ngoài khoảng bình thường.
     </div>
 
     <div class=""assessment-box"">
         <div class=""assessment-title"">Chẩn Đoán Cuối Cùng &amp; Kết Luận Lâm Sàng Của Bác Sĩ</div>
-        {(string.IsNullOrWhiteSpace(result.FinalDiagnosis) && string.IsNullOrWhiteSpace(result.Icd10Code) ? "" : $@"<div style=""font-size:13px; margin-bottom:6px;""><strong>Chẩn đoán cuối cùng:</strong> {(string.IsNullOrWhiteSpace(result.Icd10Code) ? "" : $@"<span style=""display:inline-block;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-weight:700;margin-right:6px;"">{System.Net.WebUtility.HtmlEncode(result.Icd10Code)}</span>")}{System.Net.WebUtility.HtmlEncode(result.FinalDiagnosis ?? "")}</div>")}
-        <div style=""font-size:12.5px; line-height:1.6;"">{System.Net.WebUtility.HtmlEncode(result.DoctorAssessment)}</div>
-        {(string.IsNullOrWhiteSpace(result.TreatmentAdvice) ? "" : $@"<div style=""margin-top:8px; font-size:12.5px;""><strong>Lời khuyên / Hướng điều trị:</strong> {System.Net.WebUtility.HtmlEncode(result.TreatmentAdvice)}</div>")}
-        {(string.IsNullOrWhiteSpace(result.FollowUpDate) ? "" : $@"<div style=""margin-top:4px; font-size:12px; color:#0369a1;""><strong>Hẹn tái khám:</strong> {System.Net.WebUtility.HtmlEncode(result.FollowUpDate)}</div>")}
-        <div style=""margin-top:8px; font-size:11.5px; color:#64748b;"">Ã¢â‚¬â€ {result.ApprovedByDoctor} · {result.DoctorSpecialty} · {result.ReleasedDate}</div>
+        {diagBlockHtml}
+        <div class=""assessment-body"">{Enc(assessmentDisplay)}</div>
+        {adviceBlockHtml}
+        {followUpHtml}
+        <div class=""assessment-meta"">— {Enc(doctorDisplay)} · {Enc(specialtyDisplay)} · Phê duyệt lúc {Enc(releasedVn)}</div>
     </div>
 
     <div class=""signatures"">
         <div class=""sig-block"">
-            <div><strong>Medical Technologist</strong></div>
-            <div class=""sig-space""></div>
-            <div>BMS Lab Testing Dept.</div>
+            <div class=""sig-role"">Kỹ Thuật Viên Xét Nghiệm</div>
+            <div class=""sig-sub"">(Thực hiện phân tích &amp; kiểm chuẩn IQC)</div>
+            <div class=""sig-stamp stamp-lab"">Đã kiểm chuẩn kỹ thuật</div>
+            <div class=""sig-name"">{Enc(performedByDisplay)}</div>
+            <div class=""sig-sub"">Khoa Xét Nghiệm — BMS MedLab</div>
         </div>
         <div class=""sig-block"">
-            <div><strong>Pathologist / Attending Doctor</strong></div>
-            <div class=""sig-space""></div>
-            <div><strong>{result.ApprovedByDoctor}</strong></div>
+            <div class=""sig-role"">Bác Sĩ Chuyên Khoa Phê Duyệt</div>
+            <div class=""sig-sub"">(Thẩm định lâm sàng &amp; ký số điện tử)</div>
+            <div class=""sig-stamp stamp-doc"">Đã ký duyệt · {Enc(releasedVn)}</div>
+            <div class=""sig-name"">{Enc(doctorDisplay)}</div>
+            <div class=""sig-sub"">{Enc(specialtyDisplay)}</div>
         </div>
     </div>
 
     <div class=""footer"">
-        This document is an electronically released laboratory report per ISO 15189 diagnostic guidelines.<br/>
-        Share Verification Link: {result.ShareUrl}
+        Phiếu kết quả xét nghiệm được phát hành điện tử theo tiêu chuẩn ISO 15189:2022. Kết quả chỉ có giá trị đối với mẫu bệnh phẩm tại thời điểm xét nghiệm.<br/>
+        Mã xác thực toàn vẹn (SHA-256): <span class=""mono"">{Enc(hashDisplay)}</span>
     </div>
+</div>
 </body>
 </html>";
 
@@ -339,9 +386,9 @@ public class PatientResultExportService : IPatientResultExportService
         {
             OrderId = result.OrderId,
             ReportId = result.OrderCode,
-            FileName = $"BMS-Result-{result.OrderCode}.pdf",
+            FileName = $"Phieu-Ket-Qua-XN-{result.OrderCode}.pdf",
             MimeType = "application/pdf",
-            VerificationHash = result.VerificationHash,
+            VerificationHash = hashDisplay,
             PrintableHtml = printableHtml,
             DownloadUrl = $"/api/testresults/patient/order/{result.OrderId}/export-pdf",
             GeneratedAt = DateTime.UtcNow
@@ -388,14 +435,34 @@ public class PatientResultExportService : IPatientResultExportService
             }
         }
 
-        // If list is empty, return standard demo results so UI has real clinical data
-        if (!list.Any())
+        // Also load approved diagnostic results directly from MongoDB test_results
+        if (_database != null && !string.IsNullOrWhiteSpace(patientId))
         {
-            var demo = GenerateStandardLipidProfileDto("ORD-260927-0231");
-            demo.PatientId = patientId;
-            list.Add(demo);
+            try
+            {
+                var col = _database.GetCollection<BsonDocument>("test_results");
+                var fb = Builders<BsonDocument>.Filter;
+                var filter = fb.Ne("isDeleted", true)
+                    & fb.Ne("is_deleted", true)
+                    & fb.Ne("isSuperseded", true)
+                    & fb.Or(fb.Eq("patientId", patientId), fb.Eq("patient_id", patientId))
+                    & fb.In("status", new[] { "APPROVED", "Approved", "Completed" });
+                var docs = await col.Find(filter).Sort(new BsonDocument("createdAt", -1)).Limit(30).ToListAsync();
+                foreach (var d in docs)
+                {
+                    var rid = d.TryGetValue("testResultId", out var trv) && trv.IsString && !string.IsNullOrWhiteSpace(trv.AsString)
+                        ? trv.AsString
+                        : d.TryGetValue("_id", out var idv) ? idv.ToString() ?? "" : "";
+                    if (string.IsNullOrWhiteSpace(rid) || list.Any(x => x.OrderId.Equals(rid, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+                    var dto = await TryLoadFromMongoTestResultAsync(rid);
+                    if (dto != null) list.Add(dto);
+                }
+            }
+            catch { }
         }
 
+        // Return only real approved patient results (never inject hardcoded mock/demo records)
         return list;
     }
 
@@ -585,6 +652,42 @@ public class PatientResultExportService : IPatientResultExportService
             var sampleId = Str(doc, "sampleId", "sample_id");
             var appointmentId = Str(doc, "appointmentId", "appointment_id");
             var packageId = Str(doc, "packageId", "package_id");
+            var enteredByUserId = Str(doc, "enteredByUserId", "entered_by_user_id");
+            var approvedByDoctorId = Str(doc, "approvedByDoctorId", "approved_by_doctor_id");
+            var digitalSignature = Str(doc, "digitalSignature", "digital_signature");
+
+            // Load linked blood sample for real barcode, collection time, technician, sample type & package code
+            BsonDocument? sampleDoc = null;
+            if (!string.IsNullOrWhiteSpace(sampleId))
+            {
+                sampleDoc = await _database.GetCollection<BsonDocument>("blood_samples").Find(f.Or(
+                    f.Eq("_id", sampleId), f.Eq("sample_id", sampleId), f.Eq("barcode", sampleId))).FirstOrDefaultAsync();
+            }
+            if (sampleDoc == null && !string.IsNullOrWhiteSpace(appointmentId))
+            {
+                sampleDoc = await _database.GetCollection<BsonDocument>("blood_samples").Find(f.Or(
+                    f.Eq("test_order_id", appointmentId), f.Eq("appointment_id", appointmentId))).FirstOrDefaultAsync();
+            }
+
+            var barcode = sampleDoc != null ? Str(sampleDoc, "barcode", "Barcode") : string.Empty;
+            var samplePackageCode = sampleDoc != null ? Str(sampleDoc, "package_code", "test_package_name", "packageCode") : string.Empty;
+            var sampleTypeRaw = sampleDoc != null ? Str(sampleDoc, "sample_type", "sampleType") : string.Empty;
+            var anticoagulant = sampleDoc != null ? Str(sampleDoc, "anticoagulant") : string.Empty;
+            var labRoom = sampleDoc != null ? Str(sampleDoc, "lab_room", "labRoom") : string.Empty;
+            var performedBy = sampleDoc != null ? Str(sampleDoc, "assigned_technician_name", "collector_name") : string.Empty;
+            if (string.IsNullOrWhiteSpace(packageId) && !string.IsNullOrWhiteSpace(samplePackageCode))
+            {
+                packageId = samplePackageCode;
+            }
+
+            if (string.IsNullOrWhiteSpace(performedBy) && !string.IsNullOrWhiteSpace(enteredByUserId))
+            {
+                var accFilter = ObjectId.TryParse(enteredByUserId, out var empOid)
+                    ? f.Or(f.Eq("_id", empOid), f.Eq("_id", enteredByUserId))
+                    : f.Eq("_id", enteredByUserId);
+                var techAcc = await _database.GetCollection<BsonDocument>("accounts").Find(accFilter).FirstOrDefaultAsync();
+                if (techAcc != null) performedBy = Str(techAcc, "fullName", "FullName", "username");
+            }
 
             // Patient metadata
             var patientName = patientId;
@@ -597,24 +700,39 @@ public class PatientResultExportService : IPatientResultExportService
                 {
                     var fn = Str(pDoc, "fullName", "FullName", "fullname", "full_name");
                     if (!string.IsNullOrWhiteSpace(fn)) patientName = fn;
-                    var gender = Str(pDoc, "gender", "Gender");
+                    var genderVn = TranslateGender(Str(pDoc, "gender", "Gender"));
                     string dobStr = string.Empty;
                     if (pDoc.TryGetValue("dateOfBirth", out var dob1) && dob1.IsBsonDateTime)
-                        dobStr = dob1.ToUniversalTime().ToString("dd/MM/yyyy");
+                    {
+                        var dt = dob1.ToUniversalTime();
+                        var age = Math.Max(0, DateTime.UtcNow.Year - dt.Year - (DateTime.UtcNow.DayOfYear < dt.DayOfYear ? 1 : 0));
+                        dobStr = $"{dt:dd/MM/yyyy} ({age} tuổi)";
+                    }
                     else if (pDoc.TryGetValue("dob", out var dob2) && dob2.IsBsonDateTime)
-                        dobStr = dob2.ToUniversalTime().ToString("dd/MM/yyyy");
-                    dobAgeSex = string.Join(" · ", new[] { dobStr, gender }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                    {
+                        var dt = dob2.ToUniversalTime();
+                        var age = Math.Max(0, DateTime.UtcNow.Year - dt.Year - (DateTime.UtcNow.DayOfYear < dt.DayOfYear ? 1 : 0));
+                        dobStr = $"{dt:dd/MM/yyyy} ({age} tuổi)";
+                    }
+                    dobAgeSex = string.Join(" · ", new[] { dobStr, genderVn }.Where(x => !string.IsNullOrWhiteSpace(x)));
                 }
             }
 
-            // Package name (prefer service_packages)
+            // Package name & category (prefer service_packages)
             var packageName = packageId;
+            var categoryName = "Xét Nghiệm Lâm Sàng";
             if (!string.IsNullOrWhiteSpace(packageId))
             {
                 var upper = packageId.ToUpperInvariant();
                 var sp = await _database.GetCollection<BsonDocument>("service_packages").Find(f.Or(
-                    f.Eq("_id", packageId), f.Eq("Code", upper), f.Eq("code", upper))).FirstOrDefaultAsync();
-                if (sp != null) packageName = Str(sp, "Name", "name", "package_name");
+                    f.Eq("_id", packageId), f.Eq("Code", upper), f.Eq("code", upper), f.Eq("Name", packageId), f.Eq("name", packageId))).FirstOrDefaultAsync();
+                if (sp != null)
+                {
+                    var spName = Str(sp, "Name", "name", "package_name");
+                    if (!string.IsNullOrWhiteSpace(spName)) packageName = spName;
+                    var spCat = Str(sp, "Category", "category");
+                    if (!string.IsNullOrWhiteSpace(spCat)) categoryName = spCat;
+                }
                 if (string.IsNullOrWhiteSpace(packageName) || packageName == packageId)
                 {
                     var tp = await _database.GetCollection<BsonDocument>("test_packages").Find(f.Or(
@@ -622,7 +740,7 @@ public class PatientResultExportService : IPatientResultExportService
                     if (tp != null) packageName = Str(tp, "package_name", "name");
                 }
             }
-            if (string.IsNullOrWhiteSpace(packageName)) packageName = "Phiếu Kết Quả Xét Nghiệm";
+            if (string.IsNullOrWhiteSpace(packageName)) packageName = "Xét Nghiệm Huyết Học & Sinh Hóa Lâm Sàng";
 
             // Parameters
             var parameters = new List<PatientResultParameterDto>();
@@ -749,6 +867,29 @@ public class PatientResultExportService : IPatientResultExportService
                 }
             }
 
+            var doctorSpecialty = string.Empty;
+            if (!string.IsNullOrWhiteSpace(approvedByDoctorId))
+            {
+                var docFilter = ObjectId.TryParse(approvedByDoctorId, out var docOid)
+                    ? f.Or(f.Eq("_id", docOid), f.Eq("_id", approvedByDoctorId))
+                    : f.Eq("_id", approvedByDoctorId);
+                var doctorRecord = await _database.GetCollection<BsonDocument>("doctors").Find(docFilter).FirstOrDefaultAsync();
+                if (doctorRecord != null)
+                {
+                    if (string.IsNullOrWhiteSpace(approvingDoctor)) approvingDoctor = Str(doctorRecord, "full_name", "fullName", "FullName");
+                    doctorSpecialty = Str(doctorRecord, "specialty", "Specialty");
+                }
+                if (string.IsNullOrWhiteSpace(approvingDoctor) || string.IsNullOrWhiteSpace(doctorSpecialty))
+                {
+                    var docAcc = await _database.GetCollection<BsonDocument>("accounts").Find(docFilter).FirstOrDefaultAsync();
+                    if (docAcc != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(approvingDoctor)) approvingDoctor = Str(docAcc, "fullName", "FullName");
+                        if (string.IsNullOrWhiteSpace(doctorSpecialty)) doctorSpecialty = Str(docAcc, "specialty", "department");
+                    }
+                }
+            }
+
             var assessmentText = !string.IsNullOrWhiteSpace(doctorConclusion)
                 ? doctorConclusion
                 : Str(doc, "clinicalComment", "conclusion_notes");
@@ -756,25 +897,37 @@ public class PatientResultExportService : IPatientResultExportService
             var createdAt = doc.TryGetValue("createdAt", out var c1) && c1.IsBsonDateTime ? c1.ToUniversalTime()
                 : doc.TryGetValue("created_at", out var c2) && c2.IsBsonDateTime ? c2.ToUniversalTime()
                 : DateTime.UtcNow;
+            DateTime collectedAt = createdAt;
+            if (sampleDoc != null && sampleDoc.TryGetValue("collected_at", out var colAt) && colAt.IsBsonDateTime)
+                collectedAt = colAt.ToUniversalTime();
             var approvedAt = doc.TryGetValue("approvedAt", out var a1) && a1.IsBsonDateTime ? a1.ToUniversalTime()
                 : doc.TryGetValue("approved_at", out var a2) && a2.IsBsonDateTime ? a2.ToUniversalTime()
                 : createdAt;
 
             var token = Convert.ToBase64String(Encoding.UTF8.GetBytes(resultId)).TrimEnd('=').Replace("+", "-");
+            var effectiveHash = !string.IsNullOrWhiteSpace(digitalSignature)
+                ? digitalSignature
+                : ComputeSha256($"{resultId}|{patientId}|{approvedAt:O}");
 
             return new PatientTestResultDetailDto
             {
                 OrderId = resultId,
                 OrderCode = resultId,
+                AppointmentCode = string.IsNullOrWhiteSpace(appointmentId) ? resultId : appointmentId,
+                Barcode = string.IsNullOrWhiteSpace(barcode) ? null : barcode,
+                SampleType = TranslateSampleType(sampleTypeRaw, anticoagulant),
+                LabRoom = string.IsNullOrWhiteSpace(labRoom) ? null : labRoom,
                 PackageName = packageName,
-                Category = "Xét Nghiệm Lâm Sàng",
+                Category = categoryName,
                 PatientId = patientId,
                 PatientName = patientName,
                 DobAgeSex = dobAgeSex,
-                CollectionTime = createdAt.ToString("O"),
+                CollectionTime = collectedAt.ToString("O"),
                 ReleasedDate = approvedAt.ToString("O"),
+                OrderingDoctor = string.IsNullOrWhiteSpace(approvingDoctor) ? "Bác sĩ điều trị" : approvingDoctor,
+                PerformedBy = string.IsNullOrWhiteSpace(performedBy) ? "KTV Phòng Xét Nghiệm BMS" : performedBy,
                 ApprovedByDoctor = string.IsNullOrWhiteSpace(approvingDoctor) ? "Bác sĩ điều trị" : approvingDoctor,
-                DoctorSpecialty = "Chuyên khoa Lâm sàng",
+                DoctorSpecialty = string.IsNullOrWhiteSpace(doctorSpecialty) ? "Chuyên khoa Huyết học & Xét nghiệm" : doctorSpecialty,
                 Icd10Code = string.IsNullOrWhiteSpace(icd10Code) ? null : icd10Code,
                 FinalDiagnosis = string.IsNullOrWhiteSpace(finalDiagnosis) ? null : finalDiagnosis,
                 DoctorAssessment = assessmentText,
@@ -784,7 +937,7 @@ public class PatientResultExportService : IPatientResultExportService
                 AbnormalCount = parameters.Count(p => p.IsAbnormal),
                 ReferenceIntervalNotes = "Khoảng tham chiếu sinh học theo chuẩn ISO 15189:2022",
                 Parameters = parameters,
-                VerificationHash = string.Empty,
+                VerificationHash = effectiveHash,
                 ShareToken = token,
                 ShareUrl = $"/results/share?orderId={resultId}&token={token}"
             };

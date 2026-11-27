@@ -73,17 +73,20 @@ public class LabQueueService : ILabQueueService
     private readonly IMongoDatabase? _db;
     private readonly TimeProvider _clock;
     private readonly ILogger<LabQueueService>? _logger;
+    private readonly INotificationService? _notifications;
 
     public LabQueueService(
         BmsDbContext context,
         IMongoDatabase? db = null,
         TimeProvider? clock = null,
-        ILogger<LabQueueService>? logger = null)
+        ILogger<LabQueueService>? logger = null,
+        INotificationService? notifications = null)
     {
         _context = context;
         _db = db;
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
+        _notifications = notifications;
     }
 
     private IMongoCollection<Sample>? SamplesCol => _db?.GetCollection<Sample>("blood_samples");
@@ -800,6 +803,36 @@ public class LabQueueService : ILabQueueService
 
         await PersistSampleUpdateAsync(sample, ct);
 
+        // M2: Gửi thông báo thật cho Bệnh nhân & Bác sĩ khi Lab từ chối mẫu (SampleRejected)
+        if (targetStatus == SampleStatus.Rejected && _notifications != null)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(sample.PatientId))
+                {
+                    await _notifications.CreateNotificationAsync(new BMS.Application.DTOs.Notifications.CreateNotificationDto
+                    {
+                        UserId = sample.PatientId,
+                        Role = RoleNames.Patient,
+                        Title = $"Mẫu {sample.Barcode} cần lấy lại",
+                        Message = $"Mẫu bệnh phẩm {sample.Barcode} bị từ chối tại phòng Lab ({rejectionReason}). Vui lòng liên hệ nhân viên y tế để lấy mẫu lại.",
+                        Type = "SampleRejected",
+                        ReferenceId = sample.Id
+                    }, ct);
+                }
+                await _notifications.CreateNotificationAsync(new BMS.Application.DTOs.Notifications.CreateNotificationDto
+                {
+                    UserId = "ROLE_DOCTOR",
+                    Role = RoleNames.Doctor,
+                    Title = $"Mẫu {sample.Barcode} bị từ chối ({sample.PatientName})",
+                    Message = $"Phòng Lab đã từ chối mẫu {sample.Barcode} của bệnh nhân {sample.PatientName}. Lý do: {rejectionReason}.",
+                    Type = "SampleRejected",
+                    ReferenceId = sample.Id
+                }, ct);
+            }
+            catch { /* non-blocking */ }
+        }
+
         // ISO 27789 Audit Trail Logging for specimen lifecycle transition
         if (AuditLogsCol != null)
         {
@@ -893,31 +926,44 @@ public class LabQueueService : ILabQueueService
         return true;
     }
 
-    private async Task<(string? paramName, string? value, string? flag, string? analyzer, List<string> availableParams)> ResolveSampleTestResultDetailsAsync(Sample s)
+    private async Task<(string? paramName, string? originalValue, string? rerunValue, string? flag, string? analyzer, List<string> availableParams)> ResolveSampleTestResultDetailsAsync(Sample s)
     {
         if (TestResultsCol != null)
         {
             try
             {
-                var tr = await TestResultsCol.Find(r => r.SampleId == s.Id || r.SampleId == s.Barcode || (!string.IsNullOrEmpty(s.TestOrderId) && r.SampleId == s.TestOrderId)).FirstOrDefaultAsync();
-                if (tr != null && tr.Items != null && tr.Items.Count > 0)
+                var runs = await TestResultsCol
+                    .Find(r => !r.IsDeleted && (r.SampleId == s.Id || r.SampleId == s.Barcode || (!string.IsNullOrEmpty(s.TestOrderId) && r.SampleId == s.TestOrderId)))
+                    .SortBy(r => r.AnalysisRun)
+                    .ThenBy(r => r.CreatedAt)
+                    .ToListAsync();
+
+                if (runs.Count > 0)
                 {
-                    var targetItem = tr.Items.FirstOrDefault(i => i.Flag != ResultFlag.Normal) ?? tr.Items.First();
-                    var flagStr = targetItem.Flag switch
+                    var firstRun = runs.First();
+                    var latestRun = runs.Count > 1 ? runs.Last() : null;
+                    if (firstRun.Items != null && firstRun.Items.Count > 0)
                     {
-                        ResultFlag.CriticalPanic => "CRITICAL",
-                        ResultFlag.High => "H",
-                        ResultFlag.Low => "L",
-                        _ => string.Empty
-                    };
-                    var available = tr.Items.Select(i => i.CriterionName).Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList();
-                    return (targetItem.CriterionName, targetItem.MeasuredValue, flagStr, s.LabRoom, available);
+                        var targetItem = firstRun.Items.FirstOrDefault(i => i.Flag != ResultFlag.Normal) ?? firstRun.Items.First();
+                        var rerunItem = latestRun?.Items?.FirstOrDefault(i =>
+                            string.Equals(i.CriterionCode, targetItem.CriterionCode, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(i.CriterionName, targetItem.CriterionName, StringComparison.OrdinalIgnoreCase));
+                        var flagStr = targetItem.Flag switch
+                        {
+                            ResultFlag.CriticalPanic => "CRITICAL",
+                            ResultFlag.High => "H",
+                            ResultFlag.Low => "L",
+                            _ => string.Empty
+                        };
+                        var available = firstRun.Items.Select(i => i.CriterionName).Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList();
+                        return (targetItem.CriterionName, targetItem.MeasuredValue, rerunItem?.MeasuredValue, flagStr, s.LabRoom, available);
+                    }
                 }
             }
             catch { }
         }
 
-        return (null, null, null, s.LabRoom, new List<string>());
+        return (null, null, null, null, s.LabRoom, new List<string>());
     }
 
     public async Task<List<SampleRerunItemDto>> GetRerunRequestsAsync()
@@ -930,21 +976,27 @@ public class LabQueueService : ILabQueueService
             {
                 var fb = Builders<Sample>.Filter;
                 var dbReruns = await SamplesCol
-                    .Find(fb.Eq(s => s.Status, SampleStatus.RerunRequested))
+                    .Find(fb.Or(
+                        fb.Eq(s => s.Status, SampleStatus.RerunRequested),
+                        fb.Ne(s => s.RerunReason, null)))
+                    .SortByDescending(s => s.UpdatedAt)
+                    .Limit(50)
                     .ToListAsync();
 
                 foreach (var s in dbReruns)
                 {
-                    var (paramName, originalVal, _, _, _) = await ResolveSampleTestResultDetailsAsync(s);
+                    if (s.Status != SampleStatus.RerunRequested && string.IsNullOrWhiteSpace(s.RerunReason)) continue;
+                    var (paramName, originalVal, rerunVal, _, _, _) = await ResolveSampleTestResultDetailsAsync(s);
+                    var isCompletedRerun = s.Status == SampleStatus.Completed && !string.IsNullOrWhiteSpace(rerunVal);
                     result.Add(new SampleRerunItemDto
                     {
                         SpecimenId = !string.IsNullOrEmpty(s.Barcode) ? s.Barcode : s.Id,
                         PatientName = s.PatientName,
                         Parameter = paramName ?? string.Empty,
                         Reason = s.RerunReason ?? string.Empty,
-                        Status = "In progress",
+                        Status = isCompletedRerun ? "Completed" : "In progress",
                         OriginalValue = originalVal ?? string.Empty,
-                        RerunValue = null,
+                        RerunValue = rerunVal,
                         RequestedAt = s.UpdatedAt ?? s.CollectedAt
                     });
                 }
@@ -991,7 +1043,7 @@ public class LabQueueService : ILabQueueService
             return null;
         }
 
-        var (paramName, originalVal, flagStr, analyzer, availableParams) = await ResolveSampleTestResultDetailsAsync(sample);
+        var (paramName, originalVal, _, flagStr, analyzer, availableParams) = await ResolveSampleTestResultDetailsAsync(sample);
 
         string currentResult = !string.IsNullOrEmpty(paramName) && !string.IsNullOrEmpty(originalVal)
             ? $"{paramName} = {originalVal}"
@@ -1070,7 +1122,9 @@ public class LabQueueService : ILabQueueService
                     var storedDepartment = GetBsonString(doc, "department", "Department", "specialty", "Specialty");
 
                     var canonicalRole = ResolveCanonicalStaffRole(doc, id, username, labProfileMap, doctorMap);
-                    if (canonicalRole == null || string.Equals(canonicalRole, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
+                    if (canonicalRole == null
+                        || string.Equals(canonicalRole, RoleNames.Patient, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(canonicalRole, RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
                         continue;
 
                     string? assignedRoom = null;

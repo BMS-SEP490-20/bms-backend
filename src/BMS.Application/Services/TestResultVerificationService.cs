@@ -369,7 +369,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                 var docNotif = new BsonDocument
                 {
                     { "notification_id", $"NOT-{Guid.NewGuid().ToString("N")[..8].ToUpper()}" },
-                    { "user_id", entity.PatientId },
+                    { "user_id", "ROLE_DOCTOR" },
                     { "role", "Doctor" },
                     { "title", $"[CHỜ BS THẨM ĐỊNH] Mẫu {trimmedId} - Đơn {entity.OrderId}" },
                     { "message", $"Trưởng Khoa {normalizedVerifier} đã thẩm định kỹ thuật {entity.PackageName} của BN {entity.PatientName}. Vào /doctor/console → Thẩm Định & Tư Vấn → Phê Duyệt & Trả Kết Quả Cho Bệnh Nhân." },

@@ -14,8 +14,8 @@ namespace BMS.Api.Controllers.Billing;
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-// WHY: UC43: Receptionist. Receipt verify requires login until Phát approves public verify (C3). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
-[Authorize(Roles = RoleNames.Receptionist)]
+// WHY: Receptionist prints at counter; Manager inspects & reprints receipts from /invoices reconciliation.
+[Authorize(Roles = RoleSets.ReceptionOrManager)]
 public class ReceiptsController(IReceiptService receiptService) : ControllerBase
 {
     /// <summary>

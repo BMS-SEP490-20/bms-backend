@@ -122,18 +122,19 @@ builder.Services.AddScoped<ITestResultNotificationService, TestResultNotificatio
 
 
 // IMPORTANT:
-// KhÃƒÂ´ng Ã„â€˜Ã„Æ’ng kÃƒÂ½ IAuthService lÃ¡ÂºÂ§n nÃ¡Â»Â¯a Ã¡Â»Å¸ Ã„â€˜ÃƒÂ¢y nÃ¡ÂºÂ¿u
-// AddAuthModule(), AddApplicationServices() hoÃ¡ÂºÂ·c
-// AddInfrastructureServices() Ã„â€˜ÃƒÂ£ Ã„â€˜Ã„Æ’ng kÃƒÂ½ dÃ¡Â»â€¹ch vÃ¡Â»Â¥ nÃƒÂ y.
+// Không đăng ký IAuthService lần nữa ở đây nếu
+// AddAuthModule(), AddApplicationServices() hoặc
+// AddInfrastructureServices() đã đăng ký dịch vụ này.
 
 
 // =========================================================
 // CORS
 // =========================================================
 
-// SignalR Real-Time Queue
+// SignalR Real-Time Queue & IoT Monitoring
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IQueueNotifier, BMS.Api.Services.QueueNotifier>();
+builder.Services.AddSingleton<IIotRealtimeNotifier, BMS.Api.Services.IotRealtimeNotifier>();
 
 builder.Services.AddCors(options =>
 {
@@ -145,7 +146,10 @@ builder.Services.AddCors(options =>
                 "http://127.0.0.1:5175",
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
-                "http://localhost:3000"
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:3005",
+                "http://127.0.0.1:3005"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -210,6 +214,7 @@ app.UseAuthorization();
 // Controllers & Hubs
 app.MapControllers();
 app.MapHub<BMS.Api.Hubs.QueueHub>("/hubs/queue");
+app.MapHub<BMS.Api.Hubs.IotHub>("/hubs/iot");
 
 // =========================================================
 // HEALTH CHECK

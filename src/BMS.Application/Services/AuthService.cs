@@ -212,7 +212,12 @@ public class AuthService : IAuthService
             return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
-        // 4. Check account active status AFTER password check so attackers cannot probe disabled accounts
+        // 4. Check account activation & active status AFTER password check so attackers cannot probe disabled accounts
+        if (user.Status == (int)UserStatus.PendingActivation || (!user.EmailConfirmed && !user.IsActive))
+        {
+            _logger?.LogWarning("Login blocked: unactivated account {UserId} from {Ip}", user.Id, client.IpAddress);
+            return AuthLoginResult.Fail(403, "Tài khoản chưa được kích hoạt OTP. Vui lòng nhập mã OTP đã gửi về email của bạn.", "ACCOUNT_NOT_ACTIVATED");
+        }
         if (!user.IsActive)
         {
             _logger?.LogWarning("Login blocked: disabled user {UserId} from {Ip}", user.Id, client.IpAddress);
@@ -1088,8 +1093,8 @@ public class AuthService : IAuthService
             EmailConfirmed = false,
             VerificationOtp = otp,
             OtpExpiresAt = expiresAt,
-            Status = (int)UserStatus.Active,
-            IsActive = true,
+            Status = (int)UserStatus.PendingActivation,
+            IsActive = false,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -1218,7 +1223,24 @@ public class AuthService : IAuthService
 
         if (!isOtpValid)
         {
-            return new AuthResponseDto { Success = false, Message = "Mã OTP không đúng hoặc đã hết hạn (15 phút)." };
+            // Server-side failed OTP attempt limit (max 5 attempts)
+            user.FailedLoginCount++;
+            if (user.FailedLoginCount >= 5)
+            {
+                user.VerificationOtp = null;
+                user.OtpExpiresAt = null;
+                user.FailedLoginCount = 0;
+                if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+                {
+                    try { await _userRepository.UpdateAsync(user); } catch { }
+                }
+                return new AuthResponseDto { Success = false, Message = "Bạn đã nhập sai mã OTP quá 5 lần. Vui lòng yêu cầu gửi lại mã OTP mới." };
+            }
+            if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
+            {
+                try { await _userRepository.UpdateAsync(user); } catch { }
+            }
+            return new AuthResponseDto { Success = false, Message = $"Mã OTP không đúng hoặc đã hết hạn (còn {5 - user.FailedLoginCount} lần thử)." };
         }
 
         // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection trước khi confirm email (BR-REC-01)
@@ -1308,8 +1330,11 @@ public class AuthService : IAuthService
             }
         }
 
-        // Confirm email and clear OTP only AFTER patient profile is ensured
+        // Confirm email, activate account (PendingActivation -> Active), and clear OTP only AFTER patient profile is ensured
         user.EmailConfirmed = true;
+        user.Status = (int)UserStatus.Active;
+        user.IsActive = true;
+        user.FailedLoginCount = 0;
         user.VerificationOtp = null;
         user.OtpExpiresAt = null;
         user.UpdatedAt = DateTime.UtcNow;

@@ -470,10 +470,24 @@ public class QcService : IQcService
     {
         var violatedRules = new List<string>();
 
-        // Rule 1: 1_2s check
+        // Rule 1: Within +/- 2s — still check multi-run systematic rules (4_1s and 10_x)
         if (Math.Abs(zScore) <= 2.0)
         {
-            // Even if current run is <= 2s, check if 10_x drift was completed
+            // Check 4_1s (4 consecutive observations exceeding 1s on same side)
+            var last3Sub2 = previousRuns.TakeLast(3).Select(r => r.ZScore).ToList();
+            if (last3Sub2.Count == 3)
+            {
+                bool allPos1s = zScore > 1.0 && last3Sub2.All(z => z > 1.0);
+                bool allNeg1s = zScore < -1.0 && last3Sub2.All(z => z < -1.0);
+                if (allPos1s || allNeg1s)
+                {
+                    violatedRules.Add("4_1s");
+                    return (WestgardStatus.REJECT_4_1S, violatedRules, true,
+                        "Vi phạm quy tắc 4_1s: 4 lần đo liên tiếp vượt 1s về cùng một phía (Lỗi hệ thống / Systematic Error)!");
+                }
+            }
+
+            // Check 10_x drift (10 consecutive on same side of mean)
             var last9 = previousRuns.TakeLast(9).Select(r => r.ZScore).ToList();
             if (last9.Count == 9)
             {

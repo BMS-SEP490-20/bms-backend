@@ -162,6 +162,11 @@ public class PatientsController(
         {
             var isStaffOrAdmin = await CanViewAllPatientsAsync();
             var result = await patients.GetPatientInformationAsync(id, CurrentUserId, isStaffOrAdmin, ct);
+            // Strip clinical EMR notes for Receptionist & Lab (only Doctor, Manager, and Patient own-record may read EMR summaries)
+            if (result != null && !User.IsInRole(RoleNames.Doctor) && !User.IsInRole(RoleNames.Manager) && !User.IsInRole(RoleNames.Patient))
+            {
+                result.RecentMedicalRecords = new List<PatientMedicalRecordSummaryDto>();
+            }
             return Ok(result);
         }
         catch (AppException ex)

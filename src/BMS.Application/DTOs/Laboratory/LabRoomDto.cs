@@ -8,6 +8,8 @@ namespace BMS.Application.DTOs.Laboratory
         public string? RoomLocation { get; set; }
         public string? RoomType { get; set; }
         public bool? IsAvailable { get; set; }
+        public string? AssignedEquipment { get; set; }
+        public string? TechnicianInCharge { get; set; }
         public DateTime? CreatedAt { get; set; }
     }
 }

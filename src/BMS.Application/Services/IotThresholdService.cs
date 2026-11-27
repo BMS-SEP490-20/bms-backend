@@ -32,7 +32,7 @@ public class IotThresholdService : IIotThresholdService
             TotalRules = thresholds.Count(),
             Thresholds = thresholds.ToList(),
             Recipients = recipients.ToList(),
-            EscalationPolicy = "Alert channels: Push notification (FCM) + Email. SMS escalation after 5 min if not acknowledged."
+            EscalationPolicy = "Kênh cảnh báo: In-App Real-time (SignalR) + Email nội bộ."
         };
     }
 
@@ -67,6 +67,14 @@ public class IotThresholdService : IIotThresholdService
     public async Task<bool> BatchUpdateThresholdsAsync(BatchUpdateIotThresholdsRequestDto dto, string? updatedBy)
     {
         if (dto.Devices == null || !dto.Devices.Any()) return false;
+
+        foreach (var item in dto.Devices)
+        {
+            if (item.LowAlert >= item.HighAlert)
+                throw new ArgumentException($"Thiết bị '{item.DeviceId}': ngưỡng dưới ({item.LowAlert}) phải nhỏ hơn ngưỡng trên ({item.HighAlert}).");
+            if (item.IntervalSeconds < 5 || item.IntervalSeconds > 3600)
+                throw new ArgumentException($"Thiết bị '{item.DeviceId}': chu kỳ đo phải từ 5 đến 3600 giây.");
+        }
 
         foreach (var item in dto.Devices)
         {

@@ -132,16 +132,35 @@ public class TestReportService : ITestReportService
 
         DateTime analysedTime = sample?.ReceivedAt ?? (sample?.CollectedAt != default && sample?.CollectedAt != null ? sample.CollectedAt : DateTime.UtcNow);
 
-        // Load real test parameters from test_results
+        // Load real APPROVED test parameters from test_results (enforce Doctor approval gate before publishing report)
         var parameters = new List<TestReportParameter>();
+        TestResult? approvedResult = null;
         if (_resultsCol != null)
         {
             try
             {
-                var tr = await _resultsCol.Find(r => r.SampleId == request.OrderId || (sample != null && (r.SampleId == sample.Id || r.SampleId == sample.Barcode))).FirstOrDefaultAsync();
-                if (tr != null && tr.Items != null)
+                var candidates = await _resultsCol
+                    .Find(r => !r.IsDeleted && !r.IsSuperseded &&
+                        (r.SampleId == request.OrderId ||
+                         r.AppointmentId == request.OrderId ||
+                         (sample != null && (r.SampleId == sample.Id || r.SampleId == sample.Barcode))))
+                    .SortByDescending(r => r.AnalysisRun)
+                    .ThenByDescending(r => r.CreatedAt)
+                    .ToListAsync();
+
+                approvedResult = candidates.FirstOrDefault(r =>
+                    r.ValidationStatus == ResultValidationStatus.DoctorApproved ||
+                    string.Equals(r.Status, "APPROVED", StringComparison.OrdinalIgnoreCase) ||
+                    !string.IsNullOrWhiteSpace(r.DigitalSignature));
+
+                if (approvedResult == null)
                 {
-                    foreach (var item in tr.Items)
+                    throw new InvalidOperationException("MSG-ERR-REPORT-NOT-APPROVED: Chỉ được phát hành phiếu kết quả sau khi Bác sĩ đã thẩm định và ký duyệt.");
+                }
+
+                if (approvedResult.Items != null)
+                {
+                    foreach (var item in approvedResult.Items)
                     {
                         parameters.Add(new TestReportParameter
                         {
@@ -154,6 +173,10 @@ public class TestReportService : ITestReportService
                         });
                     }
                 }
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
             }
             catch { }
         }
@@ -195,57 +218,84 @@ public class TestReportService : ITestReportService
         var reportDto = await GetReportByOrderIdAsync(orderId);
         if (reportDto == null) return null;
 
-        var clinicAddress = _config?["Clinic:Address"] ?? string.Empty;
+        static string Enc(string? v) => System.Net.WebUtility.HtmlEncode(v ?? string.Empty);
+        var clinicAddress = _config?["Clinic:Address"] ?? "120 Hai Bà Trưng, Phường Đa Kao, Quận 1, TP. Hồ Chí Minh";
+        var hotline = _config?["Clinic:Hotline"] ?? "1900 6868";
+        var issuedVn = reportDto.IssuedAt.ToUniversalTime().AddHours(7).ToString("HH:mm dd/MM/yyyy");
+        var dobSexVn = (reportDto.DobAgeSex ?? string.Empty)
+            .Replace("Male", "Nam", StringComparison.OrdinalIgnoreCase)
+            .Replace("Female", "Nữ", StringComparison.OrdinalIgnoreCase);
 
-        var html = $@"
-<!DOCTYPE html>
-<html>
+        static string FlagVi(string? f) => (f ?? "N").ToUpperInvariant() switch
+        {
+            "HH" => "Nguy kịch (HH)",
+            "H" => "Cao (H)",
+            "LL" => "Nguy kịch (LL)",
+            "L" => "Thấp (L)",
+            _ => "Bình thường"
+        };
+
+        var html = $@"<!DOCTYPE html>
+<html lang='vi'>
 <head>
     <meta charset='utf-8'/>
-    <title>Test Report - {reportDto.ReportId}</title>
+    <title>Phiếu Kết Quả Xét Nghiệm - {Enc(reportDto.ReportId)}</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 30px; color: #1e293b; }}
-        .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 20px; }}
-        .logo {{ font-size: 20px; font-weight: bold; color: #0284c7; }}
-        .meta {{ text-align: right; font-size: 12px; color: #64748b; }}
-        .grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px; margin-bottom: 24px; }}
-        .table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
-        .table th, .table td {{ border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 13px; }}
-        .table th {{ background: #f8fafc; color: #475569; }}
-        .flag {{ color: #dc2626; font-weight: bold; }}
-        .notes {{ background: #f8fafc; border-left: 4px solid #0284c7; padding: 12px; margin-bottom: 24px; font-size: 13px; }}
-        .signatures {{ display: flex; justify-content: space-between; margin-top: 40px; font-size: 12px; }}
-        .footer {{ font-size: 11px; color: #94a3b8; text-align: center; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 8px; }}
+        @page {{ size: A4 portrait; margin: 10mm 12mm; }}
+        body {{ font-family: 'Segoe UI', Roboto, Arial, sans-serif; margin: 0; color: #0f172a; font-size: 11px; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+        .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 10px; }}
+        .logo {{ font-size: 14px; font-weight: 800; color: #0c4a6e; }}
+        .sub {{ font-size: 10px; color: #475569; margin-top: 2px; }}
+        .meta {{ text-align: right; font-size: 10px; color: #334155; }}
+        .title {{ text-align: center; font-size: 16px; font-weight: 800; color: #0c4a6e; text-transform: uppercase; margin: 8px 0 4px; }}
+        .pkg {{ text-align: center; font-size: 11.5px; font-weight: 600; color: #334155; margin-bottom: 10px; }}
+        .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 10.5px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }}
+        .table {{ width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 10.5px; }}
+        .table th, .table td {{ border: 1px solid #e2e8f0; padding: 5px 7px; text-align: left; }}
+        .table th {{ background: #e0f2fe; color: #0c4a6e; font-size: 10px; }}
+        .flag {{ font-weight: 700; color: #15803d; }}
+        .flag-abn {{ font-weight: 700; color: #dc2626; }}
+        .notes {{ background: #f0f9ff; border: 1px solid #bae6fd; border-left: 3.5px solid #0284c7; border-radius: 4px; padding: 8px 11px; margin-bottom: 12px; font-size: 10.5px; }}
+        .signatures {{ display: flex; justify-content: space-between; margin-top: 12px; padding-top: 8px; border-top: 1px dashed #cbd5e1; font-size: 10.5px; text-align: center; }}
+        .sig-col {{ width: 45%; }}
+        .footer {{ font-size: 9px; color: #64748b; text-align: center; margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 6px; }}
     </style>
 </head>
 <body>
     <div class='header'>
-        <div><div class='logo'>BMS Blood Laboratory</div><div>{clinicAddress}</div></div>
-        <div class='meta'><div>Report ID: <strong>{reportDto.ReportId}</strong></div><div>Issued: {reportDto.IssuedAt:dd MMM yyyy HH:mm}</div></div>
+        <div>
+            <div class='logo'>HỆ THỐNG PHÒNG XÉT NGHIỆM Y KHOA BMS MEDLAB</div>
+            <div class='sub'>Địa chỉ: {Enc(clinicAddress)} · Hotline: {Enc(hotline)} · Chuẩn ISO 15189:2022</div>
+        </div>
+        <div class='meta'>
+            <div>Mã phiếu KQ: <strong>{Enc(reportDto.ReportId)}</strong></div>
+            <div>Thời điểm trả KQ: <strong>{Enc(issuedVn)}</strong></div>
+        </div>
     </div>
+    <div class='title'>Phiếu Kết Quả Xét Nghiệm Y Khoa</div>
+    <div class='pkg'>Gói dịch vụ: {Enc(reportDto.PackageName)}</div>
     <div class='grid'>
-        <div><strong>Patient:</strong> {reportDto.PatientName}</div>
-        <div><strong>Patient ID:</strong> {reportDto.PatientId}</div>
-        <div><strong>DOB/Age/Sex:</strong> {reportDto.DobAgeSex}</div>
-        <div><strong>Order ID:</strong> {reportDto.OrderId}</div>
-        <div><strong>Test Package:</strong> {reportDto.PackageName}</div>
-        <div><strong>Specimen:</strong> {reportDto.SpecimenId}</div>
-        <div><strong>Collection:</strong> {reportDto.CollectionTime}</div>
-        <div><strong>Referring Doctor:</strong> {reportDto.ReferringDoctor}</div>
+        <div><strong>Họ và tên bệnh nhân:</strong> {Enc(reportDto.PatientName)}</div>
+        <div><strong>Bác sĩ chỉ định:</strong> {Enc(reportDto.ReferringDoctor)}</div>
+        <div><strong>Mã bệnh nhân:</strong> {Enc(reportDto.PatientId)}</div>
+        <div><strong>Mã chỉ định:</strong> {Enc(reportDto.OrderId)}</div>
+        <div><strong>Ngày sinh / Giới tính:</strong> {Enc(dobSexVn)}</div>
+        <div><strong>Mã ống bệnh phẩm:</strong> {Enc(reportDto.SpecimenId)}</div>
+        <div><strong>Thời điểm lấy mẫu:</strong> {Enc(reportDto.CollectionTime)}</div>
+        <div><strong>Trạng thái:</strong> Đã Bác sĩ phê duyệt</div>
     </div>
-    <h3>{reportDto.Category}</h3>
     <table class='table'>
-        <thead><tr><th>Parameter</th><th>Result</th><th>Unit</th><th>Reference Range</th><th>Flag</th></tr></thead>
+        <thead><tr><th>STT</th><th>Tên Chỉ Số Xét Nghiệm</th><th>Kết Quả</th><th>Đơn Vị</th><th>Khoảng Tham Chiếu</th><th>Đánh Giá</th></tr></thead>
         <tbody>
-            {string.Join("", reportDto.Parameters.Select(p => $"<tr><td>{p.ParameterName}</td><td>{p.ResultValue}</td><td>{p.Unit}</td><td>{p.ReferenceRange}</td><td class='flag'>{p.Flag}</td></tr>"))}
+            {string.Join("", reportDto.Parameters.Select((p, idx) => $"<tr><td>{idx + 1}</td><td><strong>{Enc(p.ParameterName)}</strong></td><td><strong>{Enc(p.ResultValue)}</strong></td><td>{Enc(p.Unit)}</td><td>{Enc(p.ReferenceRange)}</td><td class='{(p.IsAbnormal ? "flag-abn" : "flag")}'>{Enc(FlagVi(p.Flag))}</td></tr>"))}
         </tbody>
     </table>
-    <div class='notes'><strong>Clinical Notes:</strong><br/>{reportDto.ClinicalNotes}</div>
+    <div class='notes'><strong>Kết luận lâm sàng của Bác sĩ:</strong><br/>{Enc(reportDto.ClinicalNotes)}</div>
     <div class='signatures'>
-        <div>Analysed by: <strong>{reportDto.AnalysedBy}</strong></div>
-        <div>Approved and signed by: <strong>{reportDto.ApprovedBy}</strong></div>
+        <div class='sig-col'><strong>KỸ THUẬT VIÊN XÉT NGHIỆM</strong><br/><br/><strong>{Enc(reportDto.AnalysedBy)}</strong></div>
+        <div class='sig-col'><strong>BÁC SĨ CHUYÊN KHOA PHÊ DUYỆT</strong><br/><br/><strong>{Enc(reportDto.ApprovedBy)}</strong></div>
     </div>
-    <div class='footer'>Digitally verified per ISO 15189 standards · Hash: {reportDto.VerificationHash}</div>
+    <div class='footer'>Phiếu kết quả phát hành điện tử theo tiêu chuẩn ISO 15189:2022 · Mã xác thực SHA-256: {Enc(reportDto.VerificationHash)}</div>
 </body>
 </html>";
 
@@ -254,7 +304,7 @@ public class TestReportService : ITestReportService
             ReportId = reportDto.ReportId,
             OrderId = reportDto.OrderId,
             PatientName = reportDto.PatientName,
-            FileName = $"BMS-Report-{reportDto.ReportId}.pdf",
+            FileName = $"Phieu-Ket-Qua-XN-{reportDto.ReportId}.pdf",
             MimeType = "application/pdf",
             VerificationHash = reportDto.VerificationHash,
             PrintableHtml = html

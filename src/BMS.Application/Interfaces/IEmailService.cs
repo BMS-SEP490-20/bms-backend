@@ -56,4 +56,22 @@ public interface IEmailService
         string username,
         string temporaryPassword,
         CancellationToken ct = default) => Task.FromResult(true);
+
+    /// <summary>
+    /// Dispatches an urgent cold-chain environmental alert email to Lab / Manager staff when SMTP is configured.
+    /// Returns true ONLY when an email was genuinely transmitted via SMTP.
+    /// </summary>
+    Task<bool> SendIotAlertEmailAsync(
+        string toEmail,
+        string recipientName,
+        string deviceId,
+        string deviceName,
+        string location,
+        string sensorType,
+        double observedValue,
+        string unit,
+        double lowAlert,
+        double highAlert,
+        string severity,
+        CancellationToken ct = default) => Task.FromResult(false);
 }

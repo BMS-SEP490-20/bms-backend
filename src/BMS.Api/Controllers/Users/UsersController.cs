@@ -225,10 +225,25 @@ public class UsersController : ControllerBase
             { "phoneNumber", request.PhoneNumber?.Trim() ?? "" },
             { "RoleId", request.RoleId },
             { "roleId", request.RoleId },
-            { "Status", 1 },
-            { "status", 1 },
-            { "isActive", true },
+            { "Role", RoleNames.FromRoleId(request.RoleId) ?? "Patient" },
+            { "role", RoleNames.FromRoleId(request.RoleId) ?? "Patient" },
+            { "Status", request.IsActive == false ? 0 : 1 },
+            { "status", request.IsActive == false ? 0 : 1 },
+            { "isActive", request.IsActive != false },
             { "isDeleted", false },
+            { "employeeCode", request.EmployeeCode?.Trim() ?? "" },
+            { "identityCardNumber", request.IdentityCardNumber?.Trim() ?? "" },
+            { "gender", request.Gender?.Trim() ?? "" },
+            { "dateOfBirth", request.DateOfBirth?.Trim() ?? "" },
+            { "licenseNumber", request.LicenseNumber?.Trim() ?? "" },
+            { "licenseIssuedBy", request.LicenseIssuedBy?.Trim() ?? "" },
+            { "licenseExpiryDate", request.LicenseExpiryDate?.Trim() ?? "" },
+            { "qualification", request.Qualification?.Trim() ?? "" },
+            { "specialty", request.Specialty?.Trim() ?? "" },
+            { "department", request.Department?.Trim() ?? "" },
+            { "assignedRoom", request.AssignedRoom?.Trim() ?? "" },
+            { "biosafetyLevel", request.BiosafetyLevel?.Trim() ?? "" },
+            { "digitalSignatureCode", request.DigitalSignatureCode?.Trim() ?? "" },
             { "CreatedAt", now },
             { "createdAt", now },
             { "passwordHash", hash },
@@ -236,6 +251,11 @@ public class UsersController : ControllerBase
         };
 
         await AccountsCollection.InsertOneAsync(newDoc, cancellationToken: ct);
+
+        if (request.RoleId == (int)BMS.Core.Entities.UserRole.Lab)
+        {
+            await SyncLabUserProfileAsync(newId, request.FullName.Trim(), request.Qualification, request.AssignedRoom, ct);
+        }
 
         return StatusCode(StatusCodes.Status201Created, new
         {
@@ -253,9 +273,10 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserAccountDto request, CancellationToken ct = default)
     {
         // WHY (matrix UC09 own / UC14 Admin): any role may edit its own profile; only Admin edits other accounts,
-        // and only Admin may change role or active status (prevents self-escalation).
+        // Manager & non-Admin roles have ZERO privileges over Admin (or other) accounts, and only Admin may change role or active status.
         var isAdmin = User.IsInRole(RoleNames.Admin);
-        if (!isAdmin && !this.IsSelf(id)) return Forbid();
+        if (!isAdmin && !this.IsSelf(id))
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Bạn không có quyền thao tác trên tài khoản khác hoặc tài khoản Quản trị viên hệ thống (Admin)." });
         if (!isAdmin && (request.RoleId != 0 || request.IsActive.HasValue))
             return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Chỉ Admin được đổi vai trò hoặc trạng thái tài khoản." });
         if (request.RoleId != 0 && RoleNames.FromRoleId(request.RoleId) is null)
@@ -263,6 +284,32 @@ public class UsersController : ControllerBase
         FilterDefinition<BsonDocument> filter = ObjectId.TryParse(id, out var objId)
             ? Builders<BsonDocument>.Filter.Eq("_id", objId)
             : Builders<BsonDocument>.Filter.Eq("_id", id);
+
+        var existingDoc = await AccountsCollection.Find(filter).FirstOrDefaultAsync(ct);
+        if (existingDoc == null)
+        {
+            return NotFound(new { success = false, message = "Account not found." });
+        }
+
+        int existingRoleId = GetIntSafe(existingDoc, 0, "roleId", "RoleId");
+        if (!isAdmin && existingRoleId == (int)BMS.Core.Entities.UserRole.Admin)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Quản lý và các vai trò khác không có quyền thao tác trên tài khoản Quản trị viên hệ thống (Admin)." });
+        }
+
+        if (existingRoleId == (int)BMS.Core.Entities.UserRole.Admin)
+        {
+            bool demoting = request.RoleId > 0 && request.RoleId != (int)BMS.Core.Entities.UserRole.Admin;
+            bool deactivating = request.IsActive == false;
+            if ((demoting || deactivating) && this.IsSelf(id))
+            {
+                return BadRequest(new { success = false, message = "Không thể tự hạ quyền hoặc tự khóa tài khoản Quản trị viên đang đăng nhập." });
+            }
+            if ((demoting || deactivating) && await CountOtherActiveAdminsAsync(id, ct) == 0)
+            {
+                return BadRequest(new { success = false, message = "Không thể hạ quyền hoặc khóa tài khoản Quản trị viên hoạt động duy nhất của hệ thống." });
+            }
+        }
 
         var updateDef = Builders<BsonDocument>.Update
             .Set("FullName", request.FullName?.Trim() ?? "")
@@ -272,11 +319,28 @@ public class UsersController : ControllerBase
             .Set("PhoneNumber", request.PhoneNumber?.Trim() ?? "")
             .Set("phoneNumber", request.PhoneNumber?.Trim() ?? "");
 
+        if (request.EmployeeCode != null) updateDef = updateDef.Set("employeeCode", request.EmployeeCode.Trim());
+        if (request.IdentityCardNumber != null) updateDef = updateDef.Set("identityCardNumber", request.IdentityCardNumber.Trim());
+        if (request.Gender != null) updateDef = updateDef.Set("gender", request.Gender.Trim());
+        if (request.DateOfBirth != null) updateDef = updateDef.Set("dateOfBirth", request.DateOfBirth.Trim());
+        if (request.LicenseNumber != null) updateDef = updateDef.Set("licenseNumber", request.LicenseNumber.Trim());
+        if (request.LicenseIssuedBy != null) updateDef = updateDef.Set("licenseIssuedBy", request.LicenseIssuedBy.Trim());
+        if (request.LicenseExpiryDate != null) updateDef = updateDef.Set("licenseExpiryDate", request.LicenseExpiryDate.Trim());
+        if (request.Qualification != null) updateDef = updateDef.Set("qualification", request.Qualification.Trim());
+        if (request.Specialty != null) updateDef = updateDef.Set("specialty", request.Specialty.Trim());
+        if (request.Department != null) updateDef = updateDef.Set("department", request.Department.Trim());
+        if (request.AssignedRoom != null) updateDef = updateDef.Set("assignedRoom", request.AssignedRoom.Trim());
+        if (request.BiosafetyLevel != null) updateDef = updateDef.Set("biosafetyLevel", request.BiosafetyLevel.Trim());
+        if (request.DigitalSignatureCode != null) updateDef = updateDef.Set("digitalSignatureCode", request.DigitalSignatureCode.Trim());
+
         if (request.RoleId > 0)
         {
+            var roleName = RoleNames.FromRoleId(request.RoleId) ?? "Patient";
             updateDef = updateDef
                 .Set("RoleId", request.RoleId)
-                .Set("roleId", request.RoleId);
+                .Set("roleId", request.RoleId)
+                .Set("Role", roleName)
+                .Set("role", roleName);
         }
 
         if (request.IsActive.HasValue)
@@ -293,7 +357,49 @@ public class UsersController : ControllerBase
             return NotFound(new { success = false, message = "Account not found." });
         }
 
-        return Ok(new { success = true, message = "Account updated successfully." });
+        var updatedDoc = await AccountsCollection.Find(filter).FirstOrDefaultAsync(ct);
+        if (updatedDoc != null)
+        {
+            int effectiveRoleId = GetIntSafe(updatedDoc, 0, "roleId", "RoleId");
+            if (effectiveRoleId == (int)BMS.Core.Entities.UserRole.Lab && updatedDoc.TryGetValue("_id", out var idVal))
+            {
+                await SyncLabUserProfileAsync(
+                    idVal,
+                    GetStringSafe(updatedDoc, "fullName", "FullName"),
+                    GetStringSafe(updatedDoc, "qualification"),
+                    GetStringSafe(updatedDoc, "assignedRoom"),
+                    ct);
+            }
+        }
+
+        return Ok(new
+        {
+            success = true,
+            message = "Account updated successfully.",
+            data = updatedDoc != null ? MapBsonToUserDto(updatedDoc) : null
+        });
+    }
+
+    private async Task SyncLabUserProfileAsync(BsonValue accountId, string fullName, string? qualification, string? assignedRoom, CancellationToken ct)
+    {
+        try
+        {
+            var labProfiles = _database.GetCollection<BsonDocument>("lab_user_profiles");
+            var filter = Builders<BsonDocument>.Filter.Eq("_id", accountId);
+            var update = Builders<BsonDocument>.Update
+                .Set("full_name", fullName)
+                .Set("qualification", string.IsNullOrWhiteSpace(qualification) ? "Cử nhân Kỹ thuật Xét nghiệm Y học" : qualification.Trim())
+                .Set("assigned_room", string.IsNullOrWhiteSpace(assignedRoom) ? "LAB-ROOM-201" : assignedRoom.Trim())
+                .Set("updated_at", DateTime.UtcNow)
+                .Set("is_deleted", false)
+                .SetOnInsert("created_at", DateTime.UtcNow)
+                .SetOnInsert("revision", 1L);
+            await labProfiles.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, ct);
+        }
+        catch
+        {
+            // Non-fatal sync
+        }
     }
 
     /// <summary>
@@ -303,9 +409,26 @@ public class UsersController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteUser(string id, CancellationToken ct = default)
     {
+        if (this.IsSelf(id))
+        {
+            return BadRequest(new { success = false, message = "Không thể tự xóa tài khoản Quản trị viên đang đăng nhập." });
+        }
+
         FilterDefinition<BsonDocument> filter = ObjectId.TryParse(id, out var objId)
             ? Builders<BsonDocument>.Filter.Eq("_id", objId)
             : Builders<BsonDocument>.Filter.Eq("_id", id);
+
+        var existingDoc = await AccountsCollection.Find(filter).FirstOrDefaultAsync(ct);
+        if (existingDoc == null)
+        {
+            return NotFound(new { success = false, message = "Account not found." });
+        }
+
+        if (GetIntSafe(existingDoc, 0, "roleId", "RoleId") == (int)BMS.Core.Entities.UserRole.Admin
+            && await CountOtherActiveAdminsAsync(id, ct) == 0)
+        {
+            return BadRequest(new { success = false, message = "Không thể xóa tài khoản Quản trị viên hoạt động duy nhất của hệ thống." });
+        }
 
         var update = Builders<BsonDocument>.Update
             .Set("isDeleted", true)
@@ -329,9 +452,27 @@ public class UsersController : ControllerBase
     [HttpPatch("{id}/status")]
     public async Task<IActionResult> ToggleStatus(string id, [FromBody] ToggleStatusDto request, CancellationToken ct = default)
     {
+        if (!request.IsActive && this.IsSelf(id))
+        {
+            return BadRequest(new { success = false, message = "Không thể tự khóa tài khoản Quản trị viên đang đăng nhập." });
+        }
+
         FilterDefinition<BsonDocument> filter = ObjectId.TryParse(id, out var objId)
             ? Builders<BsonDocument>.Filter.Eq("_id", objId)
             : Builders<BsonDocument>.Filter.Eq("_id", id);
+
+        var existingDoc = await AccountsCollection.Find(filter).FirstOrDefaultAsync(ct);
+        if (existingDoc == null)
+        {
+            return NotFound(new { success = false, message = "Account not found." });
+        }
+
+        if (!request.IsActive
+            && GetIntSafe(existingDoc, 0, "roleId", "RoleId") == (int)BMS.Core.Entities.UserRole.Admin
+            && await CountOtherActiveAdminsAsync(id, ct) == 0)
+        {
+            return BadRequest(new { success = false, message = "Không thể khóa tài khoản Quản trị viên hoạt động duy nhất của hệ thống." });
+        }
 
         var update = Builders<BsonDocument>.Update
             .Set("isActive", request.IsActive)
@@ -345,6 +486,19 @@ public class UsersController : ControllerBase
         }
 
         return Ok(new { success = true, message = $"Account has been {(request.IsActive ? "activated" : "deactivated")}." });
+    }
+
+    private async Task<long> CountOtherActiveAdminsAsync(string excludeId, CancellationToken ct)
+    {
+        var fb = Builders<BsonDocument>.Filter;
+        var adminRole = fb.Or(
+            fb.Eq("roleId", (int)BMS.Core.Entities.UserRole.Admin),
+            fb.Eq("RoleId", (int)BMS.Core.Entities.UserRole.Admin));
+        var active = fb.Ne("isDeleted", true) & fb.Ne("isActive", false) & fb.Ne("Status", 0) & fb.Ne("status", 0);
+        var notExcluded = ObjectId.TryParse(excludeId, out var oid)
+            ? fb.Ne("_id", oid) & fb.Ne("_id", excludeId)
+            : fb.Ne("_id", excludeId);
+        return await AccountsCollection.CountDocumentsAsync(adminRole & active & notExcluded, cancellationToken: ct);
     }
 
     /// <summary>
@@ -461,6 +615,19 @@ public class UsersController : ControllerBase
             role,
             isActive,
             status = isActive ? "active" : "inactive",
+            employeeCode = GetStringSafe(doc, "employeeCode", "EmployeeCode"),
+            identityCardNumber = GetStringSafe(doc, "identityCardNumber", "IdentityCardNumber"),
+            gender = GetStringSafe(doc, "gender", "Gender"),
+            dateOfBirth = GetStringSafe(doc, "dateOfBirth", "DateOfBirth"),
+            licenseNumber = GetStringSafe(doc, "licenseNumber", "LicenseNumber"),
+            licenseIssuedBy = GetStringSafe(doc, "licenseIssuedBy", "LicenseIssuedBy"),
+            licenseExpiryDate = GetStringSafe(doc, "licenseExpiryDate", "LicenseExpiryDate"),
+            qualification = GetStringSafe(doc, "qualification", "Qualification"),
+            specialty = GetStringSafe(doc, "specialty", "Specialty"),
+            department = GetStringSafe(doc, "department", "Department"),
+            assignedRoom = GetStringSafe(doc, "assignedRoom", "AssignedRoom"),
+            biosafetyLevel = GetStringSafe(doc, "biosafetyLevel", "BiosafetyLevel"),
+            digitalSignatureCode = GetStringSafe(doc, "digitalSignatureCode", "DigitalSignatureCode"),
             createdAt = created
         };
     }
@@ -474,7 +641,21 @@ public class CreateUserAccountDto
     public string? PhoneNumber { get; set; }
     /// <summary>Required: 1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager (0 = not supplied => 400).</summary>
     public int RoleId { get; set; }
+    public bool? IsActive { get; set; }
     public string? Password { get; set; }
+    public string? EmployeeCode { get; set; }
+    public string? IdentityCardNumber { get; set; }
+    public string? Gender { get; set; }
+    public string? DateOfBirth { get; set; }
+    public string? LicenseNumber { get; set; }
+    public string? LicenseIssuedBy { get; set; }
+    public string? LicenseExpiryDate { get; set; }
+    public string? Qualification { get; set; }
+    public string? Specialty { get; set; }
+    public string? Department { get; set; }
+    public string? AssignedRoom { get; set; }
+    public string? BiosafetyLevel { get; set; }
+    public string? DigitalSignatureCode { get; set; }
 }
 
 public class UpdateUserAccountDto
@@ -484,6 +665,19 @@ public class UpdateUserAccountDto
     public string? PhoneNumber { get; set; }
     public int RoleId { get; set; }
     public bool? IsActive { get; set; }
+    public string? EmployeeCode { get; set; }
+    public string? IdentityCardNumber { get; set; }
+    public string? Gender { get; set; }
+    public string? DateOfBirth { get; set; }
+    public string? LicenseNumber { get; set; }
+    public string? LicenseIssuedBy { get; set; }
+    public string? LicenseExpiryDate { get; set; }
+    public string? Qualification { get; set; }
+    public string? Specialty { get; set; }
+    public string? Department { get; set; }
+    public string? AssignedRoom { get; set; }
+    public string? BiosafetyLevel { get; set; }
+    public string? DigitalSignatureCode { get; set; }
 }
 
 public class ToggleStatusDto

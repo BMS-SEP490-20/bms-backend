@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using BMS.Application.DTOs.Notifications;
 using BMS.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
 namespace BMS.Api.Controllers.Notifications;
 
@@ -22,10 +24,45 @@ namespace BMS.Api.Controllers.Notifications;
 public class PushNotificationsController : ControllerBase
 {
     private readonly IPushNotificationService _notificationService;
+    private readonly IMongoDatabase? _database;
 
-    public PushNotificationsController(IPushNotificationService notificationService)
+    public PushNotificationsController(IPushNotificationService notificationService, IMongoDatabase? database = null)
     {
         _notificationService = notificationService;
+        _database = database;
+    }
+
+    private async Task<bool> IsTargetAdminAccountAsync(string? recipientUserId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(recipientUserId) || _database == null) return false;
+        var trimmed = recipientUserId.Trim();
+        if (trimmed.Equals("ADMIN", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("ROLE_ADMIN", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var accounts = _database.GetCollection<BsonDocument>("accounts");
+        var fb = Builders<BsonDocument>.Filter;
+        var idFilters = new List<FilterDefinition<BsonDocument>>
+        {
+            fb.Eq("_id", trimmed),
+            fb.Eq("username", trimmed),
+            fb.Eq("Username", trimmed)
+        };
+        if (ObjectId.TryParse(trimmed, out var oid))
+            idFilters.Add(fb.Eq("_id", oid));
+
+        var doc = await accounts.Find(fb.Or(idFilters)).FirstOrDefaultAsync(ct);
+        if (doc == null) return false;
+        foreach (var k in new[] { "roleId", "RoleId", "role_id" })
+        {
+            if (doc.TryGetValue(k, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsInt32 && val.AsInt32 == 1) return true;
+                if (val.IsInt64 && val.AsInt64 == 1) return true;
+                if (int.TryParse(val.ToString(), out var parsed) && parsed == 1) return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -38,6 +75,15 @@ public class PushNotificationsController : ControllerBase
         if (request == null)
         {
             return BadRequest(new { success = false, message = "Request payload cannot be null." });
+        }
+
+        if (!User.IsInRole(RoleNames.Admin) && await IsTargetAdminAccountAsync(request.RecipientUserId, cancellationToken))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                success = false,
+                message = "Quản lý và các vai trò khác không có quyền gửi hoặc thao tác thông báo trực tiếp lên tài khoản Quản trị viên hệ thống (Admin)."
+            });
         }
 
         try
@@ -221,6 +267,19 @@ public class PushNotificationsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(id))
             return BadRequest(new { success = false, message = "Notification ID is required." });
+
+        if (!User.IsInRole(RoleNames.Admin))
+        {
+            var existing = await _notificationService.GetNotificationByIdAsync(id, cancellationToken);
+            if (existing != null && await IsTargetAdminAccountAsync(existing.RecipientUserId, cancellationToken))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    success = false,
+                    message = "Quản lý không có quyền thao tác thông báo thuộc tài khoản Quản trị viên hệ thống (Admin)."
+                });
+            }
+        }
 
         var result = await _notificationService.ResendNotificationAsync(id, cancellationToken);
         if (result == null)

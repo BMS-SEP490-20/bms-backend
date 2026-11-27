@@ -30,6 +30,8 @@ namespace BMS.Application.Services
         private readonly BMS.Core.Interfaces.ITestCriterionRepository? _criteria;
         private readonly ITestOrderRepository? _testOrders;
         private readonly IInventoryRepository? _inventory;
+        private readonly IReferenceIntervalRepository? _referenceIntervals;
+        private readonly IPatientRepository? _patients;
 
         /// <summary>Creates the service.</summary>
         public TestResultService(
@@ -40,7 +42,9 @@ namespace BMS.Application.Services
             ISampleRepository? samples = null,
             BMS.Core.Interfaces.ITestCriterionRepository? criteria = null,
             ITestOrderRepository? testOrders = null,
-            IInventoryRepository? inventory = null)
+            IInventoryRepository? inventory = null,
+            IReferenceIntervalRepository? referenceIntervals = null,
+            IPatientRepository? patients = null)
         {
             _repo = repo;
             _appointmentRepo = appointmentRepo;
@@ -50,6 +54,8 @@ namespace BMS.Application.Services
             _criteria = criteria;
             _testOrders = testOrders;
             _inventory = inventory;
+            _referenceIntervals = referenceIntervals;
+            _patients = patients;
         }
 
         /// <inheritdoc />
@@ -140,10 +146,36 @@ namespace BMS.Application.Services
             if (sample.Status != SampleStatus.RerunRequested
                 && await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], orderKeys, ct))
                 throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả của ống mẫu này đã được duyệt/ký, không được nhập lại.");
-            var items = await ValidatedItemsAsync(dto.Parameters, ct);
+
+            // Resolve patient demographics (age & gender) for stratified Reference Interval evaluation (VII.28 / M5)
+            int? patientAge = sample.PatientAge;
+            string? patientGender = sample.PatientGender;
+            if ((!patientAge.HasValue || string.IsNullOrWhiteSpace(patientGender)) && _patients != null && !string.IsNullOrWhiteSpace(sample.PatientId))
+            {
+                try
+                {
+                    var pat = await _patients.GetByIdOrCodeAsync(sample.PatientId, ct);
+                    if (pat != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(patientGender)) patientGender = pat.GenderString;
+                        if (!patientAge.HasValue && pat.DateOfBirth.HasValue)
+                            patientAge = Math.Max(0, DateTime.UtcNow.Year - pat.DateOfBirth.Value.Year);
+                    }
+                }
+                catch { /* non-fatal */ }
+            }
+
+            var items = await ValidatedItemsAsync(dto.Parameters, patientAge, patientGender, ct);
             var panicItems = items.Where(x => x.Flag == ResultFlag.CriticalPanic).ToList();
             var panic = panicItems.Count > 0;
             var now = DateTime.UtcNow;
+
+            // M6: Preserve Analysis Run History — increment AnalysisRun/Version & supersede prior runs of this sample
+            var priorRuns = await _repo.GetBySampleKeysAsync([sample.Id, sample.Barcode], ct);
+            var latestPrior = priorRuns.FirstOrDefault();
+            var nextRun = latestPrior != null ? Math.Max(1, priorRuns.Max(r => r.AnalysisRun)) + 1 : 1;
+            var nextVersion = latestPrior != null ? Math.Max(1, priorRuns.Max(r => r.Version)) + 1 : 1;
+            var priorToSupersede = priorRuns.Where(r => !r.IsSuperseded).Select(r => r.Id).ToList();
             Reagent? selectedLot = null;
             if (_inventory != null && !string.IsNullOrWhiteSpace(dto.ReagentCode))
             {
@@ -191,11 +223,20 @@ namespace BMS.Application.Services
                 Status = WaitingReviewStatus,
                 ValidationStatus = ResultValidationStatus.Entered,
                 IsPanic = panic,
+                AnalysisRun = nextRun,
+                Version = nextVersion,
+                ParentResultId = latestPrior?.Id,
+                RerunReason = nextRun > 1 ? sample.RerunReason : null,
+                IsSuperseded = false,
                 Items = items,
                 CreatedAt = now,
                 ReviewedAt = now
             };
 
+            if (priorToSupersede.Count > 0)
+            {
+                await _repo.MarkSupersededAsync(priorToSupersede, ct);
+            }
             await _repo.AddAsync(entity, ct);
 
             // Auto-consume reagent stock (BR-LAB-05 / UC56) when ReagentCode and Quantity > 0 are provided
@@ -246,10 +287,48 @@ namespace BMS.Application.Services
                 }
             }
 
-            // Cập nhật trạng thái mẫu sang Completed và lịch hẹn sang InProgress (chờ bác sĩ kết luận)
+            // Cập nhật trạng thái mẫu sang Completed + gán CompletedAt (phục vụ thống kê TAT thực tế)
             sample.Status = SampleStatus.Completed;
             sample.StatusString = SampleStatus.Completed.ToString();
+            sample.CompletedAt = now;
+            sample.UpdatedAt = now;
             await _samples.UpdateAsync(sample, ct);
+
+            // M5: Phát cảnh báo khẩn Critical Value (SLA 15 phút) cho Bác sĩ & Trưởng phòng Lab nếu có giá trị nguy kịch
+            if (panic)
+            {
+                try
+                {
+                    var criticalSummary = string.Join(", ", panicItems.Select(x => $"{x.CriterionCode}={x.MeasuredValue} {x.Unit}"));
+                    var slaDeadlineVn = (now.AddMinutes(15) + TimeSpan.FromHours(7)).ToString("HH:mm dd/MM/yyyy");
+                    await _notificationRepo.AddAsync(new Notification
+                    {
+                        NotificationId = $"CRIT-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                        UserId = appointment?.DoctorId ?? "ROLE_DOCTOR",
+                        Role = "Doctor",
+                        Title = $"[NGUY KỊCH - SLA 15p] Mẫu {sample.Barcode} ({sample.PatientName})",
+                        Message = $"Phát hiện giá trị nguy kịch (Critical Value): {criticalSummary}. Hạn SLA phản hồi/gọi lâm sàng: {slaDeadlineVn}.",
+                        Type = "CriticalValueAlert",
+                        ReferenceId = entity.TestResultId,
+                        CreatedAt = now
+                    }, ct);
+                    await _notificationRepo.AddAsync(new Notification
+                    {
+                        NotificationId = $"CRIT-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                        UserId = "ROLE_MANAGER",
+                        Role = "Manager",
+                        Title = $"[NGUY KỊCH - SLA 15p] Mẫu {sample.Barcode} ({sample.PatientName})",
+                        Message = $"Phòng Lab ghi nhận giá trị nguy kịch: {criticalSummary}. Cần theo dõi xác nhận lâm sàng trước {slaDeadlineVn}.",
+                        Type = "CriticalValueAlert",
+                        ReferenceId = entity.TestResultId,
+                        CreatedAt = now
+                    }, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể gửi cảnh báo Critical Value cho kết quả {ResultId}.", resultId);
+                }
+            }
 
             if (appointment != null && !string.IsNullOrWhiteSpace(appointment.Id))
             {
@@ -277,7 +356,7 @@ namespace BMS.Application.Services
                 throw new DomainValidationException("INVALID_RESULT_STATUS", "Trạng thái phê duyệt chỉ được đổi qua luồng ký duyệt.");
 
             var oldStatus = entity.Status;
-            var measurements = dto.Parameters is { Count: > 0 } ? await ValidatedItemsAsync(dto.Parameters, ct) : null;
+            var measurements = dto.Parameters is { Count: > 0 } ? await ValidatedItemsAsync(dto.Parameters, null, null, ct) : null;
             var panic = measurements?.Any(x => x.Flag == ResultFlag.CriticalPanic);
             var changes = new TestResultFieldChanges(
                 ReagentCode: dto.ReagentCode,
@@ -343,6 +422,9 @@ namespace BMS.Application.Services
             var followUpDate = string.IsNullOrWhiteSpace(dto.FollowUpDate) ? null : dto.FollowUpDate.Trim();
             var clinicalComment = doctorConclusion ?? (string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim());
 
+            var signatureInput = $"{entity.Id}|{entity.SampleId}|{dto.ApproverId}|{now:O}";
+            var digitalSignature = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signatureInput))).ToLowerInvariant();
+
             var changes = new TestResultFieldChanges(
                 Status: ApprovedStatus,
                 ReviewedBy: !string.IsNullOrWhiteSpace(dto.ApproverName)
@@ -354,7 +436,7 @@ namespace BMS.Application.Services
                 ValidationStatus: ResultValidationStatus.DoctorApproved,
                 ApprovedByDoctorId: dto.ApproverId,
                 ApprovedAt: now,
-                DigitalSignature: null,
+                DigitalSignature: digitalSignature,
                 ClinicalComment: clinicalComment,
                 Icd10Code: icd10Code,
                 FinalDiagnosis: finalDiagnosis,
@@ -365,11 +447,22 @@ namespace BMS.Application.Services
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
                 throw await NotUpdatedAsync(entity.Id, $"Test result '{id}' was not found.", ct);
 
+            // Partial Release safety (M7): chỉ chuyển lịch hẹn sang Completed khi không còn kết quả nào khác của lịch hẹn đang chờ duyệt
             if (!string.IsNullOrWhiteSpace(entity.AppointmentId))
             {
                 try
                 {
-                    await _appointmentRepo.UpdateStatusAsync(entity.AppointmentId, AppointmentStatus.Completed, ct);
+                    var allResultsForOrder = await _repo.GetByAppointmentIdAsync(entity.AppointmentId, ct);
+                    var hasPendingOtherResult = allResultsForOrder.Any(r =>
+                        r.Id != entity.Id &&
+                        !r.IsDeleted &&
+                        !r.IsSuperseded &&
+                        !TestResultRules.IsSigned(r));
+
+                    if (!hasPendingOtherResult)
+                    {
+                        await _appointmentRepo.UpdateStatusAsync(entity.AppointmentId, AppointmentStatus.Completed, ct);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -481,11 +574,15 @@ namespace BMS.Application.Services
                 MeasuredValue = p.Value ?? string.Empty
             }).ToList();
 
-        /// <summary>Evaluates measurements against trusted, unit-specific criterion master data, not client flags.</summary>
-        private async Task<List<TestResultItem>> ValidatedItemsAsync(List<TestParameterDto> parameters, CancellationToken ct)
+        /// <summary>
+        /// Evaluates measurements against age/gender-stratified reference_intervals first (VII.28 / M5),
+        /// falling back cleanly to test_criteria master data when no demographic interval is configured.
+        /// </summary>
+        private async Task<List<TestResultItem>> ValidatedItemsAsync(List<TestParameterDto> parameters, int? patientAge, string? patientGender, CancellationToken ct)
         {
             if (_criteria is null || parameters.Count is < 1 or > 200)
                 throw new DomainValidationException("INVALID_RESULT_PARAMETERS", "Cần cung cấp từ 1 đến 200 chỉ số hợp lệ.");
+            var normGender = NormalizePatientGender(patientGender);
             var items = new List<TestResultItem>();
             foreach (var p in parameters)
             {
@@ -494,6 +591,25 @@ namespace BMS.Application.Services
                     ?? (!string.IsNullOrWhiteSpace(p.CriteriaId) ? await _criteria.GetByIdAsync(p.CriteriaId.Trim(), ct) : null);
                 if (criterion is null || !criterion.IsActive || criterion.IsDeleted || string.IsNullOrWhiteSpace(p.Value))
                     throw new DomainValidationException("INVALID_RESULT_CRITERION", $"Chỉ tiêu '{lookupCode}' không tồn tại, đã ngừng dùng hoặc thiếu giá trị.");
+
+                // Try demographic Reference Interval (VII.28)
+                ReferenceIntervalEntity? matchedInterval = null;
+                if (_referenceIntervals != null)
+                {
+                    try
+                    {
+                        var intervals = await _referenceIntervals.GetByCriterionCodeAsync(criterion.CriterionCode, activeOnly: true, ct);
+                        matchedInterval = SelectDemographicInterval(intervals, patientAge, normGender);
+                    }
+                    catch { /* fallback to criterion defaults */ }
+                }
+
+                var normalMin = matchedInterval?.NormalMin ?? criterion.NormalMin;
+                var normalMax = matchedInterval?.NormalMax ?? criterion.NormalMax;
+                var panicLow = matchedInterval?.PanicLow ?? criterion.PanicLow;
+                var panicHigh = matchedInterval?.PanicHigh ?? criterion.PanicHigh;
+                var normalText = matchedInterval?.NormalText ?? criterion.NormalText;
+
                 var flag = ResultFlag.Normal;
                 if (string.Equals(criterion.ValueType, "Qualitative", StringComparison.OrdinalIgnoreCase))
                 {
@@ -514,16 +630,58 @@ namespace BMS.Application.Services
                     if (!double.TryParse(p.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
                         throw new DomainValidationException("INVALID_MEASURED_VALUE", $"Chỉ số định lượng {criterion.CriterionCode} ({criterion.CriterionName}) phải là một số hợp lệ.");
                     ClinicalMeasurementValidator.ValidateNumericValue(criterion, value);
-                    flag = criterion.PanicLow.HasValue && value < criterion.PanicLow || criterion.PanicHigh.HasValue && value > criterion.PanicHigh ? ResultFlag.CriticalPanic
-                        : criterion.NormalMin.HasValue && value < criterion.NormalMin ? ResultFlag.Low
-                        : criterion.NormalMax.HasValue && value > criterion.NormalMax ? ResultFlag.High : ResultFlag.Normal;
+                    flag = panicLow.HasValue && value < panicLow || panicHigh.HasValue && value > panicHigh ? ResultFlag.CriticalPanic
+                        : normalMin.HasValue && value < normalMin ? ResultFlag.Low
+                        : normalMax.HasValue && value > normalMax ? ResultFlag.High : ResultFlag.Normal;
                 }
-                items.Add(new TestResultItem { CriterionId = criterion.Id, CriterionCode = criterion.CriterionCode,
-                    CriterionName = criterion.CriterionName, MeasuredValue = p.Value.Trim(), Unit = criterion.Unit,
-                    ReferenceInterval = criterion.NormalText ?? $"{criterion.NormalMin}-{criterion.NormalMax}", Flag = flag });
+                items.Add(new TestResultItem
+                {
+                    CriterionId = criterion.Id,
+                    CriterionCode = criterion.CriterionCode,
+                    CriterionName = criterion.CriterionName,
+                    MeasuredValue = p.Value.Trim(),
+                    Unit = !string.IsNullOrWhiteSpace(matchedInterval?.Unit) ? matchedInterval.Unit : criterion.Unit,
+                    ReferenceInterval = normalText ?? $"{normalMin}-{normalMax}",
+                    Flag = flag
+                });
             }
             ClinicalMeasurementValidator.ValidateCrossAnalyteRules(items);
             return items;
+        }
+
+        private static string NormalizePatientGender(string? raw)
+        {
+            var g = (raw ?? string.Empty).Trim().ToLowerInvariant();
+            if (g is "male" or "nam" or "m" or "1") return "Male";
+            if (g is "female" or "nữ" or "nu" or "f" or "2") return "Female";
+            return "All";
+        }
+
+        private static ReferenceIntervalEntity? SelectDemographicInterval(List<ReferenceIntervalEntity> intervals, int? ageYears, string gender)
+        {
+            if (intervals == null || intervals.Count == 0) return null;
+            static double ToY(double? val, string? unit)
+            {
+                if (!val.HasValue) return 0;
+                var u = (unit ?? "Years").Trim().ToLowerInvariant();
+                if (u.StartsWith("day")) return val.Value / 365.25;
+                if (u.StartsWith("week")) return val.Value / 52.14;
+                if (u.StartsWith("month")) return val.Value / 12.0;
+                return val.Value;
+            }
+
+            bool AgeMatches(ReferenceIntervalEntity x)
+            {
+                if (!ageYears.HasValue) return true;
+                var min = ToY(x.AgeMin, x.AgeUnit);
+                var max = x.AgeMax > 0 ? ToY(x.AgeMax, x.AgeUnit) : 150;
+                return ageYears.Value >= min && ageYears.Value <= max;
+            }
+
+            return intervals.FirstOrDefault(x => string.Equals(x.Gender, gender, StringComparison.OrdinalIgnoreCase) && AgeMatches(x))
+                ?? intervals.FirstOrDefault(x => string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase) && AgeMatches(x))
+                ?? intervals.FirstOrDefault(x => string.Equals(x.Gender, gender, StringComparison.OrdinalIgnoreCase))
+                ?? intervals.FirstOrDefault(x => string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
         }
 
         private static TestResultDto ToDto(TestResult x) => new()

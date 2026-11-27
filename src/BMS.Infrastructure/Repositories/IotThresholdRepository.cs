@@ -100,6 +100,11 @@ public class IotThresholdRepository : IIotThresholdRepository
         {
             try
             {
+                var existing = await _thresholdsCollection.Find(t => t.DeviceId == threshold.DeviceId).FirstOrDefaultAsync();
+                if (existing != null && !string.IsNullOrWhiteSpace(existing.Id))
+                {
+                    threshold.Id = existing.Id;
+                }
                 await _thresholdsCollection.ReplaceOneAsync(
                     t => t.DeviceId == threshold.DeviceId,
                     threshold,

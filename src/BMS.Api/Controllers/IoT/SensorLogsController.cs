@@ -60,7 +60,11 @@ public class SensorLogsController : ControllerBase
     public sealed class UpdateMqttConfigRequest
     {
         public string BrokerHost { get; set; } = "broker.emqx.io";
-        public int BrokerPort { get; set; } = 1883;
+        public int BrokerPort { get; set; } = 8883;
+        public bool UseTls { get; set; } = true;
+        public string? Username { get; set; }
+        public string? Password { get; set; }
+        public bool RequireDeviceAuth { get; set; } = true;
         public string TopicPrefix { get; set; } = "bms/sep490/iot/hkd-lab01";
         public string DefaultDeviceId { get; set; } = "BMS-IOT-001";
     }
@@ -118,7 +122,16 @@ public class SensorLogsController : ControllerBase
     {
         var dbConfig = _logRepository != null ? await _logRepository.GetMqttConfigAsync(ct) : null;
         var brokerHost = dbConfig?.BrokerHost ?? _configuration?["IoT:MqttBrokerHost"] ?? "broker.emqx.io";
-        var brokerPort = dbConfig?.BrokerPort > 0 ? dbConfig.BrokerPort : (int.TryParse(_configuration?["IoT:MqttBrokerPort"], out var p) ? p : 1883);
+        var brokerPort = dbConfig?.BrokerPort > 0
+            ? dbConfig.BrokerPort
+            : (int.TryParse(_configuration?["IoT:MqttBrokerPort"], out var p) && p > 0 ? p : 8883);
+        var useTls = dbConfig != null
+            ? (dbConfig.UseTls || brokerPort == 8883)
+            : (!bool.TryParse(_configuration?["IoT:MqttUseTls"], out var tls) || tls || brokerPort == 8883);
+        var username = dbConfig?.Username ?? _configuration?["IoT:MqttUsername"] ?? string.Empty;
+        var hasPassword = !string.IsNullOrWhiteSpace(dbConfig?.Password) || !string.IsNullOrWhiteSpace(_configuration?["IoT:MqttPassword"]);
+        var requireDeviceAuth = dbConfig?.RequireDeviceAuth ?? true;
+        var deviceKeyConfigured = !string.IsNullOrWhiteSpace(_configuration?["IoT:DeviceApiKey"]);
         var topicPrefix = (dbConfig?.TopicPrefix ?? _configuration?["IoT:MqttTopicPrefix"] ?? "bms/sep490/iot/hkd-lab01").TrimEnd('/');
         var defaultDeviceId = dbConfig?.DefaultDeviceId ?? _configuration?["IoT:DefaultDeviceId"] ?? "BMS-IOT-001";
 
@@ -129,9 +142,15 @@ public class SensorLogsController : ControllerBase
             {
                 brokerHost,
                 brokerPort,
+                useTls,
+                username,
+                hasPassword,
+                requireDeviceAuth,
+                deviceKeyConfigured,
                 topicPrefix,
                 defaultDeviceId,
                 isBridgeConnected = BMS.Api.Services.IotMqttBridgeHostedService.IsConnected,
+                activeUseTls = BMS.Api.Services.IotMqttBridgeHostedService.ActiveUseTls,
                 updatedAt = dbConfig?.UpdatedAt
             }
         });
@@ -146,14 +165,24 @@ public class SensorLogsController : ControllerBase
             return BadRequest(new { success = false, message = "Thông tin Broker Host và Kênh MQTT không được để trống." });
         }
 
+        var existing = await _logRepository.GetMqttConfigAsync(ct);
+        var resolvedPort = request.BrokerPort > 0 ? request.BrokerPort : (request.UseTls ? 8883 : 1883);
+        var resolvedPassword = !string.IsNullOrWhiteSpace(request.Password)
+            ? request.Password
+            : existing?.Password;
+
         var config = new BMS.Core.Entities.IotMqttConfig
         {
             Id = "default",
             BrokerHost = request.BrokerHost.Trim(),
-            BrokerPort = request.BrokerPort > 0 ? request.BrokerPort : 1883,
+            BrokerPort = resolvedPort,
+            UseTls = request.UseTls || resolvedPort == 8883,
+            Username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim(),
+            Password = resolvedPassword,
+            RequireDeviceAuth = request.RequireDeviceAuth,
             TopicPrefix = request.TopicPrefix.Trim().TrimEnd('/'),
             DefaultDeviceId = string.IsNullOrWhiteSpace(request.DefaultDeviceId) ? "BMS-IOT-001" : request.DefaultDeviceId.Trim(),
-            UpdatedBy = User?.Identity?.Name ?? "Manager"
+            UpdatedBy = User?.FindFirst("fullName")?.Value ?? User?.Identity?.Name ?? "Manager"
         };
 
         await _logRepository.UpsertMqttConfigAsync(config, ct);
@@ -162,8 +191,19 @@ public class SensorLogsController : ControllerBase
         return Ok(new
         {
             success = true,
-            message = "Đã lưu cấu hình kênh MQTT và yêu cầu kết nối lại ngay lập tức.",
-            data = config
+            message = "Đã lưu cấu hình kênh MQTT bảo mật và yêu cầu kết nối lại ngay lập tức.",
+            data = new
+            {
+                brokerHost = config.BrokerHost,
+                brokerPort = config.BrokerPort,
+                useTls = config.UseTls,
+                username = config.Username ?? string.Empty,
+                hasPassword = !string.IsNullOrWhiteSpace(config.Password),
+                requireDeviceAuth = config.RequireDeviceAuth,
+                topicPrefix = config.TopicPrefix,
+                defaultDeviceId = config.DefaultDeviceId,
+                updatedAt = config.UpdatedAt
+            }
         });
     }
 
@@ -286,6 +326,23 @@ public class SensorLogsController : ControllerBase
         {
             success = true,
             data = status
+        });
+    }
+
+    /// <summary>
+    /// Retrieves real-time connectivity &amp; threshold status across ALL configured IoT devices
+    /// so Web and Mobile clients never miss incidents on secondary refrigerators.
+    /// </summary>
+    [Authorize(Roles = RoleSets.AdminManagerLab)]
+    [HttpGet("status/all")]
+    public async Task<IActionResult> GetAllConnectionStatuses(CancellationToken ct)
+    {
+        var statuses = await _telemetryService.GetAllConnectionStatusesAsync(ct);
+        return Ok(new
+        {
+            success = true,
+            data = statuses,
+            total = statuses.Count
         });
     }
 

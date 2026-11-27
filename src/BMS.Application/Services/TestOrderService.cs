@@ -213,7 +213,7 @@ public sealed partial class TestOrderService(
                         UserId = "ROLE_LAB",
                         Role = RoleNames.Lab,
                         Title = $"Y lệnh xét nghiệm mới #{order.OrderNumber}",
-                        Message = $"BS. {order.DoctorName} vừa chỉ định xét nghiệm #{order.OrderNumber} cho bệnh nhân {order.PatientName}. Vui lòng tiếp nhận lấy mẫu.",
+                        Message = $"BS. {order.DoctorName} vừa chỉ định xét nghiệm #{order.OrderNumber} cho bệnh nhân {order.PatientName}. Vui lòng vào Tiếp Nhận Chỉ Định & Barcode để xác nhận và sinh mã vạch.",
                         Type = "TestOrderCreated",
                         ReferenceId = order.Id
                     }, ct);
@@ -233,65 +233,15 @@ public sealed partial class TestOrderService(
                 }
                 catch (Exception ex) { logger.LogWarning(ex, "Failed to send test order notifications"); }
             }
-            try
-            {
-                var tubeGroups = items
-                    .GroupBy(i => (Color: string.IsNullOrWhiteSpace(i.TubeColor) ? "Gold" : i.TubeColor,
-                                   Type: string.IsNullOrWhiteSpace(i.TubeType) ? "Serum" : i.TubeType))
-                    .ToList();
-                var tubes = new List<Sample>();
-                var draw = 1;
-                foreach (var g in tubeGroups)
-                {
-                    var smpSeq = await sequences.NextAsync($"smp:{localDate:yyyy-MM-dd}", ct);
-                    var tubeCodes = string.Join(", ", g.Select(x => x.TestCode).Distinct());
-                    tubes.Add(new Sample
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        Barcode = $"SMP-{localDate:yyyyMMdd}-{smpSeq:D4}",
-                        SmpDay = localDate.ToString("yyyy-MM-dd"),
-                        DrawOrder = draw++,
-                        TestOrderId = order.Id,
-                        PatientId = patient.Id,
-                        PatientName = patient.FullName,
-                        PatientGender = patient.GenderString,
-                        PatientAge = order.PatientAge,
-                        TestPackageName = tubeCodes,
-                        SampleType = InferSampleType(g.Key.Color, g.Key.Type),
-                        TubeColor = g.Key.Color,
-                        VolumeMl = 2.0,
-                        Status = SampleStatus.PendingCollection,
-                        Priority = priority,
-                        LabRoom = "LAB-ROOM-01",
-                        Notes = $"Từ y lệnh {order.OrderNumber}",
-                        CreatedAt = now,
-                        UpdatedAt = now
-                    });
-                }
-                if (tubes.Count > 0)
-                {
-                    await specimens.InsertManyAsync(tubes, ct);
-                    logger.LogInformation("Created {Count} PendingCollection tube(s) for order {OrderNumber}", tubes.Count, order.OrderNumber);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to create specimen tubes for order {OrderNumber}", order.OrderNumber);
-            }
+
+            // NOTE: Không tự sinh blood_samples / barcode SMP-... ngay khi Bác sĩ tạo y lệnh.
+            // Kỹ thuật viên Lab phải vào Bước 1 (Tiếp Nhận Chỉ Định & Barcode) xác nhận tiếp nhận y lệnh
+            // thì hệ thống mới sinh mã Barcode SMP-YYYYMMDD-XXXX và đẩy mẫu sang Bước 2 (Hàng Đợi & Lấy Mẫu).
         }
 
         logger.LogInformation("Test order {OrderNumber} created by doctor {DoctorId} for {Patient} ({Priority}, {Status}, {Count} tests)",
             order.OrderNumber, doctorUserId, PiiMasker.MaskName(order.PatientName), order.Priority, order.Status, items.Count);
         return Map(order);
-    }
-
-    private static string InferSampleType(string tubeColor, string tubeType)
-    {
-        var t = $"{tubeColor} {tubeType}".ToUpperInvariant();
-        if (t.Contains("EDTA") || t.Contains("PURPLE") || t.Contains("TÍM")) return "Blood";
-        if (t.Contains("CITRATE") || t.Contains("BLUE") || t.Contains("XANH")) return "Plasma";
-        if (t.Contains("URINE") || t.Contains("NƯỚC TIỂU")) return "Urine";
-        return "Serum";
     }
 
     /// <inheritdoc />

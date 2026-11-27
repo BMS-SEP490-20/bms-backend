@@ -193,7 +193,21 @@ public class IotMqttConfig
     public string BrokerHost { get; set; } = "broker.emqx.io";
 
     [BsonElement("broker_port")]
-    public int BrokerPort { get; set; } = 1883;
+    public int BrokerPort { get; set; } = 8883;
+
+    [BsonElement("use_tls")]
+    public bool UseTls { get; set; } = true;
+
+    [BsonElement("username")]
+    [BsonIgnoreIfNull]
+    public string? Username { get; set; }
+
+    [BsonElement("password")]
+    [BsonIgnoreIfNull]
+    public string? Password { get; set; }
+
+    [BsonElement("require_device_auth")]
+    public bool RequireDeviceAuth { get; set; } = true;
 
     [BsonElement("topic_prefix")]
     public string TopicPrefix { get; set; } = "bms/sep490/iot/hkd-lab01";

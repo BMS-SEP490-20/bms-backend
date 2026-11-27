@@ -112,6 +112,7 @@ public sealed class SampleTimelineRepository : ISampleTimelineRepository
                     "specimen_histories.timeline", Text(e, "operatorName"), Text(e, "location"), Text(e, "notes")));
         }
         var reports = await _db.GetCollection<BsonDocument>("test_results").Find(Active &
+            f.Ne("is_superseded", true) & f.Ne("isSuperseded", true) &
             (Identity("sample_id", summary.Id) | Identity("sampleId", summary.Id)) &
             (Identity("patient_id", summary.PatientId) | Identity("patientId", summary.PatientId)))
             .Project(new BsonDocument { { "_id", 0 }, { "status", 1 }, { "validationStatus", 1 }, { "digital_signature", 1 }, { "digitalSignature", 1 },

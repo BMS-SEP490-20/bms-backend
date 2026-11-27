@@ -252,17 +252,17 @@ public class PushNotificationService : IPushNotificationService
             logs = logs.Where(x => string.Equals(x.RecipientUserId, query.UserId.Trim(), StringComparison.OrdinalIgnoreCase));
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Status))
+        if (!string.IsNullOrWhiteSpace(query.Status) && !string.Equals(query.Status.Trim(), "ALL", StringComparison.OrdinalIgnoreCase))
         {
             logs = logs.Where(x => string.Equals(x.Status, query.Status.Trim(), StringComparison.OrdinalIgnoreCase));
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Priority))
+        if (!string.IsNullOrWhiteSpace(query.Priority) && !string.Equals(query.Priority.Trim(), "ALL", StringComparison.OrdinalIgnoreCase))
         {
             logs = logs.Where(x => string.Equals(x.Priority, query.Priority.Trim(), StringComparison.OrdinalIgnoreCase));
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Channel))
+        if (!string.IsNullOrWhiteSpace(query.Channel) && !string.Equals(query.Channel.Trim(), "ALL", StringComparison.OrdinalIgnoreCase))
         {
             logs = logs.Where(x => string.Equals(x.Channel, query.Channel.Trim(), StringComparison.OrdinalIgnoreCase));
         }

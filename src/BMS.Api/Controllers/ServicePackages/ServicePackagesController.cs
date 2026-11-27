@@ -117,7 +117,7 @@ public sealed class ServicePackagesController(
     }
 
     /// <summary>Tạo gói dịch vụ mới (UC15.2).</summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPost]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -153,7 +153,7 @@ public sealed class ServicePackagesController(
     }
 
     /// <summary>Cập nhật gói dịch vụ (UC15.3).</summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPut("{id}")]
     [ProducesResponseType(typeof(ServicePackageDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -189,7 +189,7 @@ public sealed class ServicePackagesController(
     }
 
     /// <summary>Xoá gói dịch vụ (xoá mềm, UC15.5).</summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

@@ -55,7 +55,10 @@ namespace BMS.Infrastructure.Repositories
         /// <inheritdoc />
         public async Task<IReadOnlyList<PatientFeedback>> GetActiveWithPackageAsync(CancellationToken ct = default)
         {
-            var active = F.Ne(f => f.Status, DeletedStatus);
+            var active = F.Ne(f => f.Status, DeletedStatus)
+                & F.Ne(f => f.Status, "HIDDEN_BY_ADMIN")
+                & F.Ne(f => f.Status, "PATIENT_DELETED")
+                & F.Ne(f => f.PatientDeleted, true);
             var hasPackage = F.Or(
                 F.And(F.Ne(f => f.ServicePackageId, null), F.Ne(f => f.ServicePackageId, "")),
                 F.And(F.Ne(f => f.ServicePackageCode, null), F.Ne(f => f.ServicePackageCode, "")));
@@ -68,7 +71,10 @@ namespace BMS.Infrastructure.Repositories
             if (string.IsNullOrWhiteSpace(packageIdOrCode) && string.IsNullOrWhiteSpace(alternateCode))
                 return Array.Empty<PatientFeedback>();
 
-            var active = F.Ne(f => f.Status, DeletedStatus);
+            var active = F.Ne(f => f.Status, DeletedStatus)
+                & F.Ne(f => f.Status, "HIDDEN_BY_ADMIN")
+                & F.Ne(f => f.Status, "PATIENT_DELETED")
+                & F.Ne(f => f.PatientDeleted, true);
             var matchers = new List<FilterDefinition<PatientFeedback>>();
             foreach (var raw in new[] { packageIdOrCode, alternateCode })
             {

@@ -10,6 +10,9 @@ namespace BMS.Application.DTOs.Laboratory;
 public class CheckedInAppointmentDto
 {
     public string AppointmentId { get; set; } = string.Empty;
+    public string? OrderId { get; set; }
+    public string? OrderNumber { get; set; }
+    public string? DoctorName { get; set; }
     public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
     public string PackageName { get; set; } = string.Empty;
@@ -70,16 +73,26 @@ public class SampleCollectionItemDto
 }
 
 /// <summary>
-/// Printable specimen tube barcode label data (Code 128 / BR-07).
+/// Printable specimen tube barcode label data (Code 128 / ISO 15189 §7.2.6.2).
 /// </summary>
 public class SpecimenBarcodeLabelDto
 {
     public string SpecimenId { get; set; } = string.Empty;
+    public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
+    public string PatientGender { get; set; } = string.Empty;
+    public string PatientBirthYear { get; set; } = string.Empty;
+    public int? PatientAge { get; set; }
+    public string OrderNumber { get; set; } = string.Empty;
+    public int TubeIndex { get; set; } = 1;
+    public int TotalTubes { get; set; } = 1;
     public string Tube { get; set; } = string.Empty;
+    public string TubeLabelVi { get; set; } = string.Empty;
+    public string TestCodes { get; set; } = string.Empty;
     public string PackageName { get; set; } = string.Empty;
     public string BarcodeCode128 { get; set; } = string.Empty;
     public string SvgBarcode { get; set; } = string.Empty;
+    public string PrintedAt { get; set; } = string.Empty;
 }
 
 public class BatchPrintBarcodesResponseDto

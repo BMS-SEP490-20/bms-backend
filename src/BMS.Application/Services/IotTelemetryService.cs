@@ -24,6 +24,7 @@ public class IotTelemetryService : IIotTelemetryService
     private readonly IIotThresholdRepository _thresholdRepository;
     private readonly IIotAlertService _alertService;
     private readonly ILogger<IotTelemetryService> _logger;
+    private readonly IIotRealtimeNotifier? _realtimeNotifier;
 
     private sealed class DeviceHeartbeatState
     {
@@ -60,12 +61,14 @@ public class IotTelemetryService : IIotTelemetryService
         IIotSensorLogRepository logRepository,
         IIotThresholdRepository thresholdRepository,
         IIotAlertService alertService,
-        ILogger<IotTelemetryService> logger)
+        ILogger<IotTelemetryService> logger,
+        IIotRealtimeNotifier? realtimeNotifier = null)
     {
         _logRepository = logRepository;
         _thresholdRepository = thresholdRepository;
         _alertService = alertService;
         _logger = logger;
+        _realtimeNotifier = realtimeNotifier;
     }
 
     public async Task<IotTelemetryIngestResponseDto> IngestTelemetryAsync(IngestIotTelemetryRequestDto request, CancellationToken ct = default)
@@ -303,6 +306,19 @@ public class IotTelemetryService : IIotTelemetryService
 
         bool isViolation = !finalStatus.Equals("Normal", StringComparison.OrdinalIgnoreCase);
 
+        if (_realtimeNotifier != null)
+        {
+            try
+            {
+                var liveStatus = await GetConnectionStatusAsync(deviceId, ct);
+                await _realtimeNotifier.BroadcastTelemetryStatusAsync(liveStatus, ct);
+            }
+            catch
+            {
+                // Non-fatal push
+            }
+        }
+
         return new IotTelemetryIngestResponseDto
         {
             Success = true,
@@ -453,6 +469,50 @@ public class IotTelemetryService : IIotTelemetryService
         }
     }
 
+    public async Task<List<IotConnectionStatusDto>> GetAllConnectionStatusesAsync(CancellationToken ct = default)
+    {
+        await EnsureSeedHistoryIfEmptyAsync(ct);
+
+        var deviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var thresholds = await _thresholdRepository.GetAllThresholdsAsync();
+            foreach (var t in thresholds)
+            {
+                if (!string.IsNullOrWhiteSpace(t.DeviceId) &&
+                    !t.DeviceId.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase))
+                {
+                    deviceIds.Add(t.DeviceId.Trim());
+                }
+            }
+        }
+        catch
+        {
+            // Fallback to known heartbeats
+        }
+
+        foreach (var hbKey in _heartbeats.Keys)
+        {
+            if (!string.IsNullOrWhiteSpace(hbKey) && !hbKey.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase))
+            {
+                deviceIds.Add(hbKey.Trim());
+            }
+        }
+
+        if (deviceIds.Count == 0)
+        {
+            deviceIds.Add("BMS-IOT-001");
+        }
+
+        var results = new List<IotConnectionStatusDto>(deviceIds.Count);
+        foreach (var id in deviceIds.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            results.Add(await GetConnectionStatusAsync(id, ct));
+        }
+
+        return results;
+    }
+
     public async Task<IotMonitoringDashboardDto> GetMonitoringDashboardAsync(IotSensorLogQueryDto query, CancellationToken ct = default)
     {
         await EnsureSeedHistoryIfEmptyAsync(ct);
@@ -592,7 +652,19 @@ public class IotTelemetryService : IIotTelemetryService
             hb.SyncLock.Release();
         }
 
-        return await GetConnectionStatusAsync(targetDeviceId, ct);
+        var status = await GetConnectionStatusAsync(targetDeviceId, ct);
+        if (_realtimeNotifier != null)
+        {
+            try
+            {
+                await _realtimeNotifier.BroadcastTelemetryStatusAsync(status, ct);
+            }
+            catch
+            {
+                // Non-fatal push
+            }
+        }
+        return status;
     }
 
     public async Task<IotTelemetryIngestResponseDto> SimulateReconnectWithBufferedDataAsync(SimulateReconnectRequestDto request, CancellationToken ct = default)
@@ -781,70 +853,11 @@ public class IotTelemetryService : IIotTelemetryService
 
     #region Helpers
 
-    private async Task EnsureSeedHistoryIfEmptyAsync(CancellationToken ct)
+    private Task EnsureSeedHistoryIfEmptyAsync(CancellationToken ct)
     {
-        if (_initialBaselineSeeded) return;
-
-        var existing = await _logRepository.GetLogsAsync(deviceId: "BMS-IOT-001", maxLimit: 5, ct: ct);
-        if (existing.Count > 0)
-        {
-            _initialBaselineSeeded = true;
-            return;
-        }
-
-        lock (_seedLock)
-        {
-            if (_initialBaselineSeeded) return;
-            _initialBaselineSeeded = true;
-        }
-
-        var now = DateTime.UtcNow;
-        var seedLogs = new List<IotSensorLog>();
-        var outageId = "OUTAGE-SEED-001";
-
-        var seedOutage = new IotConnectionOutage
-        {
-            Id = outageId,
-            DeviceId = "BMS-IOT-001",
-            DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01",
-            Location = "Blood Storage Room 01",
-            DisconnectedAt = now.AddMinutes(-25),
-            ReconnectedAt = now.AddMinutes(-20),
-            DurationSeconds = 300,
-            BufferedRecordsSynced = 5,
-            Status = "Reconnected",
-            Notes = "Đồng bộ bù 5 bản ghi lưu trữ trong bộ nhớ đệm ESP32 khi khôi phục WiFi."
-        };
-        await _logRepository.UpsertOutageAsync(seedOutage, ct);
-
-        double[] temps = [4.2, 4.4, 4.5, 4.3, 4.6, 4.8, 5.1, 5.3, 5.0, 4.7, 4.5, 4.3, 4.4, 4.6, 4.5];
-        double[] hums = [54.0, 54.5, 55.2, 54.8, 56.0, 57.2, 58.5, 59.0, 57.8, 56.4, 55.5, 54.9, 55.1, 55.6, 55.0];
-
-        for (int i = 0; i < temps.Length; i++)
-        {
-            var recordedTime = now.AddMinutes(-40 + (i * 2));
-            bool isDuringSeedOutage = recordedTime >= seedOutage.DisconnectedAt && recordedTime <= seedOutage.ReconnectedAt;
-
-            seedLogs.Add(new IotSensorLog
-            {
-                DeviceId = "BMS-IOT-001",
-                DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01",
-                Location = "Blood Storage Room 01",
-                TemperatureC = temps[i],
-                HumidityPercent = hums[i],
-                MinTempAllowed = 2.0,
-                MaxTempAllowed = 8.0,
-                MinHumidityAllowed = 45.0,
-                MaxHumidityAllowed = 75.0,
-                Status = "Normal",
-                IsBuffered = isDuringSeedOutage,
-                OutageId = isDuringSeedOutage ? outageId : null,
-                RecordedAt = recordedTime,
-                ReceivedAt = isDuringSeedOutage ? seedOutage.ReconnectedAt!.Value : recordedTime
-            });
-        }
-
-        await _logRepository.InsertLogsBatchAsync(seedLogs, ct);
+        // Real MongoDB telemetry only — never inject fabricated seed logs or fake OUTAGE-SEED-001 records.
+        _initialBaselineSeeded = true;
+        return Task.CompletedTask;
     }
 
     private async Task<(double MinTemp, double MaxTemp, double MinHum, double MaxHum, int IntervalSec, string DeviceName, string Location)> GetEffectiveThresholdsAsync(string deviceId)
@@ -877,8 +890,11 @@ public class IotTelemetryService : IIotTelemetryService
             location = tempConfig.Location;
         }
 
-        var humDeviceId = deviceId.Equals("BMS-IOT-001", StringComparison.OrdinalIgnoreCase) ? "BMS-IOT-001-HUM" : "HUM-001";
-        var humConfig = await _thresholdRepository.GetThresholdByDeviceIdAsync(humDeviceId);
+        var humDeviceId = deviceId.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase)
+            ? deviceId
+            : $"{deviceId}-HUM";
+        var humConfig = await _thresholdRepository.GetThresholdByDeviceIdAsync(humDeviceId)
+            ?? await _thresholdRepository.GetThresholdByDeviceIdAsync("HUM-001");
         if (humConfig != null && humConfig.SensorType.Equals("Humidity", StringComparison.OrdinalIgnoreCase))
         {
             minHum = humConfig.LowAlert;

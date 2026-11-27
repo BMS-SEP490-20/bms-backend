@@ -120,47 +120,33 @@ public class ReferenceIntervalService : IReferenceIntervalService
             ? dto.Unit.Trim()
             : (criterion?.Unit ?? string.Empty);
 
-        // 2b. Chặn tạo trùng lặp: Mỗi loại Chỉ Số Xét Nghiệm chỉ có tối đa 2 khoảng tham chiếu (1 Nam, 1 Nữ) hoặc 1 khoảng chung (All)
+        // 2b. Kiểm tra trùng khoảng phân tầng (Giới tính + Khoảng tuổi + Điều kiện sinh lý) — cho phép nhiều nhóm tuổi cho cùng giới tính
         var targetGender = NormalizeGender(dto.Gender);
+        var targetCond = (dto.Condition ?? string.Empty).Trim();
+        var newMinYears = ToYears(dto.AgeMin, dto.AgeUnit);
+        var newMaxYears = ToYears(dto.AgeMax, dto.AgeUnit);
 
         var existingIntervals = await _repository.GetByCriterionCodeAsync(normalizedCode, activeOnly: false, ct);
         var activeIntervals = existingIntervals.Where(x => !x.IsDeleted && x.IsActive).ToList();
 
-        // 1. Kiểm tra xem đã có khoảng tham chiếu cho giới tính này chưa (hoặc đã có khoảng 'All', hoặc tạo 'All' khi đã có khoảng khác)
-        var duplicateGender = activeIntervals.FirstOrDefault(x =>
-            targetGender == "All" ||
-            string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
-
-        if (duplicateGender != null)
+        var overlap = activeIntervals.FirstOrDefault(x =>
         {
-            var genderVi = targetGender == "Male" ? "Nam" : targetGender == "Female" ? "Nữ" : "Chung (All)";
-            return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateGender.Id}). Mỗi loại chỉ số xét nghiệm chỉ được cấu hình tối đa 2 khoảng tham chiếu: 1 cho Nam và 1 cho Nữ.", null);
-        }
+            var genderOverlap = targetGender == "All"
+                || string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase);
+            if (!genderOverlap) return false;
 
-        // 2. Kiểm tra tổng số lượng: Tối đa 2 khoảng (1 Nam, 1 Nữ)
-        if (activeIntervals.Count >= 2)
-        {
-            return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có đủ 2 khoảng tham chiếu (1 Nam, 1 Nữ). Không thể tạo thêm khoảng tham chiếu mới cho chỉ số này (vui lòng chỉnh sửa khoảng tham chiếu hiện có thay vì tạo mới).", null);
-        }
+            var condOverlap = string.Equals((x.Condition ?? string.Empty).Trim(), targetCond, StringComparison.OrdinalIgnoreCase);
+            if (!condOverlap) return false;
 
-        if (!string.IsNullOrWhiteSpace(criterionId) && !criterionId.Equals(normalizedCode, StringComparison.OrdinalIgnoreCase))
+            var exMin = ToYears(x.AgeMin, x.AgeUnit);
+            var exMax = ToYears(x.AgeMax, x.AgeUnit);
+            return newMinYears <= exMax && exMin <= newMaxYears;
+        });
+
+        if (overlap != null)
         {
-            var byId = await _repository.GetByCriterionIdAsync(criterionId, activeOnly: false, ct);
-            var activeById = byId.Where(x => !x.IsDeleted && x.IsActive).ToList();
-            var duplicateById = activeById.FirstOrDefault(x =>
-                targetGender == "All" ||
-                string.Equals(x.Gender, targetGender, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(x.Gender, "All", StringComparison.OrdinalIgnoreCase));
-            if (duplicateById != null)
-            {
-                var genderVi = targetGender == "Male" ? "Nam" : targetGender == "Female" ? "Nữ" : "Chung (All)";
-                return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có khoảng tham chiếu cho giới tính {genderVi} (Mã: {duplicateById.Id}). Mỗi loại chỉ số xét nghiệm chỉ được cấu hình tối đa 2 khoảng tham chiếu: 1 cho Nam và 1 cho Nữ.", null);
-            }
-            if (activeById.Count >= 2)
-            {
-                return (false, $"Chỉ số xét nghiệm '{normalizedCode}' ({criterionName}) đã có đủ 2 khoảng tham chiếu (1 Nam, 1 Nữ). Không thể tạo thêm khoảng tham chiếu mới cho chỉ số này.", null);
-            }
+            return (false, $"Khoảng tham chiếu của '{normalizedCode}' bị chồng lấn nhóm nhân khẩu học với bản ghi hiện có '{overlap.DemographicLabel}' (Mã: {overlap.Id}). Vui lòng điều chỉnh khoảng tuổi/giới tính không chồng lấn hoặc cập nhật bản ghi hiện có.", null);
         }
 
         // 3. Generate demographic label if missing
@@ -603,6 +589,16 @@ public class ReferenceIntervalService : IReferenceIntervalService
         }
 
         return false;
+    }
+
+    private static double ToYears(double? value, string? unit)
+    {
+        if (!value.HasValue) return 0;
+        var u = (unit ?? "Years").Trim().ToLowerInvariant();
+        if (u.StartsWith("day") || u.Contains("ngày")) return value.Value / 365.25;
+        if (u.StartsWith("week") || u.Contains("tuần")) return value.Value / 52.14;
+        if (u.StartsWith("month") || u.Contains("tháng")) return value.Value / 12.0;
+        return value.Value;
     }
 
     private static string NormalizeGender(string? gender)

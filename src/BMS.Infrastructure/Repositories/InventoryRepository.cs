@@ -105,6 +105,7 @@ public sealed class InventoryRepository : IInventoryRepository
         var revision = expectedRevision == 0 ? f.Or(f.Eq(x => x.Revision, 0), f.Exists("revision", false)) : f.Eq(x => x.Revision, expectedRevision);
         var update = Builders<Reagent>.Update.Set(x => x.Name, item.Name).Set(x => x.Manufacturer, item.Manufacturer)
             .Set(x => x.Quantity, item.Quantity).Set(x => x.MinimumStock, item.MinimumStock).Set(x => x.ExpiryDate, item.ExpiryDate)
+            .Set(x => x.OpenedDate, item.OpenedDate).Set(x => x.StorageCondition, item.StorageCondition).Set(x => x.ImportBatchNumber, item.ImportBatchNumber)
             .Inc(x => x.Revision, 1).Push(x => x.Changes, change);
         return _reagents.FindOneAndUpdateAsync(f.Eq(x => x.Id, item.Id) & f.Ne(x => x.IsDeleted, true) & revision, update,
             new FindOneAndUpdateOptions<Reagent> { ReturnDocument = ReturnDocument.After }, ct)!;

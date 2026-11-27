@@ -86,6 +86,8 @@ namespace BMS.Application.Services
             RoomLocation = r.RoomLocation,
             RoomType = r.RoomType,
             IsAvailable = r.IsAvailable,
+            AssignedEquipment = r.AssignedEquipment,
+            TechnicianInCharge = r.TechnicianInCharge,
             CreatedAt = r.CreatedAt
         };
     }

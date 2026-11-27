@@ -58,6 +58,12 @@ public class TestResultNotificationService : ITestResultNotificationService
             return (false, "Thông tin bệnh nhân (Mã và Họ tên) là bắt buộc.", null);
         }
 
+        // Workflow 9 sync: hệ thống không sử dụng kênh SMS (chỉ Email + In-App/Push)
+        if (dto.Channel == TestResultNotificationChannel.Sms)
+        {
+            return (false, "Hệ thống không hỗ trợ gửi thông báo qua SMS (theo phạm vi Workflow 9 chỉ dùng Email và Thông báo ứng dụng).", null);
+        }
+
         // =====================================================================
         // RULE 1: Only notify if test result is APPROVED by Doctor in test_results (ISO 15189:2022)
         // =====================================================================

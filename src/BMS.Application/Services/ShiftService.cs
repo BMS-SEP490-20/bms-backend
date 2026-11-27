@@ -111,6 +111,12 @@ public sealed class ShiftService(
                 $"Nhân sự '{rawEmpId}' không tồn tại trong hệ thống.");
         }
 
+        if (account != null && account.RoleId == (int)UserRole.Admin)
+        {
+            throw new ForbiddenAccessException(
+                "Quản lý không có quyền phân ca trực hoặc thao tác trên tài khoản Quản trị viên hệ thống (Admin).");
+        }
+
         if (account != null && (!account.IsActive || account.Status != (int)UserStatus.Active))
         {
             throw new DomainValidationException(
@@ -125,6 +131,11 @@ public sealed class ShiftService(
         var resolvedEmployeeRole = !string.IsNullOrWhiteSpace(request.EmployeeRole)
             ? request.EmployeeRole.Trim()
             : (doctor != null ? "Doctor" : ResolveAccountRoleName(account));
+        if (string.Equals(RoleNames.Normalize(resolvedEmployeeRole), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ForbiddenAccessException(
+                "Quản lý không có quyền phân ca trực hoặc thao tác trên tài khoản Quản trị viên hệ thống (Admin).");
+        }
         var resolvedDepartment = !string.IsNullOrWhiteSpace(request.Department)
             ? request.Department.Trim()
             : doctor?.Specialty ?? (resolvedEmployeeRole.StartsWith("Lab", StringComparison.OrdinalIgnoreCase) ? "Laboratory" : "Clinical");
@@ -257,6 +268,15 @@ public sealed class ShiftService(
                 $"Số lượng bệnh nhân tối đa ({request.MaxPatients}) không được nhỏ hơn số lượng bệnh nhân đã đặt lịch hiện tại ({existing.CurrentPatientsCount}).");
         }
 
+        // Guard: Manager cannot modify shifts belonging to an Admin account
+        var (_, existingAccount) = await shiftRepository.ResolveEmployeeAsync(existing.DoctorId, ct);
+        if (existingAccount?.RoleId == (int)UserRole.Admin
+            || string.Equals(RoleNames.Normalize(existing.EmployeeRole), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ForbiddenAccessException(
+                "Quản lý không có quyền chỉnh sửa ca trực thuộc tài khoản Quản trị viên hệ thống (Admin).");
+        }
+
         // Resolve Employee / Doctor assignment
         var rawEmpId = request.EffectiveEmployeeId;
         var (doctor, account) = await shiftRepository.ResolveEmployeeAsync(rawEmpId, ct);
@@ -265,6 +285,12 @@ public sealed class ShiftService(
             throw new DomainValidationException(
                 "STAFF_NOT_FOUND",
                 $"Nhân sự '{rawEmpId}' không tồn tại trong hệ thống.");
+        }
+
+        if (account != null && account.RoleId == (int)UserRole.Admin)
+        {
+            throw new ForbiddenAccessException(
+                "Quản lý không có quyền phân ca trực hoặc thao tác trên tài khoản Quản trị viên hệ thống (Admin).");
         }
 
         if (account != null && (!account.IsActive || account.Status != (int)UserStatus.Active))
@@ -281,6 +307,11 @@ public sealed class ShiftService(
         var resolvedEmployeeRole = !string.IsNullOrWhiteSpace(request.EmployeeRole)
             ? request.EmployeeRole.Trim()
             : (doctor != null ? "Doctor" : existing.EmployeeRole ?? ResolveAccountRoleName(account));
+        if (string.Equals(RoleNames.Normalize(resolvedEmployeeRole), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ForbiddenAccessException(
+                "Quản lý không có quyền phân ca trực hoặc thao tác trên tài khoản Quản trị viên hệ thống (Admin).");
+        }
         var resolvedDepartment = !string.IsNullOrWhiteSpace(request.Department)
             ? request.Department.Trim()
             : doctor?.Specialty ?? existing.Department ?? "Clinical";
@@ -382,6 +413,14 @@ public sealed class ShiftService(
     {
         var existing = await shiftRepository.GetByIdAsync(id, ct)
                        ?? throw new ShiftNotFoundException(id);
+
+        var (_, existingAccount) = await shiftRepository.ResolveEmployeeAsync(existing.DoctorId, ct);
+        if (existingAccount?.RoleId == (int)UserRole.Admin
+            || string.Equals(RoleNames.Normalize(existing.EmployeeRole), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ForbiddenAccessException(
+                "Quản lý không có quyền xóa ca trực thuộc tài khoản Quản trị viên hệ thống (Admin).");
+        }
 
         var now = clock.GetUtcNow().UtcDateTime;
 

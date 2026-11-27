@@ -403,13 +403,18 @@ public class DashboardService : IDashboardService
                 long checkins = 0;
                 long waitingQueue = 0;
                 long walkins = 0;
+                decimal paymentsCollectedToday = 0m;
+                var vnOffset = TimeSpan.FromHours(7);
+                var todayStartUtc = (DateTime.UtcNow + vnOffset).Date - vnOffset;
 
                 if (_appointmentsCol != null)
                 {
                     try
                     {
-                        checkins = await _appointmentsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Ne("check_in_time", BsonNull.Value));
-                        waitingQueue = await _appointmentsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Eq("status", "Waiting"));
+                        checkins = await _appointmentsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.Ne("check_in_time", BsonNull.Value),
+                            Builders<BsonDocument>.Filter.Gte("check_in_time", todayStartUtc)));
+                        waitingQueue = await _appointmentsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.In("status", new[] { "Waiting", "CheckedIn" }));
                     }
                     catch { }
                 }
@@ -426,19 +431,35 @@ public class DashboardService : IDashboardService
                     catch { }
                 }
 
+                if (_invoicesCol != null)
+                {
+                    try
+                    {
+                        var paidToday = await _invoicesCol.Find(Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.In("status", new BsonValue[] { 1, "Paid" }),
+                            Builders<BsonDocument>.Filter.Gte("created_at", todayStartUtc))).ToListAsync();
+                        foreach (var inv in paidToday)
+                        {
+                            if (inv.TryGetValue("total_amount", out var amt) && !amt.IsBsonNull)
+                                paymentsCollectedToday += amt.ToDecimal();
+                        }
+                    }
+                    catch { }
+                }
+
                 stats.SummaryCards = new List<StatCardDto>
                 {
-                    new() { Key = "checkins", Title = "Bệnh nhân đã check-in", Value = checkins > 0 ? checkins.ToString() : "0", Icon = "qr-code-scan", ColorVariant = "success", Subtitle = "Hôm nay" },
-                    new() { Key = "waiting_queue", Title = "Số đang chờ gọi", Value = waitingQueue > 0 ? waitingQueue.ToString() : "0", Icon = "people", ColorVariant = "primary", Subtitle = "Tại sảnh tiếp đón" },
-                    new() { Key = "walkins", Title = "Khách vãng lai (Guest)", Value = walkins > 0 ? walkins.ToString() : "0", Icon = "person-plus", ColorVariant = "info", Subtitle = "Đã tạo hồ sơ" },
-                    new() { Key = "collected", Title = "Thu ngân tiếp nhận", Value = "Hoạt động", Icon = "cash-coin", ColorVariant = "warning", Subtitle = "VNPay & Tiền mặt" }
+                    new() { Key = "checkins", Title = "Bệnh nhân đã check-in", Value = checkins.ToString(), Icon = "qr-code-scan", ColorVariant = "success", Subtitle = "Hôm nay" },
+                    new() { Key = "waiting_queue", Title = "Số đang chờ gọi", Value = waitingQueue.ToString(), Icon = "people", ColorVariant = "primary", Subtitle = "Tại sảnh tiếp đón" },
+                    new() { Key = "walkins", Title = "Khách vãng lai", Value = walkins.ToString(), Icon = "person-plus", ColorVariant = "info", Subtitle = "Đã tạo hồ sơ" },
+                    new() { Key = "collected", Title = "Thu phí hôm nay", Value = $"{paymentsCollectedToday:N0} đ", Icon = "cash-coin", ColorVariant = "warning", Subtitle = "VietQR & Tiền mặt" }
                 };
                 stats.ReceptionistData = new ReceptionistDashboardData
                 {
                     CheckInsToday = (int)checkins,
                     WaitingQueueCount = (int)waitingQueue,
                     TotalWalkIns = (int)walkins,
-                    PaymentsCollectedToday = 0
+                    PaymentsCollectedToday = paymentsCollectedToday
                 };
                 break;
             }
@@ -446,14 +467,20 @@ public class DashboardService : IDashboardService
             case "manager":
             default:
             {
-                long totalOrders = 0;
+                long totalOrdersToday = 0;
                 long totalSamples = 0;
+                decimal revenueToday = 0m;
+                double avgTatMinutes = 0;
+                int activeAlertsCount = 0;
+                double latestColdTemp = 0;
+                var vnOffset = TimeSpan.FromHours(7);
+                var todayStartUtc = (DateTime.UtcNow + vnOffset).Date - vnOffset;
 
                 if (_appointmentsCol != null)
                 {
                     try
                     {
-                        totalOrders = await _appointmentsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty);
+                        totalOrdersToday = await _appointmentsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Gte("created_at", todayStartUtc));
                     }
                     catch { }
                 }
@@ -463,24 +490,70 @@ public class DashboardService : IDashboardService
                     try
                     {
                         totalSamples = await _samplesCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty);
+                        var completedSamples = await _samplesCol.Find(Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.Ne("completed_at", BsonNull.Value),
+                            Builders<BsonDocument>.Filter.Ne("collected_at", BsonNull.Value))).Limit(200).ToListAsync();
+                        var tats = new List<double>();
+                        foreach (var sDoc in completedSamples)
+                        {
+                            if (sDoc.TryGetValue("collected_at", out var cAt) && cAt.IsValidDateTime &&
+                                sDoc.TryGetValue("completed_at", out var dAt) && dAt.IsValidDateTime)
+                            {
+                                var mins = (dAt.ToUniversalTime() - cAt.ToUniversalTime()).TotalMinutes;
+                                if (mins >= 0) tats.Add(mins);
+                            }
+                        }
+                        if (tats.Count > 0) avgTatMinutes = Math.Round(tats.Average(), 1);
+                    }
+                    catch { }
+                }
+
+                if (_invoicesCol != null)
+                {
+                    try
+                    {
+                        var paidToday = await _invoicesCol.Find(Builders<BsonDocument>.Filter.And(
+                            Builders<BsonDocument>.Filter.In("status", new BsonValue[] { 1, "Paid" }),
+                            Builders<BsonDocument>.Filter.Gte("created_at", todayStartUtc))).ToListAsync();
+                        foreach (var inv in paidToday)
+                        {
+                            if (inv.TryGetValue("total_amount", out var amt) && !amt.IsBsonNull)
+                                revenueToday += amt.ToDecimal();
+                        }
+                    }
+                    catch { }
+                }
+
+                if (_iotLogsCol != null)
+                {
+                    try
+                    {
+                        var latestLog = await _iotLogsCol.Find(Builders<BsonDocument>.Filter.Empty)
+                            .Sort(Builders<BsonDocument>.Sort.Descending("timestamp"))
+                            .Limit(1).FirstOrDefaultAsync();
+                        if (latestLog != null && latestLog.TryGetValue("temperature", out var tempVal) && !tempVal.IsBsonNull)
+                            latestColdTemp = Math.Round(tempVal.ToDouble(), 1);
+
+                        var alertsCol = _iotLogsCol.Database.GetCollection<BsonDocument>("iot_alerts");
+                        activeAlertsCount = (int)await alertsCol.CountDocumentsAsync(Builders<BsonDocument>.Filter.Nin("status", new[] { "Resolved", "Closed" }));
                     }
                     catch { }
                 }
 
                 stats.SummaryCards = new List<StatCardDto>
                 {
-                    new() { Key = "total_orders", Title = "Tổng lượt khám & xét nghiệm", Value = totalOrders.ToString(), Icon = "clipboard-data", ColorVariant = "primary", Subtitle = "Dữ liệu thời gian thực" },
-                    new() { Key = "samples", Title = "Tổng mẫu bệnh phẩm", Value = totalSamples.ToString(), Icon = "vial", ColorVariant = "success", Subtitle = "Đã tiếp nhận toàn viện" },
-                    new() { Key = "tat", Title = "Thời gian trả kết quả (TAT)", Value = "< 60 phút", Icon = "stopwatch", ColorVariant = "info", Subtitle = "Mục tiêu chuẩn ISO 15189" },
-                    new() { Key = "iot_alert", Title = "Cảnh báo nhiệt độ tủ IoT", Value = "Ổn định (2°C - 8°C)", Icon = "thermometer-half", ColorVariant = "success", Subtitle = "Cảm biến ESP32" }
+                    new() { Key = "total_orders", Title = "Lượt khám hôm nay", Value = totalOrdersToday.ToString(), Icon = "clipboard-data", ColorVariant = "primary", Subtitle = $"Doanh thu: {revenueToday:N0} đ" },
+                    new() { Key = "samples", Title = "Tổng mẫu bệnh phẩm", Value = totalSamples.ToString(), Icon = "vial", ColorVariant = "success", Subtitle = "Dữ liệu thực MongoDB" },
+                    new() { Key = "tat", Title = "TAT trung bình thực tế", Value = avgTatMinutes > 0 ? $"{avgTatMinutes} phút" : "Chưa có mẫu xong", Icon = "stopwatch", ColorVariant = "info", Subtitle = "Đo từ Lấy mẫu → Hoàn tất" },
+                    new() { Key = "iot_alert", Title = "Giám sát nhiệt độ IoT", Value = latestColdTemp > 0 ? $"{latestColdTemp}°C ({activeAlertsCount} CB)" : $"{activeAlertsCount} cảnh báo mở", Icon = "thermometer-half", ColorVariant = activeAlertsCount > 0 ? "danger" : "success", Subtitle = "Dữ liệu cảm biến thực" }
                 };
                 stats.ManagerData = new ManagerDashboardData
                 {
-                    TotalOrdersToday = (int)totalOrders,
-                    RevenueToday = 0,
-                    AverageTatMinutes = 42,
-                    ActiveAlertsCount = 0,
-                    ColdStorageTemperature = 3.8
+                    TotalOrdersToday = (int)totalOrdersToday,
+                    RevenueToday = revenueToday,
+                    AverageTatMinutes = avgTatMinutes,
+                    ActiveAlertsCount = activeAlertsCount,
+                    ColdStorageTemperature = latestColdTemp
                 };
                 break;
             }

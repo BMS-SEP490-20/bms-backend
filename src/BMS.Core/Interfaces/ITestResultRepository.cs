@@ -36,6 +36,12 @@ namespace BMS.Core.Interfaces
         /// <summary>Returns all results of one appointment / test order.</summary>
         Task<IReadOnlyList<TestResult>> GetByAppointmentIdAsync(string appointmentId, CancellationToken ct = default);
 
+        /// <summary>Returns all non-deleted analysis runs for one sample (newest first).</summary>
+        Task<IReadOnlyList<TestResult>> GetBySampleKeysAsync(IReadOnlyCollection<string> sampleKeys, CancellationToken ct = default);
+
+        /// <summary>Marks prior analysis runs of a sample as superseded when a new rerun result is created.</summary>
+        Task MarkSupersededAsync(IReadOnlyCollection<string> resultIds, CancellationToken ct = default);
+
         /// <summary>
         /// Updates only the attending doctor's clinical consultation fields (diagnosis, conclusion, treatment advice, follow-up)
         /// without modifying laboratory measurements, status, or digital signature.

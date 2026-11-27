@@ -91,6 +91,7 @@ namespace BMS.Api.Controllers.Laboratory
         /// <response code="200">If the room was created successfully.</response>
         /// <response code="400">If the provided model state is invalid.</response>
         /// <response code="500">If an unhandled server error occurs (standard error body, no internal details).</response>
+        [Authorize(Roles = RoleNames.Admin)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateLabRoomDto dto, CancellationToken ct)
         {
@@ -111,6 +112,7 @@ namespace BMS.Api.Controllers.Laboratory
         /// <response code="200">If the room was updated successfully.</response>
         /// <response code="404">If the target room cannot be found.</response>
         /// <response code="500">If an unhandled server error occurs (standard error body, no internal details).</response>
+        [Authorize(Roles = RoleNames.Admin)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] UpdateLabRoomDto dto, CancellationToken ct)
         {
@@ -128,6 +130,7 @@ namespace BMS.Api.Controllers.Laboratory
         /// <response code="200">If the room was deleted successfully.</response>
         /// <response code="404">If the room to delete was not found.</response>
         /// <response code="500">If an unhandled server error occurs (standard error body, no internal details).</response>
+        [Authorize(Roles = RoleNames.Admin)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {

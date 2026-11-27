@@ -115,7 +115,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Tạo tiêu chí xét nghiệm mới.
     /// </summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPost]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -172,7 +172,7 @@ public class TestCriteriaController : ControllerBase
     /// <summary>
     /// Cập nhật tiêu chí xét nghiệm.
     /// </summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPut("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<TestCriterionResponseDto>),
@@ -229,7 +229,7 @@ public class TestCriteriaController : ControllerBase
     /// Ngừng kích hoạt tiêu chí xét nghiệm,
     /// không xóa dữ liệu lịch sử.
     /// </summary>
-    [Authorize(Roles = RoleSets.AdminOrManager)]
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpDelete("{id}")]
     [ProducesResponseType(
         typeof(ApiResponse<object>),

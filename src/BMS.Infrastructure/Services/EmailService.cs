@@ -618,4 +618,85 @@ public class EmailService : IEmailService
         </html>
         """;
     }
+
+    public async Task<bool> SendIotAlertEmailAsync(
+        string toEmail,
+        string recipientName,
+        string deviceId,
+        string deviceName,
+        string location,
+        string sensorType,
+        double observedValue,
+        string unit,
+        double lowAlert,
+        double highAlert,
+        string severity,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(toEmail) ||
+            string.IsNullOrWhiteSpace(_emailSettings.SenderEmail) ||
+            string.IsNullOrWhiteSpace(_emailSettings.AppPassword))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var client = new SmtpClient(_emailSettings.SmtpServer, _emailSettings.Port)
+            {
+                Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.AppPassword),
+                EnableSsl = _emailSettings.EnableSsl,
+                Timeout = 15000
+            };
+
+            var senderDisplayName = !string.IsNullOrWhiteSpace(_emailSettings.SenderName)
+                ? _emailSettings.SenderName
+                : "Hệ Thống Giám Sát Chuỗi Lạnh BMS";
+
+            var html = $"""
+            <!DOCTYPE html>
+            <html lang="vi">
+            <body style="font-family:Segoe UI,Arial,sans-serif;background:#f8fafc;padding:20px;color:#0f172a;">
+              <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #fecaca;overflow:hidden;">
+                <div style="background:#dc2626;color:#fff;padding:18px 22px;">
+                  <h2 style="margin:0;font-size:18px;">CẢNH BÁO CHUỖI LẠNH IOT [{severity}]</h2>
+                  <p style="margin:4px 0 0;font-size:13px;opacity:0.9;">Tiêu chuẩn ISO 15189 · Yêu cầu kiểm tra mẫu máu &amp; ký CAPA</p>
+                </div>
+                <div style="padding:20px 22px;font-size:14px;line-height:1.6;">
+                  <p>Kính gửi <strong>{WebUtility.HtmlEncode(recipientName)}</strong>,</p>
+                  <p>Thiết bị cảm biến <strong>{WebUtility.HtmlEncode(deviceName)}</strong> (<code>{WebUtility.HtmlEncode(deviceId)}</code>) tại <strong>{WebUtility.HtmlEncode(location)}</strong> vừa ghi nhận chỉ số vượt ngưỡng an toàn:</p>
+                  <table style="width:100%;border-collapse:collapse;background:#fef2f2;border-radius:8px;margin:14px 0;">
+                    <tr><td style="padding:8px 12px;color:#64748b;">Loại cảm biến</td><td style="padding:8px 12px;font-weight:700;">{WebUtility.HtmlEncode(sensorType)}</td></tr>
+                    <tr><td style="padding:8px 12px;color:#64748b;">Giá trị đo được</td><td style="padding:8px 12px;font-weight:700;color:#dc2626;">{observedValue:F1}{WebUtility.HtmlEncode(unit)}</td></tr>
+                    <tr><td style="padding:8px 12px;color:#64748b;">Ngưỡng an toàn</td><td style="padding:8px 12px;font-weight:700;">{lowAlert:F1} – {highAlert:F1}{WebUtility.HtmlEncode(unit)}</td></tr>
+                    <tr><td style="padding:8px 12px;color:#64748b;">Thời điểm (UTC)</td><td style="padding:8px 12px;">{DateTime.UtcNow:dd/MM/yyyy HH:mm:ss}</td></tr>
+                  </table>
+                  <p>Vui lòng truy cập BMS để tiếp nhận xử lý, đánh giá tác động mẫu bệnh phẩm và hoàn tất biên bản CAPA.</p>
+                </div>
+              </div>
+            </body>
+            </html>
+            """;
+
+            using var mail = new MailMessage
+            {
+                From = new MailAddress(_emailSettings.SenderEmail, senderDisplayName, System.Text.Encoding.UTF8),
+                Subject = $"[BMS IoT {severity}] Cảnh báo vượt ngưỡng {deviceId}: {observedValue:F1}{unit}",
+                SubjectEncoding = System.Text.Encoding.UTF8,
+                BodyEncoding = System.Text.Encoding.UTF8,
+                IsBodyHtml = true,
+                Body = html
+            };
+            mail.To.Add(toEmail);
+
+            await client.SendMailAsync(mail, ct);
+            _logger.LogInformation("[BMS Email Service] Delivered IoT alert email for {DeviceId} to {Recipient}", deviceId, toEmail);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[BMS Email Service] Failed to send IoT alert email to {Recipient}", toEmail);
+            return false;
+        }
+    }
 }

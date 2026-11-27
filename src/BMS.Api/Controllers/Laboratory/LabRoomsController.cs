@@ -33,14 +33,17 @@ public class LabRoomsController : ControllerBase
     public async Task<IActionResult> GetLabRooms(CancellationToken ct = default)
     {
         var collection = _database.GetCollection<BsonDocument>("lab_rooms");
-        var docs = await collection.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync(ct);
+        var notDeleted = Builders<BsonDocument>.Filter.Ne("is_deleted", true)
+            & Builders<BsonDocument>.Filter.Ne("IsDeleted", true)
+            & Builders<BsonDocument>.Filter.Ne("isDeleted", true);
+        var docs = await collection.Find(notDeleted).ToListAsync(ct);
         var rooms = docs.Select(d => new
         {
-            id = d.GetValue("_id", "").AsString,
-            roomCode = d.Contains("room_code") ? d["room_code"].AsString : d.GetValue("_id", "").AsString,
-            name = d.Contains("room_name") ? d["room_name"].AsString : "",
-            floor = d.Contains("floor") ? d["floor"].AsString : "",
-            accessLevel = d.Contains("access_level") ? d["access_level"].AsString : ""
+            id = d.Contains("_id") && !d["_id"].IsBsonNull ? d["_id"].ToString()! : "",
+            roomCode = d.Contains("room_code") && !d["room_code"].IsBsonNull ? d["room_code"].ToString()! : (d.Contains("_id") ? d["_id"].ToString()! : ""),
+            name = d.Contains("room_name") && !d["room_name"].IsBsonNull ? d["room_name"].ToString()! : "",
+            floor = d.Contains("floor") && !d["floor"].IsBsonNull ? d["floor"].ToString()! : "",
+            accessLevel = d.Contains("access_level") && !d["access_level"].IsBsonNull ? d["access_level"].ToString()! : ""
         }).ToList();
 
         return Ok(new

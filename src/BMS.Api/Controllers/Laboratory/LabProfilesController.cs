@@ -36,6 +36,7 @@ public sealed class LabProfilesController(ILabProfileService service) : Controll
         => Ok(await service.AccountsAsync(search, page, pageSize, ct));
 
     /// <summary>Creates professional details for an existing account, without altering credentials.</summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPost]
     public async Task<IActionResult> Create(CreateLabProfileDto input, CancellationToken ct)
     {
@@ -43,11 +44,13 @@ public sealed class LabProfilesController(ILabProfileService service) : Controll
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
     /// <summary>Updates professional details with optimistic concurrency; account identity cannot change.</summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, UpdateLabProfileDto input, CancellationToken ct)
         => Ok(await service.UpdateAsync(id, input, Actor(), ct));
 
     /// <summary>Archives a profile with audit, preserving its account and historical assignments.</summary>
+    [Authorize(Roles = RoleNames.Admin)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, [FromBody] DeleteLabProfileDto input, CancellationToken ct)
     {

@@ -17,6 +17,7 @@ public sealed class ShiftRepository : IShiftRepository
     private readonly IMongoCollection<DoctorShift> _shifts;
     private readonly IMongoCollection<Doctor> _doctors;
     private readonly IMongoCollection<User> _accounts;
+    private readonly IMongoCollection<BsonDocument> _rawAccounts;
     private readonly IMongoCollection<DoctorRoom> _doctorRooms;
     private readonly IMongoCollection<BsonDocument> _labRooms;
     private readonly IMongoCollection<BsonDocument> _appointments;
@@ -26,6 +27,7 @@ public sealed class ShiftRepository : IShiftRepository
         _shifts = db.GetCollection<DoctorShift>("doctor_shifts");
         _doctors = db.GetCollection<Doctor>("doctors");
         _accounts = db.GetCollection<User>("accounts");
+        _rawAccounts = db.GetCollection<BsonDocument>("accounts");
         _doctorRooms = db.GetCollection<DoctorRoom>("doctor_rooms");
         _labRooms = db.GetCollection<BsonDocument>("lab_rooms");
         _appointments = db.GetCollection<BsonDocument>("appointments");
@@ -271,6 +273,13 @@ public sealed class ShiftRepository : IShiftRepository
                 var rType = labRoom.TryGetValue("room_type", out var rt) && rt.IsString ? rt.AsString : null;
                 return (rName, trimmed, rType, null);
             }
+
+            if (trimmed.Equals("QUAY-01", StringComparison.OrdinalIgnoreCase))
+                return ("Quầy Tiếp Đón 01 (Sảnh Tầng 1)", "QUAY-01", "Tầng 1", null);
+            if (trimmed.Equals("QUAY-02", StringComparison.OrdinalIgnoreCase))
+                return ("Quầy Thu Ngân & Bàn Giao (Sảnh Tầng 1)", "QUAY-02", "Tầng 1", null);
+            if (trimmed.Equals("QUAY-03", StringComparison.OrdinalIgnoreCase))
+                return ("Quầy Điều Phối Hàng Đợi (Sảnh Tầng 1)", "QUAY-03", "Tầng 1", null);
         }
         catch
         {
@@ -469,6 +478,33 @@ public sealed class ShiftRepository : IShiftRepository
         return result;
     }
 
+    private static string? ReadBsonStr(BsonDocument doc, params string[] keys)
+    {
+        foreach (var k in keys)
+        {
+            if (doc.TryGetValue(k, out var val) && !val.IsBsonNull)
+            {
+                var s = val.IsString ? val.AsString : val.ToString();
+                if (!string.IsNullOrWhiteSpace(s)) return s.Trim();
+            }
+        }
+        return null;
+    }
+
+    private static int? ReadBsonInt(BsonDocument doc, params string[] keys)
+    {
+        foreach (var k in keys)
+        {
+            if (doc.TryGetValue(k, out var val) && !val.IsBsonNull)
+            {
+                if (val.IsInt32) return val.AsInt32;
+                if (val.IsInt64) return (int)val.AsInt64;
+                if (int.TryParse(val.ToString(), out var n)) return n;
+            }
+        }
+        return null;
+    }
+
     public async Task<IReadOnlyList<ShiftStaffDto>> GetAllStaffAsync(CancellationToken ct = default)
     {
         var result = new Dictionary<string, ShiftStaffDto>(StringComparer.OrdinalIgnoreCase);
@@ -490,45 +526,76 @@ public sealed class ShiftRepository : IShiftRepository
                 };
             }
 
-            var uf = Builders<User>.Filter;
-            var staffAccounts = await _accounts
-                .Find(uf.And(
-                    uf.Or(
-                        uf.In("RoleId", new[] { 1, 2, 3, 4, 6 }), uf.In("roleId", new[] { 1, 2, 3, 4, 6 })
+            var fb = Builders<BsonDocument>.Filter;
+            var activeFilter = fb.And(
+                fb.Ne("isDeleted", true),
+                fb.Ne("is_deleted", true),
+                fb.Ne("isActive", false),
+                fb.Ne("Status", 0),
+                fb.Ne("status", 0));
 
-                    ),
-                    uf.Ne(u => u.IsDeleted, true)))
-                .ToListAsync(ct);
+            var rawDocs = await _rawAccounts.Find(activeFilter).ToListAsync(ct);
 
-            foreach (var a in staffAccounts)
+            foreach (var doc in rawDocs)
             {
-                if (string.IsNullOrWhiteSpace(a.Id)) continue;
-                var rId = a.RoleId ?? 2;
-                if (rId == 5 || rId < 1 || rId > 6) continue;
-                var roleName = RoleNames.FromRoleId(rId) ?? "Doctor";
-                var defaultDept = rId switch
+                var id = doc.TryGetValue("_id", out var idVal) && !idVal.IsBsonNull ? idVal.ToString()?.Trim() : null;
+                if (string.IsNullOrWhiteSpace(id)) continue;
+
+                // Resolve canonical role safely: prefer explicit role string if valid, else fall back to RoleId
+                var rawRoleStr = ReadBsonStr(doc, "role", "Role");
+                var normalizedRole = RoleNames.Normalize(rawRoleStr);
+                var rawRoleId = ReadBsonInt(doc, "roleId", "RoleId", "role_id");
+                var effectiveRole = normalizedRole ?? RoleNames.FromRoleId(rawRoleId);
+                var effectiveRoleId = RoleNames.ToRoleId(effectiveRole) ?? rawRoleId ?? 0;
+
+                // Strictly exclude System Admin (1) and Patient (5) from shift rostering
+                if (string.IsNullOrWhiteSpace(effectiveRole)
+                    || effectiveRoleId is 1 or 5
+                    || effectiveRoleId < 2
+                    || effectiveRoleId > 6
+                    || effectiveRole.Equals(RoleNames.Admin, StringComparison.OrdinalIgnoreCase)
+                    || effectiveRole.Equals(RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var username = ReadBsonStr(doc, "username", "Username") ?? id;
+                var fullName = ReadBsonStr(doc, "fullName", "FullName", "full_name") ?? username;
+                var empCode = ReadBsonStr(doc, "employeeCode", "EmployeeCode", "employee_code");
+                var dept = ReadBsonStr(doc, "department", "Department", "specialty", "Specialty");
+                var assignedRoom = ReadBsonStr(doc, "assignedRoom", "AssignedRoom", "assigned_room");
+                var license = ReadBsonStr(doc, "licenseNumber", "LicenseNumber");
+
+                var defaultDept = effectiveRoleId switch
                 {
                     2 => "Khoa Khám Bệnh",
                     3 or 6 => "Khoa Xét Nghiệm",
                     4 => "Bộ Phận Tiếp Đón",
-                    _ => "Quản Trị Vận Hành"
+                    _ => "Vận Hành Lâm Sàng"
                 };
 
-                if (result.TryGetValue(a.Id, out var existing))
+                if (result.TryGetValue(id, out var existing))
                 {
-                    existing.Username = !string.IsNullOrWhiteSpace(a.Username) ? a.Username : existing.Username;
-                    if (string.IsNullOrWhiteSpace(existing.FullName)) existing.FullName = a.FullName;
+                    existing.Username = username;
+                    if (string.IsNullOrWhiteSpace(existing.FullName)) existing.FullName = fullName;
+                    if (!string.IsNullOrWhiteSpace(empCode)) existing.EmployeeCode = empCode;
+                    if (!string.IsNullOrWhiteSpace(assignedRoom)) existing.AssignedRoom = assignedRoom;
+                    if (string.IsNullOrWhiteSpace(existing.LicenseNumber) && !string.IsNullOrWhiteSpace(license)) existing.LicenseNumber = license;
+                    if (string.IsNullOrWhiteSpace(existing.Department) && !string.IsNullOrWhiteSpace(dept)) existing.Department = dept;
                 }
                 else
                 {
-                    result[a.Id] = new ShiftStaffDto
+                    result[id] = new ShiftStaffDto
                     {
-                        Id = a.Id,
-                        Username = !string.IsNullOrWhiteSpace(a.Username) ? a.Username : a.Id,
-                        FullName = !string.IsNullOrWhiteSpace(a.FullName) ? a.FullName : a.Username,
-                        Role = roleName,
-                        RoleId = rId,
-                        Department = defaultDept
+                        Id = id,
+                        Username = username,
+                        FullName = fullName,
+                        EmployeeCode = empCode,
+                        Role = effectiveRole,
+                        RoleId = effectiveRoleId,
+                        Department = !string.IsNullOrWhiteSpace(dept) ? dept : defaultDept,
+                        AssignedRoom = assignedRoom,
+                        LicenseNumber = license
                     };
                 }
             }

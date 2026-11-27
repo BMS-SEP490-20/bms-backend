@@ -125,6 +125,13 @@ public class ReceiptService : IReceiptService
 
     public async Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken ct = default)
     {
+        if (request.Items == null || request.Items.Count == 0)
+            throw new InvalidOperationException("Hóa đơn phải có ít nhất 1 dịch vụ.");
+        if (request.Items.Any(x => x.Quantity <= 0 || x.UnitPrice < 0))
+            throw new InvalidOperationException("Số lượng phải lớn hơn 0 và đơn giá không được âm.");
+        if (request.DiscountAmount < 0)
+            throw new InvalidOperationException("Số tiền miễn giảm không được âm.");
+
         var subTotal = request.Items.Sum(x => x.TotalPrice);
         var total = Math.Max(0, subTotal - request.DiscountAmount);
 
@@ -160,6 +167,10 @@ public class ReceiptService : IReceiptService
         if (invoice.Status == InvoiceStatus.Paid)
         {
             return invoice; // Already paid
+        }
+        if (invoice.Status is InvoiceStatus.Voided or InvoiceStatus.Refunded or InvoiceStatus.PartiallyRefunded)
+        {
+            throw new InvalidOperationException($"Không thể thu tiền cho hóa đơn đang ở trạng thái '{invoice.Status}'.");
         }
 
         invoice.Status = InvoiceStatus.Paid;

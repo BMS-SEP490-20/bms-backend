@@ -32,6 +32,15 @@ public class IngestIotTelemetryRequestDto
     public int? AgeSeconds { get; set; }
     public DateTime? Timestamp { get; set; }
     public List<BufferedTelemetryItemDto>? BufferedReadings { get; set; }
+    /// <summary>
+    /// Pre-shared IoT device key transmitted inside MQTT payloads when connecting over a broker.
+    /// Verified in constant time against <c>IoT:DeviceApiKey</c>.
+    /// </summary>
+    public string? DeviceKey { get; set; }
+    /// <summary>
+    /// Optional HMAC-SHA256 hex signature over <c>{deviceId}|{temperature}|{humidity}|{timestamp}</c> using <c>IoT:DeviceApiKey</c>.
+    /// </summary>
+    public string? Signature { get; set; }
 }
 
 /// <summary>

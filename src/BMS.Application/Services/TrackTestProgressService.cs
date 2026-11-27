@@ -830,15 +830,15 @@ public class TrackTestProgressService : ITrackTestProgressService
             Notes = step4Notes
         });
 
-        // Step 5: MEDICAL_REVIEW
+        // Step 5: MEDICAL_REVIEW — CHỈ hoàn thành khi Bác sĩ đã thực sự thẩm định/ký duyệt kết quả (không bật sớm khi Lab mới nhập xong)
         bool isApprovedResult = result != null &&
+            !result.IsSuperseded &&
             (string.Equals(result.Status, "Approved", StringComparison.OrdinalIgnoreCase) ||
              result.ValidationStatus == ResultValidationStatus.DoctorApproved ||
              !string.IsNullOrWhiteSpace(result.DigitalSignature));
 
         bool step5Done = isApprovedResult
-            || (order != null && order.Status == TestOrderStatus.Completed)
-            || (sample != null && (sample.Status == SampleStatus.Completed || sample.CompletedAt.HasValue));
+            || (order != null && order.Status == TestOrderStatus.Completed);
 
         var step5Status = step5Done
             ? TrackingStepStatus.Completed

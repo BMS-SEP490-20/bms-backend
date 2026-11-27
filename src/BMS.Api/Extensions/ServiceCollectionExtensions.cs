@@ -86,6 +86,20 @@ public static class ServiceCollectionExtensions
                     NameClaimType = "name",
                     RoleClaimType = "role"
                 };
+                o.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        // Allow SignalR WebSocket/SSE clients to pass JWT via ?access_token=
+                        var accessToken = context.Request.Query["access_token"];
+                        var path = context.HttpContext.Request.Path;
+                        if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                        {
+                            context.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
             });
 
         // WHY (TIEU-CHI R4, decision 18): default-deny. Any endpoint without its own [Authorize]/[AllowAnonymous]

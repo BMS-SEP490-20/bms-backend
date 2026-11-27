@@ -107,16 +107,42 @@ public class AlertsController : ControllerBase
         });
     }
 
+    private (string UserId, string OperatorName) ResolveAuthenticatedOperator()
+    {
+        var userId = User.FindFirst("sub")?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? string.Empty;
+
+        var operatorName = User.FindFirst("fullName")?.Value
+            ?? User.FindFirst("full_name")?.Value
+            ?? User.FindFirst("name")?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
+            ?? User.FindFirst("unique_name")?.Value
+            ?? User.FindFirst("email")?.Value
+            ?? User.Identity?.Name
+            ?? userId;
+
+        return (userId, string.IsNullOrWhiteSpace(operatorName) ? "Nhân viên BMS" : operatorName.Trim());
+    }
+
     /// <summary>
-    /// Acknowledges an active alert, logging operator ownership.
+    /// Acknowledges an active alert, logging operator ownership strictly from JWT identity.
     /// </summary>
     [Authorize(Roles = RoleSets.LabOrManager)]
     [HttpPut("{id}/acknowledge")]
-    public async Task<IActionResult> AcknowledgeAlert(string id, [FromBody] AcknowledgeAlertRequestDto request, CancellationToken ct)
+    public async Task<IActionResult> AcknowledgeAlert(string id, [FromBody] AcknowledgeAlertRequestDto? request, CancellationToken ct)
     {
         try
         {
-            var updated = await _alertService.AcknowledgeAlertAsync(id, request, ct);
+            var (userId, operatorName) = ResolveAuthenticatedOperator();
+            var verifiedRequest = new AcknowledgeAlertRequestDto
+            {
+                OperatorName = operatorName,
+                OperatorUserId = userId,
+                Notes = request?.Notes
+            };
+
+            var updated = await _alertService.AcknowledgeAlertAsync(id, verifiedRequest, ct);
             return Ok(new
             {
                 success = true,
@@ -135,20 +161,29 @@ public class AlertsController : ControllerBase
     }
 
     /// <summary>
-    /// Resolves an alert, documenting corrective actions taken to restore environmental safety.
+    /// Resolves an alert after mandatory ISO 15189 specimen-impact evaluation and CAPA documentation.
+    /// Operator identity is enforced strictly from JWT claims.
     /// </summary>
     [Authorize(Roles = RoleNames.Manager)]
     [HttpPut("{id}/resolve")]
-    public async Task<IActionResult> ResolveAlert(string id, [FromBody] ResolveAlertRequestDto request, CancellationToken ct)
+    public async Task<IActionResult> ResolveAlert(string id, [FromBody] ResolveAlertRequestDto? request, CancellationToken ct)
     {
         try
         {
-            var resolved = await _alertService.ResolveAlertAsync(id, request, ct);
+            var (userId, operatorName) = ResolveAuthenticatedOperator();
+            var verifiedRequest = new ResolveAlertRequestDto
+            {
+                OperatorName = operatorName,
+                OperatorUserId = userId,
+                ResolutionNotes = request?.ResolutionNotes ?? string.Empty
+            };
+
+            var resolved = await _alertService.ResolveAlertAsync(id, verifiedRequest, ct);
             return Ok(new
             {
                 success = true,
                 data = resolved,
-                message = $"Đã hoàn tất khắc phục sự cố cho cảnh báo '{id}'."
+                message = $"Đã hoàn tất biên bản CAPA và đóng cảnh báo '{id}'."
             });
         }
         catch (KeyNotFoundException ex)

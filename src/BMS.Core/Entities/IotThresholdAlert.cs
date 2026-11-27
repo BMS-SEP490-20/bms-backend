@@ -92,14 +92,40 @@ public class IotThresholdAlert
     [BsonElement("acknowledged_by")]
     public string? AcknowledgedBy { get; set; }
 
+    [BsonElement("acknowledged_by_user_id")]
+    [BsonIgnoreIfNull]
+    public string? AcknowledgedByUserId { get; set; }
+
     [BsonElement("resolved_at")]
     public DateTime? ResolvedAt { get; set; }
 
     [BsonElement("resolved_by")]
     public string? ResolvedBy { get; set; }
 
+    [BsonElement("resolved_by_user_id")]
+    [BsonIgnoreIfNull]
+    public string? ResolvedByUserId { get; set; }
+
     [BsonElement("resolution_notes")]
     public string? ResolutionNotes { get; set; }
+
+    /// <summary>
+    /// ISO 15189 CAPA: indicates sensor reading returned to safe band while alert remains OPEN
+    /// pending mandatory human specimen-impact evaluation and CAPA sign-off.
+    /// </summary>
+    [BsonElement("temperature_recovered")]
+    public bool TemperatureRecovered { get; set; }
+
+    [BsonElement("recovered_at")]
+    [BsonIgnoreIfNull]
+    public DateTime? RecoveredAt { get; set; }
+
+    [BsonElement("recovered_value")]
+    [BsonIgnoreIfNull]
+    public double? RecoveredValue { get; set; }
+
+    [BsonElement("capa_required")]
+    public bool CapaRequired { get; set; } = true;
 
     [BsonElement("notification_channels_dispatched")]
     public List<string> NotificationChannelsDispatched { get; set; } = new();

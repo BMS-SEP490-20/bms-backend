@@ -822,6 +822,15 @@ public class TestResultsController : ControllerBase
         var status = ReadString(doc, "status");
         if (string.IsNullOrWhiteSpace(status)) status = "Approved";
         var isApproved = IsResultApproved(doc);
+        DateTime? createdAt = null;
+        foreach (var k in new[] { "created_at", "createdAt", "recorded_at", "recordedAt", "updated_at", "updatedAt" })
+        {
+            if (doc.Contains(k) && doc[k].IsBsonDateTime)
+            {
+                createdAt = doc[k].ToUniversalTime();
+                break;
+            }
+        }
 
         return new
         {
@@ -850,6 +859,7 @@ public class TestResultsController : ControllerBase
             version = version,
             parentResultId = parentResultId,
             digitalSignature = string.IsNullOrWhiteSpace(digitalSignature) ? null : digitalSignature,
+            createdAt = createdAt,
             approvedAt = approvedAt,
             approvingDoctorName = string.IsNullOrWhiteSpace(approvingDoctorName) ? null : approvingDoctorName,
             icd10Code = string.IsNullOrWhiteSpace(icd10Code) ? null : icd10Code,
@@ -967,6 +977,9 @@ public class TestResultsController : ControllerBase
         }
 
         string barcode = sampleId;
+        string tubeColor = "Purple";
+        string samplePkgName = "";
+        DateTime? sampleTime = null;
         if (_samplesCol != null && !string.IsNullOrWhiteSpace(sampleId))
         {
             var sDoc = await _samplesCol.Find(Builders<BsonDocument>.Filter.Or(
@@ -977,25 +990,113 @@ public class TestResultsController : ControllerBase
             {
                 barcode = ReadString(sDoc, "barcode");
                 if (string.IsNullOrWhiteSpace(barcode)) barcode = sampleId;
+                var tc = ReadString(sDoc, "tube_color", "tubeColor");
+                if (!string.IsNullOrWhiteSpace(tc)) tubeColor = tc;
+                samplePkgName = ReadString(sDoc, "test_package_name", "testPackageName");
+                if (string.IsNullOrWhiteSpace(packageId))
+                    packageId = ReadString(sDoc, "packageId", "package_id", "test_package_code", "testPackageCode");
+                foreach (var tk in new[] { "completed_at", "completedAt", "updated_at", "updatedAt", "collected_at", "collectedAt" })
+                {
+                    if (sDoc.Contains(tk) && sDoc[tk].IsBsonDateTime)
+                    {
+                        sampleTime = sDoc[tk].ToUniversalTime();
+                        break;
+                    }
+                }
             }
         }
+        if (string.IsNullOrWhiteSpace(packageName) && !string.IsNullOrWhiteSpace(samplePkgName))
+            packageName = samplePkgName;
+
+        // Summarize parameter counts & abnormal/PANIC flags for list triage
+        var resultIdStr = d["_id"].AsString;
+        int totalParameters = 0;
+        int abnormalCount = 0;
+        int panicCount = 0;
+        var abnormalCodes = new List<string>();
+
+        if (d.Contains("items") && d["items"].IsBsonArray)
+        {
+            foreach (var itemVal in d["items"].AsBsonArray)
+            {
+                if (!itemVal.IsBsonDocument) continue;
+                var itemDoc = itemVal.AsBsonDocument;
+                totalParameters++;
+                var code = ReadString(itemDoc, "criterionCode", "code", "abbreviation", "criterionId");
+                var normFlag = NormalizeFlag(MapResultFlag(itemDoc.Contains("flag") ? itemDoc["flag"] : null));
+                var isPanicParam = normFlag.Contains("PANIC", StringComparison.OrdinalIgnoreCase);
+                var isAbnParam = isPanicParam || normFlag != "NORMAL";
+                if (isPanicParam) panicCount++;
+                if (isAbnParam)
+                {
+                    abnormalCount++;
+                    if (!string.IsNullOrWhiteSpace(code)) abnormalCodes.Add(code);
+                }
+            }
+        }
+        if (totalParameters == 0 && _paramsCol != null)
+        {
+            var paramDocs = await _paramsCol.Find(Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("result_id", resultIdStr),
+                Builders<BsonDocument>.Filter.Eq("resultId", resultIdStr)
+            )).ToListAsync();
+            foreach (var p in paramDocs)
+            {
+                totalParameters++;
+                var code = ReadString(p, "code", "criterionCode", "abbreviation");
+                var normFlag = NormalizeFlag(MapResultFlag(p.Contains("flag") ? p["flag"] : null));
+                var isPanicParam = normFlag.Contains("PANIC", StringComparison.OrdinalIgnoreCase);
+                var isAbnParam = isPanicParam || (p.Contains("is_abnormal") && p["is_abnormal"].IsBoolean) || normFlag != "NORMAL";
+                if (isPanicParam) panicCount++;
+                if (isAbnParam)
+                {
+                    abnormalCount++;
+                    if (!string.IsNullOrWhiteSpace(code)) abnormalCodes.Add(code);
+                }
+            }
+        }
+        var docIsPanic = (d.Contains("is_panic") && d["is_panic"].IsBoolean && d["is_panic"].AsBoolean)
+                      || (d.Contains("isPanic") && d["isPanic"].IsBoolean && d["isPanic"].AsBoolean);
+        if (docIsPanic && panicCount == 0) panicCount = 1;
+
+        DateTime? createdAt = null;
+        foreach (var tk in new[] { "created_at", "createdAt", "recorded_at", "recordedAt", "updated_at", "updatedAt" })
+        {
+            if (d.Contains(tk) && d[tk].IsBsonDateTime)
+            {
+                createdAt = d[tk].ToUniversalTime();
+                break;
+            }
+        }
+        createdAt ??= sampleTime;
+
+        var analysisRun = d.Contains("analysis_run") && d["analysis_run"].IsInt32 ? d["analysis_run"].AsInt32
+                        : (d.Contains("analysisRun") && d["analysisRun"].IsInt32 ? d["analysisRun"].AsInt32 : 1);
 
         var isApproved = IsResultApproved(d);
 
         return new
         {
-            id = d["_id"].AsString,
-            resultId = d["_id"].AsString,
+            id = resultIdStr,
+            resultId = resultIdStr,
             sampleId = sampleId,
             orderId = orderId,
             barcode = barcode,
+            tubeColor = tubeColor,
             packageId = packageId,
             packageName = packageName,
             patientId = patientId,
             patientName = patientName,
             status = d.Contains("status") ? d["status"].AsString : (isApproved ? "Approved" : "Entered"),
             isOfficialRelease = isApproved,
+            analysisRun = analysisRun,
+            isPanic = panicCount > 0,
+            totalParameters = totalParameters,
+            abnormalCount = abnormalCount,
+            panicCount = panicCount,
+            abnormalCodes = abnormalCodes,
             conclusion = d.Contains("conclusion_notes") && !d["conclusion_notes"].IsBsonNull ? d["conclusion_notes"].AsString : "",
+            createdAt = createdAt,
             approvedAt = d.Contains("approved_at") && d["approved_at"].IsBsonDateTime ? d["approved_at"].ToUniversalTime() : (DateTime?)null
         };
     }

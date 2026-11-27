@@ -9,25 +9,39 @@ using BMS.Application.Interfaces;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace BMS.Application.Services;
 
 /// <summary>
-/// Production Implementation of IoT Environmental Threshold Violation &amp; Incident Escalation Service (UC68).
-/// Enforces cold-chain safety boundaries, multi-channel alerting, and corrective action workflows (BR-IOT-01, BR-IOT-02).
+/// ISO 15189 Compliant Implementation of IoT Environmental Threshold Violation &amp; Incident Escalation Service (UC68).
+/// - Zero hardcoded/fake seed alerts or fake metrics (100% backed by MongoDB <c>iot_alerts</c>).
+/// - Never auto-resolves alerts when temperature returns to safe band; instead flags <c>TemperatureRecovered</c>
+///   and keeps the alert OPEN until authorized staff evaluate blood specimen impact and document CAPA.
+/// - Dispatches real In-App notifications (<c>notifications</c> collection), real SignalR broadcasts,
+///   and real SMTP alert emails (recording ONLY channels that were actually dispatched).
 /// </summary>
 public class IotAlertService : IIotAlertService
 {
+    private static readonly string[] LegacyHardcodedSeedIds =
+    [
+        "ALERT-20261023-001",
+        "ALERT-20261023-002",
+        "ALERT-20261023-003"
+    ];
+
     private readonly IMongoDatabase? _database;
     private readonly IMongoCollection<IotThresholdAlert>? _alertsCollection;
     private readonly IIotThresholdRepository? _thresholdRepository;
+    private readonly INotificationRepository? _notificationRepository;
+    private readonly IEmailService? _emailService;
+    private readonly IIotRealtimeNotifier? _realtimeNotifier;
     private readonly ILogger<IotAlertService> _logger;
 
-    // Concurrent in-memory storage for high-frequency sensor readings & zero-downtime offline tests
-    private static readonly ConcurrentDictionary<string, IotThresholdAlert> _alerts = new(
-        InitializeSeedAlerts().ToDictionary(a => a.Id, a => a)
-    );
+    // In-memory live cache hydrated purely from MongoDB (starts empty — ZERO fake seed rows!)
+    private static readonly ConcurrentDictionary<string, IotThresholdAlert> _alerts = new(StringComparer.OrdinalIgnoreCase);
+    private static volatile bool _legacySeedCleaned;
 
     // Tracks start of continuous threshold violation per (DeviceId:SensorType) for BR-IOT-02 5-minute escalation
     private static readonly ConcurrentDictionary<string, DateTime> _continuousViolationStart = new(StringComparer.OrdinalIgnoreCase);
@@ -35,11 +49,17 @@ public class IotAlertService : IIotAlertService
     public IotAlertService(
         ILogger<IotAlertService> logger,
         IMongoDatabase? database = null,
-        IIotThresholdRepository? thresholdRepository = null)
+        IIotThresholdRepository? thresholdRepository = null,
+        INotificationRepository? notificationRepository = null,
+        IEmailService? emailService = null,
+        IIotRealtimeNotifier? realtimeNotifier = null)
     {
         _logger = logger;
         _database = database;
         _thresholdRepository = thresholdRepository;
+        _notificationRepository = notificationRepository;
+        _emailService = emailService;
+        _realtimeNotifier = realtimeNotifier;
 
         if (_database != null)
         {
@@ -49,7 +69,7 @@ public class IotAlertService : IIotAlertService
             }
             catch
             {
-                // Fallback to in-memory dictionary if MongoDB is unavailable
+                // Fallback if MongoDB is unavailable during unit tests
             }
         }
     }
@@ -61,6 +81,8 @@ public class IotAlertService : IIotAlertService
             throw new ArgumentException("Thông tin telemetry không hợp lệ hoặc thiếu mã thiết bị.", nameof(reading));
         }
 
+        await SyncFromMongoIfAvailableAsync(ct);
+
         var (low, high, deviceName, location, unit) = await ResolveDeviceThresholdsAsync(reading.DeviceId, reading.SensorType);
         var violationKey = $"{reading.DeviceId}:{reading.SensorType}";
         var now = reading.Timestamp ?? DateTime.UtcNow;
@@ -71,21 +93,32 @@ public class IotAlertService : IIotAlertService
         {
             _continuousViolationStart.TryRemove(violationKey, out _);
 
-            if (reading.DeviceId.StartsWith("BMS-IOT", StringComparison.OrdinalIgnoreCase))
-            {
-                var activeToResolve = _alerts.Values
-                    .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
-                             && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
-                             && a.Status != IotAlertStatus.Resolved)
-                    .ToList();
+            // ISO 15189 CAPA Compliance:
+            // Do NOT auto-resolve open alerts! Mark TemperatureRecovered = true and keep status OPEN
+            // until authorized staff assess specimen damage and sign CAPA resolution notes.
+            var openAlerts = _alerts.Values
+                .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
+                         && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
+                         && a.Status != IotAlertStatus.Resolved)
+                .ToList();
 
-                foreach (var resolvedAlert in activeToResolve)
+            foreach (var openAlert in openAlerts)
+            {
+                if (!openAlert.TemperatureRecovered)
                 {
-                    resolvedAlert.Status = IotAlertStatus.Resolved;
-                    resolvedAlert.ResolvedAt = DateTime.UtcNow;
-                    resolvedAlert.ResolvedBy = "Hệ Thống IoT Tự Động";
-                    resolvedAlert.ResolutionNotes = $"Chỉ số {reading.SensorType} ({reading.Value:F1}{unit}) đã nằm trong ngưỡng an toàn ({low:F1} - {high:F1}{unit}).";
-                    await PersistAlertToMongoAsync(resolvedAlert, ct);
+                    openAlert.TemperatureRecovered = true;
+                    openAlert.RecoveredAt = now;
+                    openAlert.RecoveredValue = reading.Value;
+                    var recoveryNote = $"[Hồi phục cảm biến {now:dd/MM HH:mm} UTC]: Chỉ số {reading.SensorType} đã trở về dải an toàn ({reading.Value:F1}{unit}). Chờ nhân sự đánh giá tác động mẫu máu & hoàn tất CAPA trước khi đóng cảnh báo (ISO 15189).";
+                    openAlert.ResolutionNotes = string.IsNullOrWhiteSpace(openAlert.ResolutionNotes)
+                        ? recoveryNote
+                        : $"{openAlert.ResolutionNotes}\n{recoveryNote}";
+
+                    await PersistAlertToMongoAsync(openAlert, ct);
+                    if (_realtimeNotifier != null)
+                    {
+                        await _realtimeNotifier.BroadcastAlertAsync("RecoveredPendingCapa", MapToDto(openAlert), ct);
+                    }
                 }
             }
 
@@ -94,7 +127,9 @@ public class IotAlertService : IIotAlertService
                 IsViolation = false,
                 ExcursionAmount = 0,
                 Severity = null,
-                Message = $"Chỉ số cảm biến {reading.SensorType} của {reading.DeviceId} đạt chuẩn an toàn ({reading.Value:F1}{unit}).",
+                Message = openAlerts.Count > 0
+                    ? $"Chỉ số cảm biến {reading.SensorType} của {reading.DeviceId} đã về dải an toàn ({reading.Value:F1}{unit}), nhưng vẫn còn {openAlerts.Count} cảnh báo chờ đóng CAPA (ISO 15189)."
+                    : $"Chỉ số cảm biến {reading.SensorType} của {reading.DeviceId} đạt chuẩn an toàn ({reading.Value:F1}{unit}).",
                 Alert = null
             };
         }
@@ -113,41 +148,33 @@ public class IotAlertService : IIotAlertService
             severity = IotAlertSeverity.Danger_Emergency;
         }
 
-        var channels = new List<string> { "InApp", "Push" };
-        if (severity >= IotAlertSeverity.Critical)
-        {
-            channels.Add("SMS");
-            channels.Add("Email");
-        }
-
-        // For real-time hardware devices (e.g. BMS-IOT-001 sending every 5s), update existing active alert within 60s window
-        // to avoid flooding thousands of duplicate rows while preserving instant escalation.
-        IotThresholdAlert? existingActive = null;
-        if (reading.DeviceId.StartsWith("BMS-IOT", StringComparison.OrdinalIgnoreCase))
-        {
-            existingActive = _alerts.Values
-                .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
-                         && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
-                         && a.Status == IotAlertStatus.Active
-                         && (now - a.TriggeredAt).TotalMinutes < 30)
-                .OrderByDescending(a => a.TriggeredAt)
-                .FirstOrDefault();
-        }
+        // Deduplicate high-frequency readings for the same open alert while preserving escalation
+        var existingOpen = _alerts.Values
+            .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
+                     && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
+                     && a.Status == IotAlertStatus.Active
+                     && (now - a.TriggeredAt).TotalMinutes < 30)
+            .OrderByDescending(a => a.TriggeredAt)
+            .FirstOrDefault();
 
         IotThresholdAlert alert;
-        if (existingActive != null)
+        bool shouldDispatchNotifications;
+
+        if (existingOpen != null)
         {
-            existingActive.ObservedValue = reading.Value;
-            existingActive.LowAlert = low;
-            existingActive.HighAlert = high;
-            existingActive.ExcursionAmount = excursion;
-            if (severity > existingActive.Severity)
+            bool escalated = severity > existingOpen.Severity;
+            existingOpen.ObservedValue = reading.Value;
+            existingOpen.LowAlert = low;
+            existingOpen.HighAlert = high;
+            existingOpen.ExcursionAmount = excursion;
+            existingOpen.TemperatureRecovered = false;
+            if (escalated)
             {
-                existingActive.Severity = severity;
+                existingOpen.Severity = severity;
             }
-            existingActive.NotificationChannelsDispatched = channels;
-            existingActive.DurationMinutes = Math.Max(continuousMinutes, Math.Round((now - existingActive.TriggeredAt).TotalMinutes, 1));
-            alert = existingActive;
+            existingOpen.DurationMinutes = Math.Max(continuousMinutes, Math.Round((now - existingOpen.TriggeredAt).TotalMinutes, 1));
+            alert = existingOpen;
+            shouldDispatchNotifications = escalated;
         }
         else
         {
@@ -166,16 +193,33 @@ public class IotAlertService : IIotAlertService
                 Severity = severity,
                 Status = IotAlertStatus.Active,
                 TriggeredAt = now,
-                NotificationChannelsDispatched = channels,
+                TemperatureRecovered = false,
+                CapaRequired = true,
+                NotificationChannelsDispatched = new List<string>(),
                 DurationMinutes = continuousMinutes
             };
+            shouldDispatchNotifications = true;
+        }
+
+        if (shouldDispatchNotifications)
+        {
+            var realChannels = await DispatchRealAlertNotificationsAsync(alert, ct);
+            foreach (var ch in realChannels)
+            {
+                if (!alert.NotificationChannelsDispatched.Contains(ch, StringComparer.OrdinalIgnoreCase))
+                {
+                    alert.NotificationChannelsDispatched.Add(ch);
+                }
+            }
         }
 
         _alerts[alert.Id] = alert;
         await PersistAlertToMongoAsync(alert, ct);
 
-        _logger.LogWarning("BÁO ĐỘNG VƯỢT NGƯỠNG IOT [{Severity}]: Thiết bị {DeviceId} ({DeviceName}) ghi nhận {Value}{Unit} (Ngưỡng an toàn: {Low} - {High}{Unit}).",
-            severity, alert.DeviceId, alert.DeviceName, alert.ObservedValue, alert.Unit, alert.LowAlert, alert.HighAlert, alert.Unit);
+        _logger.LogWarning(
+            "BÁO ĐỘNG VƯỢT NGƯỠNG IOT [{Severity}]: Thiết bị {DeviceId} ({DeviceName}) ghi nhận {Value}{Unit} (Ngưỡng an toàn: {Low} - {High}{Unit}). Kênh gửi thật: [{Channels}].",
+            alert.Severity, alert.DeviceId, alert.DeviceName, alert.ObservedValue, alert.Unit, alert.LowAlert, alert.HighAlert, alert.Unit,
+            string.Join(", ", alert.NotificationChannelsDispatched));
 
         return new ThresholdEvaluationResultDto
         {
@@ -223,23 +267,23 @@ public class IotAlertService : IIotAlertService
             query = query.Where(a => a.TriggeredAt <= parameters.ToDate.Value);
         }
 
-        var results = query
+        return query
             .OrderByDescending(a => a.Status == IotAlertStatus.Active)
+            .ThenByDescending(a => a.Status == IotAlertStatus.Acknowledged)
             .ThenByDescending(a => a.Severity)
             .ThenByDescending(a => a.TriggeredAt)
             .Select(MapToDto)
             .ToList();
-
-        return results;
     }
 
     public async Task<IotAlertDto?> GetAlertByIdAsync(string alertId, CancellationToken ct = default)
     {
+        await SyncFromMongoIfAvailableAsync(ct);
         if (_alerts.TryGetValue(alertId, out var alert))
         {
             return MapToDto(alert);
         }
-        return await Task.FromResult<IotAlertDto?>(null);
+        return null;
     }
 
     public async Task<IotAlertSummaryDto> GetAlertSummaryAsync(CancellationToken ct = default)
@@ -252,13 +296,19 @@ public class IotAlertService : IIotAlertService
         var acknowledged = all.Count(a => a.Status == IotAlertStatus.Acknowledged);
 
         var today = DateTime.UtcNow.Date;
-        var resolvedToday = all.Where(a => a.Status == IotAlertStatus.Resolved && a.ResolvedAt.HasValue && a.ResolvedAt.Value.Date == today).ToList();
+        var resolvedToday = all
+            .Where(a => a.Status == IotAlertStatus.Resolved && a.ResolvedAt.HasValue && a.ResolvedAt.Value.Date == today)
+            .ToList();
+        var allResolved = all.Where(a => a.Status == IotAlertStatus.Resolved && a.DurationMinutes > 0).ToList();
 
-        double avgResolution = resolvedToday.Count > 0 ? resolvedToday.Average(a => a.DurationMinutes) : 18.5;
+        // 100% real average resolution duration — ZERO hardcoded fallback like 18.5!
+        double avgResolution = resolvedToday.Count > 0
+            ? resolvedToday.Average(a => a.DurationMinutes)
+            : (allResolved.Count > 0 ? allResolved.Average(a => a.DurationMinutes) : 0.0);
 
         string healthStatus = "NORMAL";
         if (critical > 0) healthStatus = "CRITICAL";
-        else if (active.Count > 0) healthStatus = "WARNING";
+        else if (active.Count > 0 || acknowledged > 0) healthStatus = "WARNING";
 
         return new IotAlertSummaryDto
         {
@@ -278,6 +328,7 @@ public class IotAlertService : IIotAlertService
             throw new ArgumentException("Họ tên nhân viên tiếp nhận không được để trống.", nameof(request));
         }
 
+        await SyncFromMongoIfAvailableAsync(ct);
         if (!_alerts.TryGetValue(alertId, out var alert))
         {
             throw new KeyNotFoundException($"Không tìm thấy cảnh báo với mã '{alertId}'.");
@@ -285,18 +336,28 @@ public class IotAlertService : IIotAlertService
 
         alert.Status = IotAlertStatus.Acknowledged;
         alert.AcknowledgedAt = DateTime.UtcNow;
-        alert.AcknowledgedBy = request.OperatorName;
+        alert.AcknowledgedBy = request.OperatorName.Trim();
+        alert.AcknowledgedByUserId = string.IsNullOrWhiteSpace(request.OperatorUserId) ? null : request.OperatorUserId.Trim();
+
         if (!string.IsNullOrWhiteSpace(request.Notes))
         {
-            alert.ResolutionNotes = $"[Tiếp nhận]: {request.Notes}";
+            var noteLine = $"[Tiếp nhận - {alert.AcknowledgedBy}]: {request.Notes.Trim()}";
+            alert.ResolutionNotes = string.IsNullOrWhiteSpace(alert.ResolutionNotes)
+                ? noteLine
+                : $"{alert.ResolutionNotes}\n{noteLine}";
         }
 
         await PersistAlertToMongoAsync(alert, ct);
+        var dto = MapToDto(alert);
+        if (_realtimeNotifier != null)
+        {
+            await _realtimeNotifier.BroadcastAlertAsync("Acknowledged", dto, ct);
+        }
 
-        _logger.LogInformation("Nhân viên {Operator} đã tiếp nhận cảnh báo IoT {AlertId} ({DeviceId}).",
-            request.OperatorName, alert.Id, alert.DeviceId);
+        _logger.LogInformation("Nhân viên {Operator} (UID={UserId}) đã tiếp nhận cảnh báo IoT {AlertId} ({DeviceId}).",
+            alert.AcknowledgedBy, alert.AcknowledgedByUserId, alert.Id, alert.DeviceId);
 
-        return MapToDto(alert);
+        return dto;
     }
 
     public async Task<IotAlertDto> ResolveAlertAsync(string alertId, ResolveAlertRequestDto request, CancellationToken ct = default)
@@ -306,11 +367,12 @@ public class IotAlertService : IIotAlertService
             throw new ArgumentException("Họ tên nhân viên xử lý không được để trống.", nameof(request));
         }
 
-        if (string.IsNullOrWhiteSpace(request?.ResolutionNotes))
+        if (string.IsNullOrWhiteSpace(request?.ResolutionNotes) || request.ResolutionNotes.Trim().Length < 10)
         {
-            throw new ArgumentException("Bắt buộc ghi chú biện pháp khắc phục sự cố (Resolution notes).", nameof(request));
+            throw new ArgumentException("Bắt buộc ghi rõ biên bản đánh giá mẫu máu & biện pháp khắc phục CAPA tối thiểu 10 ký tự (ISO 15189).", nameof(request));
         }
 
+        await SyncFromMongoIfAvailableAsync(ct);
         if (!_alerts.TryGetValue(alertId, out var alert))
         {
             throw new KeyNotFoundException($"Không tìm thấy cảnh báo với mã '{alertId}'.");
@@ -319,17 +381,24 @@ public class IotAlertService : IIotAlertService
         var now = DateTime.UtcNow;
         alert.Status = IotAlertStatus.Resolved;
         alert.ResolvedAt = now;
-        alert.ResolvedBy = request.OperatorName;
-        alert.ResolutionNotes = request.ResolutionNotes;
-        alert.DurationMinutes = Math.Max(1.0, Math.Round((now - alert.TriggeredAt).TotalMinutes, 1));
+        alert.ResolvedBy = request.OperatorName.Trim();
+        alert.ResolvedByUserId = string.IsNullOrWhiteSpace(request.OperatorUserId) ? null : request.OperatorUserId.Trim();
+        alert.ResolutionNotes = request.ResolutionNotes.Trim();
+        alert.DurationMinutes = Math.Max(0.1, Math.Round((now - alert.TriggeredAt).TotalMinutes, 1));
 
         _continuousViolationStart.TryRemove($"{alert.DeviceId}:{alert.SensorType}", out _);
         await PersistAlertToMongoAsync(alert, ct);
 
-        _logger.LogInformation("Cảnh báo IoT {AlertId} ({DeviceId}) đã được xử lý xong bởi {Operator}. Ghi chú: {Notes}.",
-            alert.Id, alert.DeviceId, request.OperatorName, request.ResolutionNotes);
+        var dto = MapToDto(alert);
+        if (_realtimeNotifier != null)
+        {
+            await _realtimeNotifier.BroadcastAlertAsync("Resolved", dto, ct);
+        }
 
-        return MapToDto(alert);
+        _logger.LogInformation("Cảnh báo IoT {AlertId} ({DeviceId}) đã đóng CAPA bởi {Operator} (UID={UserId}). Ghi chú: {Notes}.",
+            alert.Id, alert.DeviceId, alert.ResolvedBy, alert.ResolvedByUserId, alert.ResolutionNotes);
+
+        return dto;
     }
 
     public async Task<IotAlertDto> TriggerSimulatedAlertAsync(SimulateAlertRequestDto request, CancellationToken ct = default)
@@ -359,9 +428,14 @@ public class IotAlertService : IIotAlertService
             Severity = severity,
             Status = IotAlertStatus.Active,
             TriggeredAt = DateTime.UtcNow,
-            NotificationChannelsDispatched = new List<string> { "Push", "InApp", "SMS", "Email" },
+            TemperatureRecovered = false,
+            CapaRequired = true,
+            NotificationChannelsDispatched = new List<string>(),
             DurationMinutes = 0
         };
+
+        var realChannels = await DispatchRealAlertNotificationsAsync(alert, ct);
+        alert.NotificationChannelsDispatched = realChannels;
 
         _alerts[alert.Id] = alert;
         await PersistAlertToMongoAsync(alert, ct);
@@ -369,7 +443,132 @@ public class IotAlertService : IIotAlertService
         return MapToDto(alert);
     }
 
-    #region Helpers
+    #region Real Notification Dispatch & Persistence Helpers
+
+    private async Task<List<string>> DispatchRealAlertNotificationsAsync(IotThresholdAlert alert, CancellationToken ct)
+    {
+        var dispatched = new List<string>();
+        var title = $"Cảnh báo IoT [{alert.SeverityString}]: {alert.DeviceId} ({alert.ObservedValue:F1}{alert.Unit})";
+        var message = $"Tủ/Thiết bị {alert.DeviceName} tại {alert.Location} ghi nhận {alert.SensorType} = {alert.ObservedValue:F1}{alert.Unit} (Ngưỡng an toàn: {alert.LowAlert:F1} – {alert.HighAlert:F1}{alert.Unit}). Yêu cầu kiểm tra mẫu bệnh phẩm và hoàn tất CAPA (ISO 15189).";
+
+        // 1. Real In-App Notifications persisted to MongoDB `notifications` collection for Manager & Lab roles
+        if (_notificationRepository != null)
+        {
+            try
+            {
+                foreach (var targetRole in new[] { "Manager", "Lab" })
+                {
+                    await _notificationRepository.AddAsync(new Notification
+                    {
+                        NotificationId = $"NTF-IOT-{DateTime.UtcNow:yyyyMMddHHmmss}-{Random.Shared.Next(1000, 9999)}",
+                        UserId = "ALL",
+                        Role = targetRole,
+                        Title = title,
+                        Message = message,
+                        Type = "iot_cold_chain_alert",
+                        ReferenceId = alert.Id,
+                        IsRead = false,
+                        CreatedAt = DateTime.UtcNow
+                    }, ct);
+                }
+                dispatched.Add("InApp");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[IoT Alert] Failed to persist real InApp notification for {AlertId}", alert.Id);
+            }
+        }
+
+        // 2. Real-time SignalR push via /hubs/iot
+        if (_realtimeNotifier != null)
+        {
+            var pushed = await _realtimeNotifier.BroadcastAlertAsync("Triggered", MapToDto(alert), ct);
+            if (pushed)
+            {
+                dispatched.Add("SignalR");
+            }
+        }
+
+        // 3. Real SMTP Email dispatch for Critical / Danger_Emergency alerts in background so ESP32 HTTP/MQTT ingest stays < 50ms.
+        // "Email" is recorded in NotificationChannelsDispatched ONLY after real SMTP delivery succeeds.
+        if (_emailService != null && alert.Severity >= IotAlertSeverity.Critical && _database != null)
+        {
+            _ = DispatchAlertEmailsInBackgroundAsync(alert);
+        }
+
+        return dispatched;
+    }
+
+    private async Task DispatchAlertEmailsInBackgroundAsync(IotThresholdAlert alert)
+    {
+        if (_emailService == null || _database == null) return;
+        try
+        {
+            using var bgCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var recipients = await FindStaffAlertRecipientsAsync(bgCts.Token);
+            if (recipients.Count == 0) return;
+
+            var tasks = recipients.Select(r => _emailService.SendIotAlertEmailAsync(
+                r.Email,
+                r.FullName,
+                alert.DeviceId,
+                alert.DeviceName,
+                alert.Location,
+                alert.SensorType,
+                alert.ObservedValue,
+                alert.Unit,
+                alert.LowAlert,
+                alert.HighAlert,
+                alert.SeverityString,
+                bgCts.Token));
+
+            var results = await Task.WhenAll(tasks);
+            if (results.Any(sent => sent))
+            {
+                if (!alert.NotificationChannelsDispatched.Contains("Email", StringComparer.OrdinalIgnoreCase))
+                {
+                    alert.NotificationChannelsDispatched.Add("Email");
+                    await PersistAlertToMongoAsync(alert, CancellationToken.None);
+                    if (_realtimeNotifier != null)
+                    {
+                        await _realtimeNotifier.BroadcastAlertAsync("ChannelsUpdated", MapToDto(alert), CancellationToken.None);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[IoT Alert] Background SMTP email dispatch failed for {AlertId}", alert.Id);
+        }
+    }
+
+    private async Task<List<(string Email, string FullName)>> FindStaffAlertRecipientsAsync(CancellationToken ct)
+    {
+        var result = new List<(string Email, string FullName)>();
+        if (_database == null) return result;
+
+        try
+        {
+            var accounts = _database.GetCollection<BsonDocument>("accounts");
+            var filter = Builders<BsonDocument>.Filter.In("role", new[] { "Manager", "Lab", "Admin" });
+            var docs = await accounts.Find(filter).Limit(10).ToListAsync(ct);
+            foreach (var doc in docs)
+            {
+                var email = doc.GetValue("email", BsonNull.Value).IsString ? doc["email"].AsString : null;
+                if (string.IsNullOrWhiteSpace(email) || !email.Contains('@')) continue;
+                var fullName = doc.GetValue("full_name", BsonNull.Value).IsString
+                    ? doc["full_name"].AsString
+                    : (doc.GetValue("fullName", BsonNull.Value).IsString ? doc["fullName"].AsString : "Nhân sự Quản lý Lab");
+                result.Add((email.Trim(), fullName));
+            }
+        }
+        catch
+        {
+            // Non-fatal
+        }
+
+        return result;
+    }
 
     private async Task PersistAlertToMongoAsync(IotThresholdAlert alert, CancellationToken ct)
     {
@@ -393,9 +592,29 @@ public class IotAlertService : IIotAlertService
         if (_alertsCollection == null) return;
         try
         {
+            // Purge legacy hardcoded demo seed records if they were previously persisted
+            if (!_legacySeedCleaned)
+            {
+                _legacySeedCleaned = true;
+                var deleteFilter = Builders<IotThresholdAlert>.Filter.In(a => a.Id, LegacyHardcodedSeedIds);
+                await _alertsCollection.DeleteManyAsync(deleteFilter, ct);
+                foreach (var seedId in LegacyHardcodedSeedIds)
+                {
+                    _alerts.TryRemove(seedId, out _);
+                }
+            }
+
             var list = await _alertsCollection.Find(_ => true).Limit(200).ToListAsync(ct);
             if (list != null)
             {
+                var dbIds = new HashSet<string>(list.Select(x => x.Id), StringComparer.OrdinalIgnoreCase);
+                foreach (var key in _alerts.Keys.ToList())
+                {
+                    if (!dbIds.Contains(key))
+                    {
+                        _alerts.TryRemove(key, out _);
+                    }
+                }
                 foreach (var item in list)
                 {
                     _alerts[item.Id] = item;
@@ -412,14 +631,23 @@ public class IotAlertService : IIotAlertService
     {
         if (_thresholdRepository != null)
         {
-            var lookupId = sensorType.Equals("Humidity", StringComparison.OrdinalIgnoreCase) && deviceId.Equals("BMS-IOT-001", StringComparison.OrdinalIgnoreCase)
-                ? "BMS-IOT-001-HUM"
+            var lookupId = sensorType.Equals("Humidity", StringComparison.OrdinalIgnoreCase) && !deviceId.EndsWith("-HUM", StringComparison.OrdinalIgnoreCase)
+                ? $"{deviceId}-HUM"
                 : deviceId;
 
             var configured = await _thresholdRepository.GetThresholdByDeviceIdAsync(lookupId);
             if (configured != null && configured.SensorType.Equals(sensorType, StringComparison.OrdinalIgnoreCase))
             {
                 return (configured.LowAlert, configured.HighAlert, configured.DeviceName, configured.Location, configured.Unit);
+            }
+
+            if (lookupId != deviceId)
+            {
+                configured = await _thresholdRepository.GetThresholdByDeviceIdAsync(deviceId);
+                if (configured != null && configured.SensorType.Equals(sensorType, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (configured.LowAlert, configured.HighAlert, configured.DeviceName, configured.Location, configured.Unit);
+                }
             }
         }
 
@@ -445,9 +673,15 @@ public class IotAlertService : IIotAlertService
             TriggeredAt = alert.TriggeredAt,
             AcknowledgedAt = alert.AcknowledgedAt,
             AcknowledgedBy = alert.AcknowledgedBy,
+            AcknowledgedByUserId = alert.AcknowledgedByUserId,
             ResolvedAt = alert.ResolvedAt,
             ResolvedBy = alert.ResolvedBy,
+            ResolvedByUserId = alert.ResolvedByUserId,
             ResolutionNotes = alert.ResolutionNotes,
+            TemperatureRecovered = alert.TemperatureRecovered,
+            RecoveredAt = alert.RecoveredAt,
+            RecoveredValue = alert.RecoveredValue,
+            CapaRequired = alert.CapaRequired,
             NotificationChannelsDispatched = alert.NotificationChannelsDispatched,
             DurationMinutes = alert.Status == IotAlertStatus.Resolved
                 ? alert.DurationMinutes
@@ -496,78 +730,7 @@ public class IotAlertService : IIotAlertService
             return (36.0, 38.0, $"Tủ ấm nuôi cấy {deviceId}", "Phòng Vi Sinh", "°C");
         }
 
-        // Default: Blood storage refrigerator (2°C - 6°C)
         return (2.0, 6.0, $"Tủ lưu trữ máu {deviceId}", "Kho lạnh bảo quản tầng 1", "°C");
-    }
-
-    private static List<IotThresholdAlert> InitializeSeedAlerts()
-    {
-        var now = DateTime.UtcNow;
-        return new List<IotThresholdAlert>
-        {
-            new()
-            {
-                Id = "ALERT-20261023-001",
-                DeviceId = "TEMP-001",
-                DeviceName = "Tủ lưu trữ máu toàn phần R-01",
-                Location = "Kho lạnh bảo quản mẫu tầng 1",
-                SensorType = "Temperature",
-                Unit = "°C",
-                ObservedValue = 8.4,
-                LowAlert = 2.0,
-                HighAlert = 6.0,
-                ExcursionAmount = 2.4,
-                Severity = IotAlertSeverity.Critical,
-                Status = IotAlertStatus.Active,
-                TriggeredAt = now.AddMinutes(-35),
-                NotificationChannelsDispatched = new List<string> { "InApp", "Push", "SMS" },
-                DurationMinutes = 35
-            },
-            new()
-            {
-                Id = "ALERT-20261023-002",
-                DeviceId = "HUM-002",
-                DeviceName = "Cảm biến độ ẩm phòng phân tích sinh hóa",
-                Location = "Phòng Lab Sinh Hóa 02",
-                SensorType = "Humidity",
-                Unit = "%",
-                ObservedValue = 26.0,
-                LowAlert = 30.0,
-                HighAlert = 60.0,
-                ExcursionAmount = 4.0,
-                Severity = IotAlertSeverity.Warning,
-                Status = IotAlertStatus.Acknowledged,
-                TriggeredAt = now.AddHours(-2),
-                AcknowledgedAt = now.AddHours(-1.5),
-                AcknowledgedBy = "BS. Lê Minh Tuấn",
-                ResolutionNotes = "[Tiếp nhận]: Đã bật máy tạo ẩm phòng lab.",
-                NotificationChannelsDispatched = new List<string> { "InApp", "Push" },
-                DurationMinutes = 120
-            },
-            new()
-            {
-                Id = "ALERT-20261023-003",
-                DeviceId = "FREEZER-01",
-                DeviceName = "Tủ đông huyết tương sâu F-01",
-                Location = "Kho bảo quản chế phẩm máu",
-                SensorType = "Temperature",
-                Unit = "°C",
-                ObservedValue = -12.5,
-                LowAlert = -25.0,
-                HighAlert = -18.0,
-                ExcursionAmount = 5.5,
-                Severity = IotAlertSeverity.Danger_Emergency,
-                Status = IotAlertStatus.Resolved,
-                TriggeredAt = now.AddHours(-6),
-                AcknowledgedAt = now.AddHours(-5.8),
-                AcknowledgedBy = "KTV. Phạm Quốc Hưng",
-                ResolvedAt = now.AddHours(-5.2),
-                ResolvedBy = "KTV. Phạm Quốc Hưng",
-                ResolutionNotes = "Đã thay rơ le máy nén gas và chuyển mẫu dự phòng sang tủ F-02. Nhiệt độ đã hồi phục -21.4°C an toàn.",
-                NotificationChannelsDispatched = new List<string> { "Push", "InApp", "SMS", "Email" },
-                DurationMinutes = 48
-            }
-        };
     }
 
     #endregion

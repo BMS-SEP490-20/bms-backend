@@ -155,8 +155,8 @@ public class BackupService : IBackupService
             ChecksumSha256 = checksum,
             TotalRecords = totalRecords,
             CollectionBreakdown = breakdown,
-            EncryptionAlgorithm = "AES-256-GCM / SHA-256",
-            IsEncrypted = true,
+            EncryptionAlgorithm = "JSON / SHA-256 Integrity",
+            IsEncrypted = false,
             RetentionUntil = DateTime.UtcNow.AddDays(7), // Retention: 7 days / 7 latest backups
             Notes = dto.Notes?.Trim(),
             CreatedAt = DateTime.UtcNow,
@@ -261,9 +261,19 @@ public class BackupService : IBackupService
             };
         }
 
-        // Recalculate checksum
+        // Recalculate checksum from in-memory cache or actual archive file on disk
         string calculatedChecksum = entity.ChecksumSha256;
-        if (_inMemoryArchiveStorage.TryGetValue(entity.BackupId, out var payloadBytes))
+        byte[]? payloadBytes = null;
+        if (_inMemoryArchiveStorage.TryGetValue(entity.BackupId, out var memBytes))
+        {
+            payloadBytes = memBytes;
+        }
+        else if (!string.IsNullOrWhiteSpace(entity.FilePath) && File.Exists(entity.FilePath))
+        {
+            payloadBytes = await File.ReadAllBytesAsync(entity.FilePath, ct);
+        }
+
+        if (payloadBytes != null)
         {
             using var sha256 = SHA256.Create();
             var hash = sha256.ComputeHash(payloadBytes);

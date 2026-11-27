@@ -253,13 +253,13 @@ namespace BMS.Api.Controllers.PatientFeedback
         }
 
         /// <summary>
-        /// Deletes a feedback entry (by patient owner or Admin moderator).
+        /// Deletes a feedback entry (Patient owner only; Admin must use POST {id}/request-delete with patient consent).
         /// </summary>
-        [Authorize(Roles = RoleNames.Admin + "," + RoleNames.Patient)]
+        [Authorize(Roles = RoleNames.Patient)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
-            if (!User.IsInRole(RoleNames.Admin) && !await OwnsFeedbackAsync(id, ct))
+            if (!await OwnsFeedbackAsync(id, ct))
                 return NotFound(new { message = $"Feedback '{id}' not found." });
             var success = await _service.DeleteAsync(id, ct);
             if (!success)

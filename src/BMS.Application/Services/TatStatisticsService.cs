@@ -195,33 +195,7 @@ public class TatStatisticsService : ITatStatisticsService
             }
         }
 
-        // 2. If DB is empty or returned no items, use rich benchmark mock dataset
-        if (items.Count == 0)
-        {
-            items = _mockRecords.Select(r => new TatBenchmarkRecord
-            {
-                Id = r.Id,
-                SampleId = r.SampleId,
-                Barcode = r.Barcode,
-                PatientName = r.PatientName,
-                TestPackage = r.TestPackage,
-                Department = r.Department,
-                Priority = r.Priority,
-                LabRoom = r.LabRoom,
-                CollectedAt = r.CollectedAt,
-                ReceivedAt = r.ReceivedAt,
-                ProcessedAt = r.ProcessedAt,
-                CompletedAt = r.CompletedAt,
-                PreAnalyticalMinutes = r.PreAnalyticalMinutes,
-                AnalyticalMinutes = r.AnalyticalMinutes,
-                PostAnalyticalMinutes = r.PostAnalyticalMinutes,
-                TotalTatMinutes = r.TotalTatMinutes,
-                TargetTatMinutes = GetTargetMinutes(r.Priority, parameters),
-                IsCompliant = r.TotalTatMinutes <= GetTargetMinutes(r.Priority, parameters),
-                DelayMinutes = r.TotalTatMinutes > GetTargetMinutes(r.Priority, parameters) ? r.TotalTatMinutes - GetTargetMinutes(r.Priority, parameters) : 0,
-                TechnicianName = r.TechnicianName
-            }).ToList();
-        }
+        // 2. Real MongoDB data only — never inject hardcoded mock benchmark records (SMP-2026-901..906)
 
         // 3. Apply memory filters
         var filtered = items.AsEnumerable();
@@ -246,13 +220,36 @@ public class TatStatisticsService : ITatStatisticsService
 
     private TatSummaryStatisticsDto ComputeSummary(List<TatBenchmarkRecord> records, TatQueryParameters parameters)
     {
+        int pendingCount = 0;
+        int rejectedCount = 0;
+        if (_database != null)
+        {
+            try
+            {
+                var samplesCol = _database.GetCollection<Sample>("blood_samples");
+                pendingCount = (int)samplesCol.CountDocuments(Builders<Sample>.Filter.In(s => s.Status,
+                    new[]
+                    {
+                        SampleStatus.PendingCollection,
+                        SampleStatus.Collected,
+                        SampleStatus.InTransit,
+                        SampleStatus.Received,
+                        SampleStatus.Processing,
+                        SampleStatus.Testing,
+                        SampleStatus.RerunRequested
+                    }));
+                rejectedCount = (int)samplesCol.CountDocuments(Builders<Sample>.Filter.Eq(s => s.Status, SampleStatus.Rejected));
+            }
+            catch { }
+        }
+
         if (records.Count == 0)
         {
             return new TatSummaryStatisticsDto
             {
                 TotalCompletedTests = 0,
-                TotalPendingTests = 0,
-                TotalRejectedCount = 0,
+                TotalPendingTests = pendingCount,
+                TotalRejectedCount = rejectedCount,
                 AverageTatMinutes = 0,
                 AverageTatFormatted = "0m",
                 MedianTatMinutes = 0,
@@ -295,8 +292,8 @@ public class TatStatisticsService : ITatStatisticsService
         return new TatSummaryStatisticsDto
         {
             TotalCompletedTests = count,
-            TotalPendingTests = 12,
-            TotalRejectedCount = 3,
+            TotalPendingTests = pendingCount,
+            TotalRejectedCount = rejectedCount,
             AverageTatMinutes = Math.Round(avg, 1),
             AverageTatFormatted = FormatDuration(avg),
             MedianTatMinutes = Math.Round(median, 1),
@@ -481,16 +478,15 @@ public class TatStatisticsService : ITatStatisticsService
                 }
                 else
                 {
-                    // Simulated baseline trend for smooth visual rendering
-                    var simulatedAvg = 95.0 + (i * 3.5) % 25;
+                    // Real 0-volume day (never fabricate fake volume or compliance rates)
                     points.Add(new TatTrendPointDto
                     {
                         DateLabel = d.ToString("yyyy-MM-dd"),
-                        Volume = 24 + i * 2,
-                        AverageTatMinutes = Math.Round(simulatedAvg, 1),
+                        Volume = 0,
+                        AverageTatMinutes = 0,
                         TargetTatMinutes = 120.0,
-                        ComplianceRate = 96.0,
-                        ViolationCount = 1
+                        ComplianceRate = 100.0,
+                        ViolationCount = 0
                     });
                 }
             }

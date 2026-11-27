@@ -25,15 +25,21 @@ public class PatientTestResultDetailDto
 {
     public string OrderId { get; set; } = string.Empty;
     public string OrderCode { get; set; } = string.Empty;
+    public string? AppointmentCode { get; set; }
+    public string? Barcode { get; set; }
+    public string? SampleType { get; set; }
+    public string? LabRoom { get; set; }
     public string PackageName { get; set; } = string.Empty;
-    public string Category { get; set; } = "Biochemistry";
+    public string Category { get; set; } = "Xét Nghiệm Lâm Sàng";
     public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
     public string DobAgeSex { get; set; } = string.Empty;
     public string CollectionTime { get; set; } = string.Empty;
     public string ReleasedDate { get; set; } = string.Empty;
+    public string? OrderingDoctor { get; set; }
+    public string? PerformedBy { get; set; }
     public string ApprovedByDoctor { get; set; } = string.Empty;
-    public string DoctorSpecialty { get; set; } = "Internal Medicine";
+    public string DoctorSpecialty { get; set; } = "Chuyên khoa Lâm sàng";
     public string? Icd10Code { get; set; }
     public string? FinalDiagnosis { get; set; }
     public string DoctorAssessment { get; set; } = string.Empty;
@@ -41,7 +47,7 @@ public class PatientTestResultDetailDto
     public string? FollowUpDate { get; set; }
     public string OverallStatus { get; set; } = "Released";
     public int AbnormalCount { get; set; }
-    public string ReferenceIntervalNotes { get; set; } = "Adult reference intervals · Fasting verified";
+    public string ReferenceIntervalNotes { get; set; } = "Khoảng tham chiếu sinh học theo chuẩn ISO 15189:2022";
     public List<PatientResultParameterDto> Parameters { get; set; } = new();
     public string VerificationHash { get; set; } = string.Empty;
     public string ShareToken { get; set; } = string.Empty;

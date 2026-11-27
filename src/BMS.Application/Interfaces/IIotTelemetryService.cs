@@ -14,6 +14,7 @@ public interface IIotTelemetryService
     Task<IotTelemetryIngestResponseDto> IngestTelemetryAsync(IngestIotTelemetryRequestDto request, CancellationToken ct = default);
     Task<IotMonitoringDashboardDto> GetMonitoringDashboardAsync(IotSensorLogQueryDto query, CancellationToken ct = default);
     Task<IotConnectionStatusDto> GetConnectionStatusAsync(string? deviceId = null, CancellationToken ct = default);
+    Task<List<IotConnectionStatusDto>> GetAllConnectionStatusesAsync(CancellationToken ct = default);
     Task<List<IotConnectionOutageDto>> GetOutagesAsync(string? deviceId = null, CancellationToken ct = default);
     Task<IotConnectionStatusDto> ForceDisconnectStateAsync(string deviceId, string? reason = null, CancellationToken ct = default);
     Task<IotTelemetryIngestResponseDto> SimulateReconnectWithBufferedDataAsync(SimulateReconnectRequestDto request, CancellationToken ct = default);

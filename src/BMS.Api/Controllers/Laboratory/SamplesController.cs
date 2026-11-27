@@ -365,7 +365,7 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
     /// <summary>
     /// UC47 - Yêu cầu chạy lại mẫu (Request Sample Rerun)
     /// </summary>
-    [Authorize(Roles = RoleNames.Lab)]
+    [Authorize(Roles = RoleSets.ClinicalStaff)]
     [HttpPost("{id}/rerun")]
     public async Task<IActionResult> RequestSampleRerun(string id, [FromBody] SampleRerunRequestDto request)
     {

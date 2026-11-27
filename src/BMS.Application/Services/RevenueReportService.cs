@@ -22,9 +22,8 @@ public class RevenueReportService : IRevenueReportService
     private readonly IMongoDatabase? _database;
     private readonly ILogger<RevenueReportService> _logger;
 
-    private static readonly ConcurrentDictionary<string, RevenueTransaction> _transactions = new(
-        InitializeSeedTransactions().ToDictionary(t => t.Id, t => t)
-    );
+    // Real MongoDB data only — no hardcoded 90-day Random(42) mock transactions
+    private readonly ConcurrentDictionary<string, RevenueTransaction> _transactions = new();
 
     public RevenueReportService(ILogger<RevenueReportService> logger, IMongoDatabase? database = null)
     {
@@ -42,10 +41,8 @@ public class RevenueReportService : IRevenueReportService
                 .Find(Builders<Invoice>.Filter.Eq(i => i.Status, InvoiceStatus.Paid))
                 .ToListAsync(ct);
 
-            if (paidInvoices.Count > 0)
-            {
-                _transactions.Clear();
-                foreach (var inv in paidInvoices)
+            _transactions.Clear();
+            foreach (var inv in paidInvoices)
                 {
                     var id = string.IsNullOrWhiteSpace(inv.Id) ? inv.InvoiceCode : inv.Id;
                     var methodStr = inv.PaymentMethod switch
@@ -85,7 +82,6 @@ public class RevenueReportService : IRevenueReportService
                         CashierName = !string.IsNullOrWhiteSpace(inv.CashierName) ? inv.CashierName : "Thu ngân hệ thống"
                     };
                 }
-            }
         }
         catch (Exception ex)
         {
@@ -204,7 +200,7 @@ public class RevenueReportService : IRevenueReportService
         return (fromDate, toDate);
     }
 
-    private static List<RevenueTransaction> FilterTransactions(RevenueFilterParameters parameters, DateTime fromDate, DateTime toDate)
+    private List<RevenueTransaction> FilterTransactions(RevenueFilterParameters parameters, DateTime fromDate, DateTime toDate)
     {
         var query = _transactions.Values.AsEnumerable();
 
@@ -228,7 +224,7 @@ public class RevenueReportService : IRevenueReportService
         return query.ToList();
     }
 
-    private static RevenueSummaryDto CalculateSummary(List<RevenueTransaction> currentTxns, DateTime fromDate, DateTime toDate)
+    private RevenueSummaryDto CalculateSummary(List<RevenueTransaction> currentTxns, DateTime fromDate, DateTime toDate)
     {
         decimal gross = currentTxns.Sum(t => t.GrossAmount);
         decimal bhyt = currentTxns.Sum(t => t.BhytCoverageAmount);

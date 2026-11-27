@@ -23,7 +23,8 @@ namespace BMS.Infrastructure.Repositories
         }
 
         private static FilterDefinitionBuilder<TestResult> F => Builders<TestResult>.Filter;
-        private static FilterDefinition<TestResult> Active => F.Ne(x => x.IsDeleted, true);
+        private static FilterDefinition<TestResult> Active => F.Ne(x => x.IsDeleted, true) & F.Ne(x => x.IsSuperseded, true);
+        private static FilterDefinition<TestResult> NotDeleted => F.Ne(x => x.IsDeleted, true);
         // WHY in the filter: makes "signed = read-only" atomic; an edit racing an approval cannot land after the signature.
         private static FilterDefinition<TestResult> NotSigned => F.Not(Signed);
         // Locked only after Doctor clinical approval — Manager tech-verify must remain editable for Doctor.
@@ -189,6 +190,35 @@ namespace BMS.Infrastructure.Repositories
 
             var result = await _results.UpdateOneAsync(ById(id), u.Combine(updates), cancellationToken: ct);
             return result.MatchedCount > 0;
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TestResult>> GetBySampleKeysAsync(IReadOnlyCollection<string> sampleKeys, CancellationToken ct = default)
+        {
+            var keys = sampleKeys.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct().ToArray();
+            if (keys.Length == 0) return [];
+            var filter = F.Or(
+                F.In(x => x.SampleId, keys),
+                new BsonDocument("sample_id", new BsonDocument("$in", new BsonArray(keys)))) & NotDeleted;
+            var items = await _results.Find(filter)
+                .SortByDescending(x => x.AnalysisRun)
+                .ThenByDescending(x => x.CreatedAt)
+                .ToListAsync(ct);
+            await HydrateLegacyParametersAsync(items, ct);
+            return items;
+        }
+
+        /// <inheritdoc />
+        public async Task MarkSupersededAsync(IReadOnlyCollection<string> resultIds, CancellationToken ct = default)
+        {
+            var ids = resultIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToArray();
+            if (ids.Length == 0) return;
+            var filter = F.In(x => x.Id, ids);
+            var update = Builders<TestResult>.Update
+                .Set(x => x.IsSuperseded, true)
+                .Set("is_superseded", true)
+                .Set(x => x.UpdatedAt, DateTime.UtcNow);
+            await _results.UpdateManyAsync(filter, update, cancellationToken: ct);
         }
     }
 }

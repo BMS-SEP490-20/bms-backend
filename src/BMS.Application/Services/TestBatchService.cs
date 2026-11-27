@@ -149,7 +149,20 @@ public class TestBatchService : ITestBatchService
             throw new InvalidOperationException("MSG-ERR-BAT-07: Trạng thái không hợp lệ.");
         }
 
+        // State machine guard: Pending -> Running | Cancelled; Running -> Completed | Cancelled; Completed/Cancelled -> terminal
+        var allowed = batch.Status switch
+        {
+            TestBatchStatus.Pending => newStatus is TestBatchStatus.Running or TestBatchStatus.Cancelled,
+            TestBatchStatus.Running => newStatus is TestBatchStatus.Completed or TestBatchStatus.Cancelled,
+            _ => false
+        };
+        if (!allowed)
+        {
+            throw new InvalidOperationException($"MSG-ERR-BAT-08: Không thể chuyển trạng thái mẻ xét nghiệm từ '{batch.Status}' sang '{newStatus}'.");
+        }
+
         batch.Status = newStatus;
+        batch.UpdatedAt = DateTime.UtcNow;
         if (newStatus == TestBatchStatus.Running)
         {
             batch.StartedAt = DateTime.UtcNow;

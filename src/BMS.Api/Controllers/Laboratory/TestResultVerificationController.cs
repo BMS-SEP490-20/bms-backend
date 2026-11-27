@@ -73,6 +73,7 @@ public class TestResultVerificationController : ControllerBase
     /// <summary>
     /// Approves technical verification, locks results with SHA-256 signature, triggers SignalR notification, and forwards to doctor.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPost("{specimenId}/verify")]
     public async Task<IActionResult> VerifyTestResult(string specimenId, [FromBody] VerifyTestResultRequestDto request)
     {
@@ -135,6 +136,7 @@ public class TestResultVerificationController : ControllerBase
     /// <summary>
     /// Rejects technical verification and returns specimen to lab technician for correction.
     /// </summary>
+    [Authorize(Roles = RoleNames.Manager)]
     [HttpPost("{specimenId}/return")]
     public async Task<IActionResult> ReturnTestResult(string specimenId, [FromBody] ReturnTestResultRequestDto request)
     {
