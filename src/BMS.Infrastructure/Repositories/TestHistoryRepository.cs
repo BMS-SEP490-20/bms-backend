@@ -79,7 +79,6 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
             || (string.IsNullOrWhiteSpace(status) && doctorApproved);
         var approved = doctorApproved
             && statusOk
-            && hasValidSig
             && !d.GetValue("rerun_requested", false).Equals(BsonBoolean.True)
             && !d.GetValue("rerunRequested", false).Equals(BsonBoolean.True);
         var sampleId = Text(d, "sample_id", "sampleId"); var patientId = Text(d, "patient_id", "patientId");

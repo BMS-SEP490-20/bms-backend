@@ -113,7 +113,7 @@ public class TestResultVerificationController : ControllerBase
                 {
                     type = "TestResultApproved",
                     title = $"[KẾT QUẢ ĐÃ DUYỆT] Mẫu {result.SpecimenId} - Đơn {result.OrderId}",
-                    message = $"Trưởng Khoa {result.VerifiedBy} đã hoàn tất thẩm định và ký số kết quả xét nghiệm {result.PackageName} của bệnh nhân {result.PatientName}.",
+                    message = $"Trưởng Khoa {result.VerifiedBy} đã hoàn tất thẩm định kỹ thuật kết quả xét nghiệm {result.PackageName} của bệnh nhân {result.PatientName}.",
                     referenceId = result.SpecimenId,
                     timestamp = DateTime.UtcNow
                 });

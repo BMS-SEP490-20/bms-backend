@@ -31,7 +31,7 @@ namespace BMS.Api.Controllers.Notifications;
 [Route("api/notifications/test-results")]
 [Route("api/test-result-notifications")]
 [Produces("application/json")]
-// WHY: UC60: send Lab (after sign-off); patient views own; completed-patient list Lab, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+// WHY: UC60: Doctor (and Manager) dispatch & view notifications only after doctor approval; Patient views own.
 [Authorize]
 public class TestResultNotificationsController : ControllerBase
 {
@@ -51,9 +51,9 @@ public class TestResultNotificationsController : ControllerBase
 
     /// <summary>
     /// Phát hành thông báo kết quả xét nghiệm mới (UC60).
-    /// Được gọi tự động khi duyệt kết quả hoặc do KTV / Bác sĩ phát hành thủ công.
+    /// Chỉ Bác sĩ (hoặc Quản lý) gửi cho các đơn đã được Bác sĩ phê duyệt kết quả.
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpPost("dispatch")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -101,7 +101,7 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Truy vấn danh sách thông báo kết quả xét nghiệm có phân trang và bộ lọc (UC60).
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<TestResultNotificationListItemDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetNotifications(
@@ -129,7 +129,7 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Xem chi tiết một thông báo kết quả xét nghiệm theo ID hoặc mã thông báo (UC60).
     /// </summary>
-    [Authorize(Roles = RoleSets.LabManagerOrPatient)]
+    [Authorize(Roles = RoleSets.DoctorManagerOrPatient)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
@@ -269,7 +269,7 @@ public class TestResultNotificationsController : ControllerBase
     /// <summary>
     /// Gửi lại thông báo kết quả xét nghiệm qua SMS / Email / Push (UC60).
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpPost("{id}/resend")]
     [ProducesResponseType(typeof(ApiResponse<TestResultNotificationDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -303,9 +303,9 @@ public class TestResultNotificationsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy thống kê tình hình gửi thông báo và cảnh báo hoảng loạn toàn viện (UC60 / Web Dashboard).
+    /// Lấy thống kê tình hình gửi thông báo kết quả xét nghiệm (UC60 / Web Dashboard).
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpGet("stats")]
     [ProducesResponseType(typeof(ApiResponse<NotificationStatsDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetNotificationStats(CancellationToken ct = default)
@@ -333,10 +333,10 @@ public class TestResultNotificationsController : ControllerBase
         User.FindFirstValue("name") ?? User.FindFirstValue("fullName") ?? User.FindFirstValue(ClaimTypes.Name);
 
     /// <summary>
-    /// Lấy danh sách bệnh nhân và đơn xét nghiệm đã hoàn thành để chọn phát hành thông báo (UC60).
-    /// Truy vấn trực tiếp từ MongoDB blood_samples, test_results và patients.
+    /// Lấy danh sách đơn xét nghiệm ĐÃ ĐƯỢC BÁC SĨ PHÊ DUYỆT KẾT QUẢ để gửi thông báo qua Email (UC60).
+    /// Đồng bộ trực tiếp từ MongoDB test_results (chỉ trạng thái Approved/Published/Signed), join blood_samples, patients và accounts.
     /// </summary>
-    [Authorize(Roles = RoleSets.LabOrManager)]
+    [Authorize(Roles = RoleSets.DoctorOrManager)]
     [HttpGet("completed-patients")]
     [HttpGet("completed-tests")]
     [ProducesResponseType(typeof(ApiResponse<List<CompletedTestPatientDto>>), StatusCodes.Status200OK)]
@@ -345,41 +345,76 @@ public class TestResultNotificationsController : ControllerBase
         var result = new List<CompletedTestPatientDto>();
         var db = _mongoContext?.Database;
 
+        static string ReadStr(BsonDocument doc, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (doc.Contains(k) && !doc[k].IsBsonNull)
+                {
+                    var val = doc[k].IsString ? doc[k].AsString : doc[k].ToString();
+                    if (!string.IsNullOrWhiteSpace(val)) return val.Trim();
+                }
+            }
+            return string.Empty;
+        }
+
         if (db != null)
         {
             try
             {
-                var samplesCol = db.GetCollection<BsonDocument>("blood_samples");
                 var resultsCol = db.GetCollection<BsonDocument>("test_results");
+                var samplesCol = db.GetCollection<BsonDocument>("blood_samples");
                 var patientsCol = db.GetCollection<BsonDocument>("patients");
+                var accountsCol = db.GetCollection<BsonDocument>("accounts");
                 var packagesCol = db.GetCollection<BsonDocument>("test_packages");
 
-                // 1. Completed blood samples
-                var completedFilter = Builders<BsonDocument>.Filter.In("status", new[] { "Completed", "Approved" });
-                var completedSamples = await samplesCol.Find(completedFilter).ToListAsync(ct);
-
-                // 2. Approved / Completed test results
-                var approvedResults = await resultsCol.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync(ct);
-
-                // Pre-cache packages
-                var allPackages = await packagesCol.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync(ct);
-                var packageMap = allPackages.ToDictionary(
-                    p => p.Contains("_id") ? p["_id"].AsString : "",
-                    p => p.Contains("package_name") ? p["package_name"].AsString : (p.Contains("name") ? p["name"].AsString : "Xét nghiệm lâm sàng")
+                // Chỉ lấy các kết quả đã được Bác sĩ phê duyệt (Approved / Published / Signed) và chưa bị thay thế
+                var approvedStatuses = new[] { "Approved", "APPROVED", "approved", "Published", "PUBLISHED", "Signed", "SIGNED" };
+                var approvedFilter = Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.In("status", approvedStatuses),
+                    Builders<BsonDocument>.Filter.Ne("isSuperseded", true)
                 );
+                var approvedResults = await resultsCol.Find(approvedFilter).ToListAsync(ct);
+
+                var allPackages = await packagesCol.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync(ct);
+                var packageMap = allPackages
+                    .Where(p => !string.IsNullOrWhiteSpace(ReadStr(p, "_id")))
+                    .ToDictionary(
+                        p => ReadStr(p, "_id"),
+                        p => ReadStr(p, "package_name", "packageName", "name") is { Length: > 0 } pn ? pn : "Xét nghiệm lâm sàng",
+                        StringComparer.OrdinalIgnoreCase);
 
                 var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var s in completedSamples)
+                foreach (var r in approvedResults)
                 {
-                    var barcode = s.Contains("barcode") ? s["barcode"].AsString : (s.Contains("_id") ? s["_id"].AsString : "");
-                    var patientId = s.Contains("patient_id") ? s["patient_id"].AsString : "";
-                    var orderId = s.Contains("appointment_id") ? s["appointment_id"].AsString : (s.Contains("test_order_id") ? s["test_order_id"].AsString : barcode);
+                    var resultId = ReadStr(r, "testResultId", "_id");
+                    var orderId = ReadStr(r, "appointmentId", "appointment_id", "test_order_id", "testOrderId", "orderId");
+                    var sampleId = ReadStr(r, "sampleId", "sample_id");
+                    var patientId = ReadStr(r, "patientId", "patient_id");
 
-                    var key = $"{patientId}_{barcode}_{orderId}";
+                    // Join blood_samples để lấy barcode & gói xét nghiệm thực tế
+                    BsonDocument? sDoc = null;
+                    if (!string.IsNullOrWhiteSpace(sampleId))
+                    {
+                        sDoc = await samplesCol.Find(Builders<BsonDocument>.Filter.Or(
+                            Builders<BsonDocument>.Filter.Eq("_id", sampleId),
+                            Builders<BsonDocument>.Filter.Eq("barcode", sampleId)
+                        )).FirstOrDefaultAsync(ct);
+                    }
+
+                    var barcode = sDoc != null ? ReadStr(sDoc, "barcode", "_id") : sampleId;
+                    if (string.IsNullOrWhiteSpace(orderId) && sDoc != null)
+                        orderId = ReadStr(sDoc, "appointment_id", "test_order_id", "order_id");
+                    if (string.IsNullOrWhiteSpace(orderId))
+                        orderId = resultId;
+                    if (string.IsNullOrWhiteSpace(patientId) && sDoc != null)
+                        patientId = ReadStr(sDoc, "patient_id");
+
+                    var key = $"{resultId}_{orderId}";
                     if (!seenKeys.Add(key)) continue;
 
-                    string patientName = s.Contains("patient_name") && !s["patient_name"].IsBsonNull ? s["patient_name"].AsString : "";
+                    string patientName = sDoc != null ? ReadStr(sDoc, "patient_name") : "";
                     string phone = "";
                     string email = "";
 
@@ -387,54 +422,55 @@ public class TestResultNotificationsController : ControllerBase
                     {
                         var pDoc = await patientsCol.Find(Builders<BsonDocument>.Filter.Or(
                             Builders<BsonDocument>.Filter.Eq("_id", patientId),
-                            Builders<BsonDocument>.Filter.Eq("patient_code", patientId)
+                            Builders<BsonDocument>.Filter.Eq("patient_code", patientId),
+                            Builders<BsonDocument>.Filter.Eq("patientCode", patientId)
                         )).FirstOrDefaultAsync(ct);
 
                         if (pDoc != null)
                         {
                             if (string.IsNullOrWhiteSpace(patientName))
+                                patientName = ReadStr(pDoc, "fullname", "full_name", "fullName");
+                            phone = ReadStr(pDoc, "phone", "phone_number", "phoneNumber");
+                            email = ReadStr(pDoc, "email");
+
+                            if (string.IsNullOrWhiteSpace(email))
                             {
-                                patientName = pDoc.Contains("fullname") ? pDoc["fullname"].AsString : (pDoc.Contains("full_name") ? pDoc["full_name"].AsString : "");
+                                var accountId = ReadStr(pDoc, "account_id", "accountId");
+                                if (!string.IsNullOrWhiteSpace(accountId))
+                                {
+                                    var accFilters = new List<FilterDefinition<BsonDocument>>
+                                    {
+                                        Builders<BsonDocument>.Filter.Eq("_id", accountId)
+                                    };
+                                    if (ObjectId.TryParse(accountId, out var oid))
+                                        accFilters.Add(Builders<BsonDocument>.Filter.Eq("_id", oid));
+                                    var accDoc = await accountsCol.Find(Builders<BsonDocument>.Filter.Or(accFilters)).FirstOrDefaultAsync(ct);
+                                    if (accDoc != null)
+                                        email = ReadStr(accDoc, "email");
+                                }
                             }
-                            phone = pDoc.Contains("phone") ? pDoc["phone"].AsString : (pDoc.Contains("phone_number") ? pDoc["phone_number"].AsString : "");
-                            email = pDoc.Contains("email") && !pDoc["email"].IsBsonNull ? pDoc["email"].AsString : "";
                         }
                     }
 
-                    string pkgName = s.Contains("test_package_name") && !s["test_package_name"].IsBsonNull && !string.IsNullOrWhiteSpace(s["test_package_name"].AsString)
-                        ? s["test_package_name"].AsString
-                        : "Xét nghiệm sinh hóa / huyết học";
+                    string pkgName = "";
+                    var pkgId = ReadStr(r, "packageId", "package_id");
+                    if (!string.IsNullOrWhiteSpace(pkgId) && packageMap.TryGetValue(pkgId, out var mappedPkg))
+                        pkgName = mappedPkg;
+                    if (string.IsNullOrWhiteSpace(pkgName) && sDoc != null)
+                        pkgName = ReadStr(sDoc, "test_package_name", "package_name");
+                    if (string.IsNullOrWhiteSpace(pkgName))
+                        pkgName = "Xét nghiệm lâm sàng";
 
-                    var matchingRes = approvedResults.FirstOrDefault(r =>
-                        (r.Contains("sample_id") && r["sample_id"].AsString.Equals(s["_id"].AsString, StringComparison.OrdinalIgnoreCase)) ||
-                        (r.Contains("patient_id") && r["patient_id"].AsString.Equals(patientId, StringComparison.OrdinalIgnoreCase)));
+                    var conclusion = ReadStr(r, "doctorConclusion", "conclusion_notes", "clinicalComment");
 
-                    string conclusion = "";
-                    bool isCritical = false;
-
-                    if (matchingRes != null)
+                    DateTime? approvedDate = null;
+                    foreach (var dk in new[] { "approvedAt", "approved_at", "reviewedAt", "updatedAt", "createdAt", "created_at" })
                     {
-                        if (matchingRes.Contains("conclusion_notes") && !matchingRes["conclusion_notes"].IsBsonNull)
+                        if (r.Contains(dk) && r[dk].IsBsonDateTime)
                         {
-                            conclusion = matchingRes["conclusion_notes"].AsString;
-                            if (conclusion.Contains("CẢNH BÁO", StringComparison.OrdinalIgnoreCase) ||
-                                conclusion.Contains("nguy hiểm", StringComparison.OrdinalIgnoreCase) ||
-                                conclusion.Contains("nguy kịch", StringComparison.OrdinalIgnoreCase))
-                            {
-                                isCritical = true;
-                            }
+                            approvedDate = r[dk].ToUniversalTime();
+                            break;
                         }
-
-                        if (matchingRes.Contains("package_id") && packageMap.TryGetValue(matchingRes["package_id"].AsString, out var foundPkg))
-                        {
-                            pkgName = foundPkg;
-                        }
-                    }
-
-                    DateTime? compDate = null;
-                    if (s.Contains("completed_at") && s["completed_at"].IsBsonDateTime)
-                    {
-                        compDate = s["completed_at"].ToUniversalTime();
                     }
 
                     result.Add(new CompletedTestPatientDto
@@ -447,17 +483,19 @@ public class TestResultNotificationsController : ControllerBase
                         SpecimenBarcode = barcode,
                         TestPackageName = pkgName,
                         ConclusionNotes = conclusion,
-                        IsCritical = isCritical,
-                        CompletedAt = compDate
+                        IsCritical = false,
+                        CompletedAt = approvedDate
                     });
                 }
+
+                result = result.OrderByDescending(x => x.CompletedAt ?? DateTime.MinValue).ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi truy vấn danh sách bệnh nhân hoàn thành xét nghiệm từ MongoDB.");
+                _logger.LogError(ex, "Lỗi khi truy vấn danh sách đơn xét nghiệm đã được bác sĩ duyệt từ MongoDB.");
             }
         }
 
-        return Ok(ApiResponse<List<CompletedTestPatientDto>>.Ok(result, "Tải danh sách bệnh nhân hoàn thành xét nghiệm thành công."));
+        return Ok(ApiResponse<List<CompletedTestPatientDto>>.Ok(result, "Tải danh sách đơn xét nghiệm đã được bác sĩ duyệt thành công."));
     }
 }

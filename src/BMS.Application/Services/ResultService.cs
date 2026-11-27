@@ -30,6 +30,16 @@ public class ResultService : IResultService
 
         foreach (var p in request.Parameters)
         {
+            ClinicalMeasurementValidator.ValidateNumericValue(new TestCriterionEntity
+            {
+                CriterionCode = p.Code,
+                CriterionName = string.IsNullOrWhiteSpace(p.Name) ? p.Code : p.Name,
+                Unit = p.Unit ?? string.Empty,
+                NormalMin = p.RefLow,
+                NormalMax = p.RefHigh,
+                ValueType = "Numeric"
+            }, p.Value);
+
             var flag = PanicEvaluator.Evaluate(p.Code, p.Value, p.RefLow, p.RefHigh);
             if (flag == ResultFlag.CriticalPanic) anyPanic = true;
 
@@ -49,11 +59,7 @@ public class ResultService : IResultService
             });
         }
 
-        if (anyPanic && !request.ConfirmRerunChecked)
-        {
-            throw new InvalidOperationException(
-                "MSG-ERR-RESULT-03: Phát hiện chỉ số PANIC. Bắt buộc xác nhận đã kiểm tra lại / chạy lần 2 (confirmRerunChecked=true).");
-        }
+        ClinicalMeasurementValidator.ValidateCrossAnalyteRules(items);
 
         var code = await _repository.GenerateNextResultCodeAsync(DateTime.UtcNow, ct);
         var entity = new TestResult

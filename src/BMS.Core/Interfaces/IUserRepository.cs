@@ -39,6 +39,16 @@ public interface IUserRepository
     Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
 
     /// <summary>
+    /// Retrieves active user entity matching normalized Vietnamese phone number.
+    /// </summary>
+    Task<User?> FindByPhoneAsync(string phoneNumber, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves active user entity matching 12-digit CCCD / identity card number.
+    /// </summary>
+    Task<User?> FindByIdentityCardAsync(string identityCardNumber, CancellationToken ct = default);
+
+    /// <summary>
     /// Retrieves user entity matching unique ID.
     /// </summary>
     Task<User?> FindByIdAsync(string id, CancellationToken ct = default);

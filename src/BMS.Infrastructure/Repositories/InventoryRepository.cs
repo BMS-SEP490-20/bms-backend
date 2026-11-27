@@ -74,6 +74,30 @@ public sealed class InventoryRepository : IInventoryRepository
         _reagents.Find(Builders<Reagent>.Filter.Eq(x => x.Id, id) &
             Builders<Reagent>.Filter.Ne(x => x.IsDeleted, true)).FirstOrDefaultAsync(ct)!;
 
+    public async Task<Reagent?> ConsumeAsync(string idOrCode, decimal quantity, InventoryChange change, InventoryTransaction transaction, CancellationToken ct = default)
+    {
+        var f = Builders<Reagent>.Filter;
+        var matchId = f.Or(f.Eq(x => x.Id, idOrCode), f.Eq(x => x.Code, idOrCode));
+        var filter = matchId & f.Ne(x => x.IsDeleted, true) & f.Gte(x => x.Quantity, quantity);
+        var update = Builders<Reagent>.Update
+            .Inc(x => x.Quantity, -quantity)
+            .Inc(x => x.Revision, 1)
+            .Push(x => x.Changes, change);
+        var updated = await _reagents.FindOneAndUpdateAsync(
+            filter,
+            update,
+            new FindOneAndUpdateOptions<Reagent> { ReturnDocument = ReturnDocument.After },
+            ct);
+        if (updated is not null)
+        {
+            if (string.IsNullOrWhiteSpace(transaction.Id))
+                transaction.Id = ObjectId.GenerateNewId().ToString();
+            transaction.ReagentCode = updated.Code;
+            await _transactions.InsertOneAsync(transaction, cancellationToken: ct);
+        }
+        return updated;
+    }
+
     public Task<Reagent?> UpdateAsync(Reagent item, long expectedRevision, InventoryChange change, CancellationToken ct = default)
     {
         var f = Builders<Reagent>.Filter;

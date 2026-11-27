@@ -52,57 +52,58 @@ public class SpecimenTimelineEvent
 
 /// <summary>
 /// Specimen preservation and physical archive storage metadata (ISO 15189 / Decision 2429/QD-BYT).
+/// Populated strictly from persisted DB records — never pre-filled with synthetic defaults.
 /// </summary>
 [BsonIgnoreExtraElements]
 public class SpecimenStorageInfo
 {
     [BsonElement("storageStatus")]
-    public string StorageStatus { get; set; } = "Stored"; // Stored, InAnalysis, InTransit, Disposed, Retrieved
+    public string StorageStatus { get; set; } = string.Empty;
 
     [BsonElement("storageUnit")]
-    public string StorageUnit { get; set; } = "Tủ Mát Bảo Quản Mẫu Lab #02 (2°C - 8°C)";
+    public string StorageUnit { get; set; } = string.Empty;
 
     [BsonElement("rackId")]
-    public string RackId { get; set; } = "RACK-BIO-01";
+    public string RackId { get; set; } = string.Empty;
 
     [BsonElement("slotPosition")]
-    public string SlotPosition { get; set; } = "Khay A - Ô 01";
+    public string SlotPosition { get; set; } = string.Empty;
 
     [BsonElement("targetTemperatureMin")]
-    public double TargetTemperatureMin { get; set; } = 2.0;
+    public double? TargetTemperatureMin { get; set; }
 
     [BsonElement("targetTemperatureMax")]
-    public double TargetTemperatureMax { get; set; } = 8.0;
+    public double? TargetTemperatureMax { get; set; }
 
     [BsonElement("currentTemperature")]
-    public double CurrentTemperature { get; set; } = 4.2;
+    public double? CurrentTemperature { get; set; }
 
     [BsonElement("currentHumidity")]
-    public double CurrentHumidity { get; set; } = 45.0;
+    public double? CurrentHumidity { get; set; }
 
     [BsonElement("isTemperatureCompliant")]
-    public bool IsTemperatureCompliant { get; set; } = true;
+    public bool? IsTemperatureCompliant { get; set; }
 
     [BsonElement("preservationMethod")]
-    public string PreservationMethod { get; set; } = "Huyết thanh tách chiết sau ly tâm 3000 RPM";
+    public string PreservationMethod { get; set; } = string.Empty;
 
     [BsonElement("storedAt")]
-    public DateTime StoredAt { get; set; } = DateTime.UtcNow;
+    public DateTime? StoredAt { get; set; }
 
     [BsonElement("storedBy")]
-    public string StoredBy { get; set; } = "KTV. Trần Thị Mai";
+    public string StoredBy { get; set; } = string.Empty;
 
     [BsonElement("retentionPeriodDays")]
-    public int RetentionPeriodDays { get; set; } = 7;
+    public int? RetentionPeriodDays { get; set; }
 
     [BsonElement("expirationDate")]
-    public DateTime ExpirationDate { get; set; } = DateTime.UtcNow.AddDays(7);
+    public DateTime? ExpirationDate { get; set; }
 
     [BsonElement("disposalDueDate")]
-    public DateTime DisposalDueDate { get; set; } = DateTime.UtcNow.AddDays(7);
+    public DateTime? DisposalDueDate { get; set; }
 
     [BsonElement("disposalStatus")]
-    public string DisposalStatus { get; set; } = "Retained"; // Retained, DueForDisposal, Disposed
+    public string DisposalStatus { get; set; } = string.Empty;
 
     [BsonElement("disposalDate")]
     public DateTime? DisposalDate { get; set; }
@@ -190,14 +191,14 @@ public class SpecimenHistoryRecord
 
     // Current State & Priority
     [BsonElement("status")]
-    public string Status { get; set; } = "Stored"; // Collected, InTransit, Received, Processing, Testing, Completed, Stored, Rejected
+    public string Status { get; set; } = string.Empty;
 
     [BsonElement("priority")]
-    public string Priority { get; set; } = "Normal"; // Normal, Urgent, Stat
+    public string Priority { get; set; } = string.Empty;
 
     // Phlebotomy Collection Event Details
     [BsonElement("collectionTime")]
-    public DateTime CollectionTime { get; set; } = DateTime.UtcNow;
+    public DateTime CollectionTime { get; set; } = DateTime.MinValue;
 
     [BsonElement("collectorId")]
     public string CollectorId { get; set; } = string.Empty;
@@ -206,15 +207,15 @@ public class SpecimenHistoryRecord
     public string CollectorName { get; set; } = string.Empty;
 
     [BsonElement("collectionSite")]
-    public string CollectionSite { get; set; } = "Phòng Lấy Mẫu 102 - Tầng 1";
+    public string CollectionSite { get; set; } = string.Empty;
 
     // End-to-end Chronological Event Log
     [BsonElement("timeline")]
     public List<SpecimenTimelineEvent> Timeline { get; set; } = [];
 
-    // Cold Chain & Archive Storage Info
+    // Cold Chain & Archive Storage Info (null when specimen has not been placed in cold storage)
     [BsonElement("storage")]
-    public SpecimenStorageInfo Storage { get; set; } = new();
+    public SpecimenStorageInfo? Storage { get; set; }
 
     [BsonElement("notes")]
     public string Notes { get; set; } = string.Empty;
@@ -226,7 +227,7 @@ public class SpecimenHistoryRecord
     public bool IsRejected { get; set; }
 
     [BsonElement("qcStatus")]
-    public string? QcStatus { get; set; } = "Passed";
+    public string? QcStatus { get; set; }
 
     [BsonElement("receivedBy")]
     public string? ReceivedBy { get; set; }

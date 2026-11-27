@@ -868,8 +868,8 @@ public class TrackTestProgressService : ITrackTestProgressService
         {
             StepNumber = 6,
             StepCode = "COMPLETED",
-            Title = "Phát Hành Kết Quả & Chữ Ký Số",
-            Description = "Kết quả đã được ký số điện tử bảo mật SHA-256, sẵn sàng xem trực tuyến hoặc nhận phiếu.",
+            Title = "Phát Hành Kết Quả Xét Nghiệm",
+            Description = "Kết quả đã được Bác sĩ phê duyệt, sẵn sàng xem trực tuyến hoặc tải phiếu kết quả.",
             Status = step6Status,
             StatusText = step6Done ? "Đã có kết quả" : "Chờ phát hành",
             Timestamp = step6Done ? (result?.ApprovedAt ?? sample?.CompletedAt ?? result?.CreatedAt ?? orderedAt.AddMinutes(90)) : null,

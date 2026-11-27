@@ -751,6 +751,19 @@ public class AuthService : IAuthService
             u.Department);
     }
 
+    /// <summary>
+    /// True if the account is already active/registered (either confirmed via OTP or created by admin/seed with no pending registration OTP).
+    /// </summary>
+    private static bool IsAccountRegistered(User? u) =>
+        u != null && !u.IsDeleted && (u.EmailConfirmed || string.IsNullOrEmpty(u.VerificationOtp));
+
+    private static string MaskNameForHint(string? fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName)) return "Khách vãng lai";
+        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', parts.Select(p => p.Length <= 1 ? p : $"{p[0]}***"));
+    }
+
     public async Task<bool> IsEmailRegisteredAsync(string email, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(email)) return false;
@@ -759,15 +772,110 @@ public class AuthService : IAuthService
         User? existingUser = null;
         if (_userRepository != null)
         {
-            existingUser = await _userRepository.FindByEmailAsync(emailTrimmed)
-                        ?? await _userRepository.GetByEmailOrUsernameAsync(emailTrimmed);
+            existingUser = await _userRepository.FindByEmailAsync(emailTrimmed, ct)
+                        ?? await _userRepository.GetByEmailOrUsernameAsync(emailTrimmed, ct);
         }
 
         existingUser ??= _context.Users.FirstOrDefault(u =>
-            u.Username.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase) ||
-            u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+            !u.IsDeleted &&
+            (u.Username.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase) ||
+             u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase)));
 
-        return existingUser != null && existingUser.EmailConfirmed;
+        return IsAccountRegistered(existingUser);
+    }
+
+    public async Task<RegistrationAvailabilityDto> CheckRegistrationAvailabilityAsync(
+        string? email,
+        string? phoneNumber,
+        string? identityCard,
+        CancellationToken ct = default)
+    {
+        var result = new RegistrationAvailabilityDto { Success = true, Available = true };
+        var emailTrimmed = (email ?? string.Empty).Trim().ToLowerInvariant();
+        var phoneNormalized = NormalizePhone(phoneNumber);
+        var cccdTrimmed = (identityCard ?? string.Empty).Trim();
+
+        // 1. Check Email uniqueness
+        if (!string.IsNullOrWhiteSpace(emailTrimmed))
+        {
+            var emailTaken = await IsEmailRegisteredAsync(emailTrimmed, ct);
+            if (emailTaken)
+            {
+                result.EmailTaken = true;
+                result.EmailMessage = "Email này đã được đăng ký tài khoản trong hệ thống. Vui lòng đăng nhập hoặc dùng email khác.";
+                result.Available = false;
+            }
+        }
+
+        // 2. Check CCCD uniqueness (accounts + patients) & detect unlinked Walk-In guest profile
+        Patient? walkInPatient = null;
+        if (!string.IsNullOrWhiteSpace(cccdTrimmed))
+        {
+            User? cccdUser = null;
+            if (_userRepository != null)
+                cccdUser = await _userRepository.FindByIdentityCardAsync(cccdTrimmed, ct);
+
+            cccdUser ??= _context.Users.FirstOrDefault(u =>
+                !u.IsDeleted &&
+                string.Equals(u.IdentityCardNumber?.Trim(), cccdTrimmed, StringComparison.OrdinalIgnoreCase));
+
+            if (IsAccountRegistered(cccdUser))
+            {
+                result.IdentityCardTaken = true;
+                result.IdentityCardMessage = "Số CCCD này đã được đăng ký tài khoản trong hệ thống. Vui lòng đăng nhập hoặc dùng chức năng Quên mật khẩu.";
+                result.Available = false;
+            }
+            else if (_patientRepository != null)
+            {
+                var existingPat = await _patientRepository.FindByIdentityNumberAsync(cccdTrimmed, ct);
+                if (existingPat != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(existingPat.AccountId))
+                    {
+                        result.IdentityCardTaken = true;
+                        result.IdentityCardMessage = "Số CCCD này đã liên kết với một tài khoản bệnh nhân khác trong hệ thống.";
+                        result.Available = false;
+                    }
+                    else
+                    {
+                        // Walk-in guest patient without an online account -> allow linking after identity match & OTP
+                        walkInPatient = existingPat;
+                        result.WalkInDetected = true;
+                        result.WalkInPatientCode = existingPat.Id;
+                        result.WalkInMaskedName = MaskNameForHint(existingPat.FullName);
+                        result.WalkInMessage = $"Phát hiện hồ sơ khám vãng lai ({existingPat.Id}) tại phòng khám theo số CCCD này. Nếu Họ tên cùng Ngày sinh hoặc SĐT trùng khớp, hệ thống sẽ tự động liên kết lịch sử khám & kết quả cũ vào tài khoản mới sau khi xác thực OTP.";
+                    }
+                }
+            }
+        }
+
+        // 3. Check Phone uniqueness (accounts + linked patients; allow walk-in patient's own phone if linking)
+        if (!string.IsNullOrWhiteSpace(phoneNormalized))
+        {
+            User? phoneUser = null;
+            if (_userRepository != null)
+                phoneUser = await _userRepository.FindByPhoneAsync(phoneNormalized, ct);
+
+            phoneUser ??= _context.Users.FirstOrDefault(u =>
+                !u.IsDeleted &&
+                !string.IsNullOrWhiteSpace(u.PhoneNumber) &&
+                NormalizePhone(u.PhoneNumber) == phoneNormalized);
+
+            if (IsAccountRegistered(phoneUser))
+            {
+                result.PhoneTaken = true;
+                result.PhoneMessage = "Số điện thoại này đã được đăng ký bởi một tài khoản khác trong hệ thống.";
+                result.Available = false;
+            }
+        }
+
+        var errors = new List<string>();
+        if (result.IdentityCardTaken && !string.IsNullOrWhiteSpace(result.IdentityCardMessage)) errors.Add(result.IdentityCardMessage);
+        if (result.PhoneTaken && !string.IsNullOrWhiteSpace(result.PhoneMessage)) errors.Add(result.PhoneMessage);
+        if (result.EmailTaken && !string.IsNullOrWhiteSpace(result.EmailMessage)) errors.Add(result.EmailMessage);
+        result.Message = errors.Count > 0 ? string.Join(" ", errors) : string.Empty;
+
+        return result;
     }
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
@@ -776,6 +884,8 @@ public class AuthService : IAuthService
         var usernameTrimmed = !string.IsNullOrWhiteSpace(dto.Username)
             ? dto.Username.Trim()
             : emailTrimmed;
+        var phoneNormalized = NormalizePhone(dto.PhoneNumber);
+        var cccdTrimmed = dto.IdentityCard?.Trim();
 
         // Compose detailed address from cascading parts if provided
         var resolvedAddress = dto.Address;
@@ -788,7 +898,7 @@ public class AuthService : IAuthService
             resolvedAddress = string.Join(", ", parts);
         }
 
-        // 1. Check duplicate username or email across MongoDB and in-memory context
+        // 1. Check duplicate Email / Username
         User? existingUser = null;
         if (_userRepository != null)
         {
@@ -799,37 +909,140 @@ public class AuthService : IAuthService
         if (existingUser == null)
         {
             existingUser = _context.Users.FirstOrDefault(u =>
-                u.Username.Equals(usernameTrimmed, StringComparison.OrdinalIgnoreCase) ||
-                u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase));
+                !u.IsDeleted &&
+                (u.Username.Equals(usernameTrimmed, StringComparison.OrdinalIgnoreCase) ||
+                 u.Email.Equals(emailTrimmed, StringComparison.OrdinalIgnoreCase)));
         }
 
-        if (existingUser != null)
+        if (existingUser != null && IsAccountRegistered(existingUser))
         {
-            if (existingUser.EmailConfirmed)
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "EMAIL_ALREADY_EXISTS",
+                Field = "email",
+                Message = "Email hoặc tên đăng nhập này đã được đăng ký trong hệ thống. Vui lòng đăng nhập hoặc sử dụng email khác."
+            };
+        }
+
+        var currentPendingUserId = existingUser?.Id;
+
+        // 2. Check duplicate Phone Number across active accounts
+        if (!string.IsNullOrWhiteSpace(phoneNormalized))
+        {
+            User? phoneOwner = null;
+            if (_userRepository != null)
+                phoneOwner = await _userRepository.FindByPhoneAsync(phoneNormalized);
+
+            phoneOwner ??= _context.Users.FirstOrDefault(u =>
+                !u.IsDeleted &&
+                !string.IsNullOrWhiteSpace(u.PhoneNumber) &&
+                NormalizePhone(u.PhoneNumber) == phoneNormalized);
+
+            if (phoneOwner != null && phoneOwner.Id != currentPendingUserId && IsAccountRegistered(phoneOwner))
             {
                 return new AuthResponseDto
                 {
                     Success = false,
-                    Message = "Tên đăng nhập hoặc email đã được sử dụng trong hệ thống."
+                    ErrorCode = "PHONE_ALREADY_EXISTS",
+                    Field = "phoneNumber",
+                    Message = "Số điện thoại này đã được đăng ký bởi một tài khoản khác trong hệ thống. Vui lòng dùng số điện thoại khác hoặc đăng nhập."
+                };
+            }
+        }
+
+        // 3. Check duplicate CCCD (12 digits) across accounts & patients + validate Walk-In guest linking
+        bool willLinkWalkIn = false;
+        if (!string.IsNullOrWhiteSpace(cccdTrimmed))
+        {
+            User? cccdOwner = null;
+            if (_userRepository != null)
+                cccdOwner = await _userRepository.FindByIdentityCardAsync(cccdTrimmed);
+
+            cccdOwner ??= _context.Users.FirstOrDefault(u =>
+                !u.IsDeleted &&
+                string.Equals(u.IdentityCardNumber?.Trim(), cccdTrimmed, StringComparison.OrdinalIgnoreCase));
+
+            if (cccdOwner != null && cccdOwner.Id != currentPendingUserId && IsAccountRegistered(cccdOwner))
+            {
+                return new AuthResponseDto
+                {
+                    Success = false,
+                    ErrorCode = "CCCD_ALREADY_EXISTS",
+                    Field = "identityCard",
+                    Message = "Số CCCD này đã được đăng ký tài khoản trong hệ thống. Mỗi công dân chỉ được sở hữu một tài khoản bệnh nhân."
                 };
             }
 
-            // Unconfirmed account: refresh OTP and resend
+            if (_patientRepository != null)
+            {
+                var existingPatient = await _patientRepository.FindByIdentityNumberAsync(cccdTrimmed);
+                if (existingPatient != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(existingPatient.AccountId) && existingPatient.AccountId != currentPendingUserId)
+                    {
+                        return new AuthResponseDto
+                        {
+                            Success = false,
+                            ErrorCode = "CCCD_ALREADY_EXISTS",
+                            Field = "identityCard",
+                            Message = "Số CCCD này đã liên kết với một tài khoản bệnh nhân khác trong hệ thống."
+                        };
+                    }
+
+                    // Walk-in guest profile exists without AccountId -> verify multi-factor identity BEFORE sending OTP
+                    if (string.IsNullOrWhiteSpace(existingPatient.AccountId))
+                    {
+                        var nameMatches = !string.IsNullOrWhiteSpace(existingPatient.FullName)
+                            && string.Equals(existingPatient.FullName.Trim(), dto.FullName.Trim(), StringComparison.OrdinalIgnoreCase);
+                        var dobMatches = existingPatient.DateOfBirth.HasValue
+                            && dto.DateOfBirth.HasValue
+                            && existingPatient.DateOfBirth.Value.Date == dto.DateOfBirth.Value.Date;
+                        var normExistingPhone = NormalizePhone(existingPatient.PhoneNumber);
+                        var phoneMatches = !string.IsNullOrEmpty(normExistingPhone) && normExistingPhone == phoneNormalized;
+
+                        if (!(nameMatches && (dobMatches || phoneMatches)))
+                        {
+                            return new AuthResponseDto
+                            {
+                                Success = false,
+                                ErrorCode = "WALKIN_IDENTITY_MISMATCH",
+                                Field = "identityCard",
+                                Message = "Số CCCD này đã có hồ sơ khám vãng lai tại phòng khám, nhưng Họ tên cùng Ngày sinh/SĐT không khớp với hồ sơ gốc. Vui lòng nhập đúng thông tin đã đăng ký tại quầy hoặc liên hệ Lễ tân."
+                            };
+                        }
+
+                        willLinkWalkIn = true;
+                    }
+                }
+            }
+        }
+
+        if (existingUser != null)
+        {
+            // Pending unconfirmed self-registration for the same email: refresh OTP and resend
             var freshOtp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
             existingUser.VerificationOtp = freshOtp;
             existingUser.OtpExpiresAt = DateTime.UtcNow.AddMinutes(15);
             existingUser.PasswordHash = _passwordHasher != null ? _passwordHasher.Hash(dto.Password) : BmsDbContext.HashPassword(dto.Password);
             existingUser.FullName = dto.FullName.Trim();
-            existingUser.PhoneNumber = dto.PhoneNumber;
+            existingUser.PhoneNumber = string.IsNullOrWhiteSpace(phoneNormalized) ? dto.PhoneNumber?.Trim() : phoneNormalized;
             existingUser.Address = resolvedAddress ?? existingUser.Address;
-            if (!string.IsNullOrWhiteSpace(dto.IdentityCard)) existingUser.IdentityCardNumber = dto.IdentityCard.Trim();
+            if (!string.IsNullOrWhiteSpace(cccdTrimmed)) existingUser.IdentityCardNumber = cccdTrimmed;
             if (dto.DateOfBirth.HasValue) existingUser.DateOfBirth = dto.DateOfBirth.Value;
             if (!string.IsNullOrWhiteSpace(dto.Gender)) existingUser.Gender = dto.Gender;
             existingUser.UpdatedAt = DateTime.UtcNow;
 
             if (_userRepository != null && !string.IsNullOrWhiteSpace(existingUser.Id))
             {
-                try { await _userRepository.UpdateAsync(existingUser); } catch {}
+                try
+                {
+                    await _userRepository.UpdateAsync(existingUser);
+                }
+                catch (Exception ex) when (ex.Message.Contains("E11000", StringComparison.OrdinalIgnoreCase))
+                {
+                    return MapDuplicateKeyError(ex);
+                }
             }
 
             if (_emailService != null)
@@ -844,12 +1057,15 @@ public class AuthService : IAuthService
             return new AuthResponseDto
             {
                 Success = true,
-                Message = $"Mã OTP xác thực mới (6 chữ số) đã được gửi đến email {existingUser.Email}. Vui lòng kiểm tra hộp thư.",
+                WalkInLinked = willLinkWalkIn,
+                Message = willLinkWalkIn
+                    ? $"Mã OTP xác thực mới (6 chữ số) đã được gửi đến email {existingUser.Email}. Sau khi xác thực, hệ thống sẽ tự động liên kết hồ sơ khám vãng lai cũ của bạn."
+                    : $"Mã OTP xác thực mới (6 chữ số) đã được gửi đến email {existingUser.Email}. Vui lòng kiểm tra hộp thư.",
                 User = MapToDto(existingUser)
             };
         }
 
-        // 2. Generate 6-digit CSPRNG OTP
+        // 4. Generate 6-digit CSPRNG OTP
         var otp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
         var expiresAt = DateTime.UtcNow.AddMinutes(15);
         var hashedPassword = _passwordHasher != null
@@ -861,12 +1077,11 @@ public class AuthService : IAuthService
             Username = usernameTrimmed,
             Email = emailTrimmed,
             FullName = dto.FullName.Trim(),
-            PhoneNumber = dto.PhoneNumber,
+            PhoneNumber = string.IsNullOrWhiteSpace(phoneNormalized) ? dto.PhoneNumber?.Trim() : phoneNormalized,
             Address = resolvedAddress,
-            IdentityCardNumber = dto.IdentityCard?.Trim(),
+            IdentityCardNumber = cccdTrimmed,
             DateOfBirth = dto.DateOfBirth,
             Gender = dto.Gender,
-            // WHY (R7): self-registered accounts are patients, seeded RoleId 6. 9 was a legacy value.
             Role = UserRole.Patient,
             RoleId = (int)UserRole.Patient,
             PasswordHash = hashedPassword,
@@ -884,14 +1099,18 @@ public class AuthService : IAuthService
             {
                 await _userRepository.CreateAsync(newUser);
             }
-            catch
+            catch (Exception ex) when (ex.Message.Contains("E11000", StringComparison.OrdinalIgnoreCase))
             {
-                // Fallback to memory context
+                return MapDuplicateKeyError(ex);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Could not persist newly registered user to MongoDB; falling back to memory context.");
             }
         }
         _context.Users.Add(newUser);
 
-        // 3. Dispatch live OTP email via Gmail SMTP
+        // 5. Dispatch live OTP email via Gmail SMTP
         bool sent = false;
         if (_emailService != null)
         {
@@ -902,13 +1121,50 @@ public class AuthService : IAuthService
                 15);
         }
 
+        var walkInSuffix = willLinkWalkIn
+            ? " Hệ thống đã khớp hồ sơ khám vãng lai theo CCCD và sẽ tự động đồng bộ lịch sử khám sau khi xác thực OTP."
+            : string.Empty;
+
         return new AuthResponseDto
         {
             Success = true,
-            Message = sent
+            WalkInLinked = willLinkWalkIn,
+            Message = (sent
                 ? $"Đăng ký tài khoản thành công! Mã OTP xác thực (6 chữ số) đã được gửi đến email {dto.Email}. Vui lòng kiểm tra hộp thư đến hoặc mục thư rác."
-                : $"Đăng ký tài khoản thành công! Mã OTP xác thực đã được gửi tới email {dto.Email}.",
+                : $"Đăng ký tài khoản thành công! Mã OTP xác thực đã được gửi tới email {dto.Email}.") + walkInSuffix,
             User = MapToDto(newUser)
+        };
+    }
+
+    private static AuthResponseDto MapDuplicateKeyError(Exception ex)
+    {
+        var msg = ex.Message ?? string.Empty;
+        if (msg.Contains("ux_accounts_cccd", StringComparison.OrdinalIgnoreCase) || msg.Contains("identityCardNumber", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "CCCD_ALREADY_EXISTS",
+                Field = "identityCard",
+                Message = "Số CCCD này đã được đăng ký tài khoản trong hệ thống."
+            };
+        }
+        if (msg.Contains("ux_accounts_phone", StringComparison.OrdinalIgnoreCase) || msg.Contains("PhoneNumber", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AuthResponseDto
+            {
+                Success = false,
+                ErrorCode = "PHONE_ALREADY_EXISTS",
+                Field = "phoneNumber",
+                Message = "Số điện thoại này đã được đăng ký bởi tài khoản khác trong hệ thống."
+            };
+        }
+        return new AuthResponseDto
+        {
+            Success = false,
+            ErrorCode = "EMAIL_ALREADY_EXISTS",
+            Field = "email",
+            Message = "Email hoặc thông tin định danh này đã tồn tại trong hệ thống."
         };
     }
 
@@ -1802,6 +2058,7 @@ public class AuthService : IAuthService
                     }
 
                     existing.AccountId = user.Id;
+                    existing.IsGuest = false;
                     if (string.IsNullOrWhiteSpace(existing.Email) && !string.IsNullOrWhiteSpace(user.Email))
                     {
                         existing.Email = user.Email;
@@ -1809,6 +2066,10 @@ public class AuthService : IAuthService
                     if (string.IsNullOrWhiteSpace(existing.PhoneNumber) && !string.IsNullOrWhiteSpace(user.PhoneNumber))
                     {
                         existing.PhoneNumber = user.PhoneNumber;
+                    }
+                    if (string.IsNullOrWhiteSpace(existing.Address) && !string.IsNullOrWhiteSpace(user.Address))
+                    {
+                        existing.Address = user.Address;
                     }
                     existing.UpdatedAt = DateTime.UtcNow;
                     try

@@ -35,7 +35,6 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// Any authenticated role can view feedbacks; anonymous authors have PII masked for non-owners.
         /// </summary>
         [Authorize(Roles = RoleSets.AnyRole)]
-        [Authorize(Roles = RoleNames.Manager)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int? rating, [FromQuery] string? category, [FromQuery] string? status, [FromQuery] string? searchTerm, [FromQuery] string? servicePackageId, CancellationToken ct)
         {
@@ -114,8 +113,6 @@ namespace BMS.Api.Controllers.PatientFeedback
         /// Retrieves statistical breakdown of feedbacks (average rating, distribution, response rate).
         /// </summary>
         [Authorize(Roles = RoleSets.AnyRole)]
-        [Authorize(Roles = RoleNames.Manager)]
-        [Authorize(Roles = RoleSets.AdminOrManager)]
         [HttpGet("statistics")]
         public async Task<IActionResult> GetStatistics(CancellationToken ct)
         {

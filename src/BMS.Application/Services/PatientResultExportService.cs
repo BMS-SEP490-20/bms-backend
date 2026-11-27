@@ -330,7 +330,6 @@ public class PatientResultExportService : IPatientResultExportService
 
     <div class=""footer"">
         This document is an electronically released laboratory report per ISO 15189 diagnostic guidelines.<br/>
-        Digital Security Verification Hash: <code>{result.VerificationHash}</code><br/>
         Share Verification Link: {result.ShareUrl}
     </div>
 </body>
@@ -576,10 +575,9 @@ public class PatientResultExportService : IPatientResultExportService
 
             var validation = Str(doc, "validationStatus");
             var status = Str(doc, "status");
-            var sig = Str(doc, "digitalSignature", "digital_signature");
-            var isDoctorApproved = (validation is "3" or "DoctorApproved")
-                && (status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase) || status.Equals("Completed", StringComparison.OrdinalIgnoreCase))
-                && !string.IsNullOrWhiteSpace(sig);
+            var isDoctorApproved = (validation is "3" or "DoctorApproved"
+                    || (string.IsNullOrWhiteSpace(validation) && status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase)))
+                && (status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase) || status.Equals("Completed", StringComparison.OrdinalIgnoreCase));
             if (!isDoctorApproved) return null;
 
             var resultId = Str(doc, "testResultId", "_id");
@@ -786,7 +784,7 @@ public class PatientResultExportService : IPatientResultExportService
                 AbnormalCount = parameters.Count(p => p.IsAbnormal),
                 ReferenceIntervalNotes = "Khoảng tham chiếu sinh học theo chuẩn ISO 15189:2022",
                 Parameters = parameters,
-                VerificationHash = sig,
+                VerificationHash = string.Empty,
                 ShareToken = token,
                 ShareUrl = $"/results/share?orderId={resultId}&token={token}"
             };

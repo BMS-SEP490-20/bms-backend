@@ -127,9 +127,9 @@ public class SpecimenHistoryService : ISpecimenHistoryService
             CurrentTemperature = storageDto.CurrentTemperature,
             CurrentHumidity = storageDto.CurrentHumidity,
             IsTemperatureCompliant = isCompliant,
-            PreservationMethod = !string.IsNullOrWhiteSpace(storageDto.PreservationMethod) 
-                ? storageDto.PreservationMethod.Trim() 
-                : existing.Storage.PreservationMethod,
+            PreservationMethod = !string.IsNullOrWhiteSpace(storageDto.PreservationMethod)
+                ? storageDto.PreservationMethod.Trim()
+                : (existing.Storage?.PreservationMethod ?? string.Empty),
             StoredAt = DateTime.UtcNow,
             StoredBy = operatorName,
             RetentionPeriodDays = retentionDays,
@@ -148,10 +148,16 @@ public class SpecimenHistoryService : ISpecimenHistoryService
         return (true, "Đã cập nhật vị trí lưu trữ và thông số bảo quản mẫu thành công.", MapToDetailDto(record!));
     }
 
+    private static bool HasRealStorage(SpecimenStorageInfo? s) =>
+        s != null && !string.IsNullOrWhiteSpace(s.StorageUnit);
+
     private static SpecimenHistoryListItemDto MapToListItemDto(SpecimenHistoryRecord rec)
     {
         var now = DateTime.UtcNow;
-        var remainingDays = Math.Max(0, (rec.Storage.ExpirationDate - now).Days);
+        var hasStorage = HasRealStorage(rec.Storage);
+        int? remainingDays = hasStorage && rec.Storage!.ExpirationDate.HasValue
+            ? Math.Max(0, (rec.Storage.ExpirationDate.Value - now).Days)
+            : null;
 
         return new SpecimenHistoryListItemDto
         {
@@ -169,11 +175,11 @@ public class SpecimenHistoryService : ISpecimenHistoryService
             TestPackageName = rec.TestPackageName,
             Status = rec.Status,
             Priority = rec.Priority,
-            CollectionTime = rec.CollectionTime.ToString("dd/MM/yyyy HH:mm"),
-            StorageUnit = rec.Storage.StorageUnit,
-            RackId = rec.Storage.RackId,
-            SlotPosition = rec.Storage.SlotPosition,
-            CurrentTemperature = rec.Storage.CurrentTemperature,
+            CollectionTime = rec.CollectionTime != DateTime.MinValue ? rec.CollectionTime.ToString("dd/MM/yyyy HH:mm") : string.Empty,
+            StorageUnit = hasStorage ? rec.Storage!.StorageUnit : null,
+            RackId = hasStorage ? rec.Storage!.RackId : null,
+            SlotPosition = hasStorage ? rec.Storage!.SlotPosition : null,
+            CurrentTemperature = hasStorage ? rec.Storage!.CurrentTemperature : null,
             RemainingDays = remainingDays
         };
     }
@@ -181,7 +187,33 @@ public class SpecimenHistoryService : ISpecimenHistoryService
     private static SpecimenHistoryDetailDto MapToDetailDto(SpecimenHistoryRecord rec)
     {
         var now = DateTime.UtcNow;
-        var remainingDays = Math.Max(0, (rec.Storage.ExpirationDate - now).Days);
+        var hasStorage = HasRealStorage(rec.Storage);
+        int? remainingDays = hasStorage && rec.Storage!.ExpirationDate.HasValue
+            ? Math.Max(0, (rec.Storage.ExpirationDate.Value - now).Days)
+            : null;
+
+        SpecimenStorageInfoDto? storageDto = hasStorage
+            ? new SpecimenStorageInfoDto
+            {
+                StorageStatus = rec.Storage!.StorageStatus,
+                StorageUnit = rec.Storage.StorageUnit,
+                RackId = rec.Storage.RackId,
+                SlotPosition = rec.Storage.SlotPosition,
+                TargetTemperatureMin = rec.Storage.TargetTemperatureMin,
+                TargetTemperatureMax = rec.Storage.TargetTemperatureMax,
+                CurrentTemperature = rec.Storage.CurrentTemperature,
+                CurrentHumidity = rec.Storage.CurrentHumidity,
+                IsTemperatureCompliant = rec.Storage.IsTemperatureCompliant,
+                PreservationMethod = rec.Storage.PreservationMethod,
+                StoredAt = rec.Storage.StoredAt?.ToString("dd/MM/yyyy HH:mm"),
+                StoredBy = rec.Storage.StoredBy,
+                RetentionPeriodDays = rec.Storage.RetentionPeriodDays,
+                ExpirationDate = rec.Storage.ExpirationDate?.ToString("dd/MM/yyyy"),
+                DisposalDueDate = rec.Storage.DisposalDueDate?.ToString("dd/MM/yyyy"),
+                DisposalStatus = rec.Storage.DisposalStatus,
+                RemainingDays = remainingDays
+            }
+            : null;
 
         return new SpecimenHistoryDetailDto
         {
@@ -200,7 +232,7 @@ public class SpecimenHistoryService : ISpecimenHistoryService
             PatientPhone = rec.PatientPhone,
             OrderId = rec.OrderId,
             AppointmentId = rec.AppointmentId,
-            OrderDate = rec.OrderDate.ToString("dd/MM/yyyy HH:mm"),
+            OrderDate = rec.OrderDate != DateTime.MinValue ? rec.OrderDate.ToString("dd/MM/yyyy HH:mm") : string.Empty,
             DoctorId = rec.DoctorId,
             DoctorName = rec.DoctorName,
             Department = rec.Department,
@@ -208,38 +240,17 @@ public class SpecimenHistoryService : ISpecimenHistoryService
             TestCriteriaCodes = rec.TestCriteriaCodes,
             Status = rec.Status,
             Priority = rec.Priority,
-            CollectionTime = rec.CollectionTime.ToString("dd/MM/yyyy HH:mm"),
+            CollectionTime = rec.CollectionTime != DateTime.MinValue ? rec.CollectionTime.ToString("dd/MM/yyyy HH:mm") : string.Empty,
             CollectorId = rec.CollectorId,
             CollectorName = rec.CollectorName,
             CollectionSite = rec.CollectionSite,
             Notes = rec.Notes,
             RejectionReason = rec.RejectionReason,
             IsRejected = rec.IsRejected || rec.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(rec.RejectionReason),
-            QcStatus = !string.IsNullOrWhiteSpace(rec.QcStatus) 
-                ? rec.QcStatus 
-                : (rec.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase) ? "Failed" : "Passed"),
+            QcStatus = !string.IsNullOrWhiteSpace(rec.QcStatus) ? rec.QcStatus : null,
             ReceivedBy = rec.ReceivedBy,
             ReceivedAt = rec.ReceivedAt?.ToString("dd/MM/yyyy HH:mm"),
-            Storage = new SpecimenStorageInfoDto
-            {
-                StorageStatus = rec.Storage.StorageStatus,
-                StorageUnit = rec.Storage.StorageUnit,
-                RackId = rec.Storage.RackId,
-                SlotPosition = rec.Storage.SlotPosition,
-                TargetTemperatureMin = rec.Storage.TargetTemperatureMin,
-                TargetTemperatureMax = rec.Storage.TargetTemperatureMax,
-                CurrentTemperature = rec.Storage.CurrentTemperature,
-                CurrentHumidity = rec.Storage.CurrentHumidity,
-                IsTemperatureCompliant = rec.Storage.IsTemperatureCompliant,
-                PreservationMethod = rec.Storage.PreservationMethod,
-                StoredAt = rec.Storage.StoredAt.ToString("dd/MM/yyyy HH:mm"),
-                StoredBy = rec.Storage.StoredBy,
-                RetentionPeriodDays = rec.Storage.RetentionPeriodDays,
-                ExpirationDate = rec.Storage.ExpirationDate.ToString("dd/MM/yyyy"),
-                DisposalDueDate = rec.Storage.DisposalDueDate.ToString("dd/MM/yyyy"),
-                DisposalStatus = rec.Storage.DisposalStatus,
-                RemainingDays = remainingDays
-            },
+            Storage = storageDto,
             Timeline = rec.Timeline
                 .OrderBy(t => t.Timestamp)
                 .Select(t => new SpecimenTimelineEventDto

@@ -118,7 +118,6 @@ public sealed class SampleTimelineRepository : ISampleTimelineRepository
                 { "entered_at", 1 }, { "enteredAt", 1 }, { "approved_at", 1 }, { "approvedAt", 1 }, { "rerun_requested", 1 }, { "rerunRequested", 1 } }).ToListAsync(ct);
         var results = reports.Select(r => new SampleTimelineResult(
             (Text(r, "status").Equals("APPROVED", StringComparison.OrdinalIgnoreCase) || Text(r, "validationStatus") is "DoctorApproved" or "3") &&
-            (Signature(r, "digital_signature") || Signature(r, "digitalSignature")) &&
             !r.GetValue("rerun_requested", false).Equals(BsonBoolean.True) && !r.GetValue("rerunRequested", false).Equals(BsonBoolean.True),
             Date(r, "entered_at") ?? Date(r, "enteredAt"), Date(r, "approved_at") ?? Date(r, "approvedAt"))).ToList();
         return new(summary, events, results);

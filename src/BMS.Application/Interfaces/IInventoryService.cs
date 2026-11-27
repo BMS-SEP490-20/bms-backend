@@ -13,4 +13,5 @@ public interface IInventoryService
     Task DeleteAsync(string id, DeleteInventoryDto request, string actorId, string actorName, CancellationToken ct = default);
     Task<InventoryListDto> ListAsync(InventoryFilterDto filter, CancellationToken ct = default);
     Task<InventoryDetailDto?> GetAsync(string id, CancellationToken ct = default);
+    Task<List<ConsumedSupplySummaryDto>> ConsumeBatchAsync(ConsumeInventoryBatchDto request, string actorId, string actorName, CancellationToken ct = default);
 }

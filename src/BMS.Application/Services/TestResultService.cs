@@ -137,16 +137,12 @@ namespace BMS.Application.Services
                 throw new ResourceNotFoundException("APPOINTMENT_NOT_FOUND", "Không tìm thấy lịch hẹn liên kết với mẫu.");
             }
 
-            if (await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], orderKeys, ct))
-                throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả đã ký không được nhập lại.");
+            if (sample.Status != SampleStatus.RerunRequested
+                && await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], orderKeys, ct))
+                throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả của ống mẫu này đã được duyệt/ký, không được nhập lại.");
             var items = await ValidatedItemsAsync(dto.Parameters, ct);
             var panicItems = items.Where(x => x.Flag == ResultFlag.CriticalPanic).ToList();
             var panic = panicItems.Count > 0;
-            if (panic && (!dto.ConfirmRerunChecked || !dto.CriticalNotified || string.IsNullOrWhiteSpace(dto.DoctorNotifiedName)))
-            {
-                var panicDetail = string.Join(", ", panicItems.Select(x => $"{x.CriterionCode}={x.MeasuredValue} {x.Unit}".Trim()));
-                throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", $"Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic ({panicDetail}).");
-            }
             var now = DateTime.UtcNow;
             Reagent? selectedLot = null;
             if (_inventory != null && !string.IsNullOrWhiteSpace(dto.ReagentCode))
@@ -283,8 +279,6 @@ namespace BMS.Application.Services
             var oldStatus = entity.Status;
             var measurements = dto.Parameters is { Count: > 0 } ? await ValidatedItemsAsync(dto.Parameters, ct) : null;
             var panic = measurements?.Any(x => x.Flag == ResultFlag.CriticalPanic);
-            if (panic == true && (!dto.ConfirmRerunChecked || !dto.CriticalNotified || string.IsNullOrWhiteSpace(dto.DoctorNotifiedName)))
-                throw new DomainValidationException("PANIC_CONFIRMATION_REQUIRED", "Cần xác nhận kiểm tra lại và thông báo bác sĩ cho kết quả panic.");
             var changes = new TestResultFieldChanges(
                 ReagentCode: dto.ReagentCode,
                 Quantity: dto.Quantity != 0 ? dto.Quantity : null,
@@ -338,11 +332,9 @@ namespace BMS.Application.Services
             // GATE (main flow step 4→5): only Doctor clinical approve publishes to patient portal.
             // Requires existing Lab-entered result; Manager tech-verify is optional and does not publish.
             if (string.IsNullOrWhiteSpace(dto.ApproverId))
-                throw new DomainValidationException("MSG-ERR-DOC-APPROVE-01", "Thiếu định danh bác sĩ ký duyệt (ApproverId).");
+                throw new DomainValidationException("MSG-ERR-DOC-APPROVE-01", "Thiếu định danh bác sĩ phê duyệt (ApproverId).");
 
             var now = DateTime.UtcNow;
-            var sealPayload = $"BMS-CLINICAL-APPROVE:{entity.Id}:{dto.ApproverId}:{now:yyyyMMddHHmmss}";
-            var digitalSignature = "SHA256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sealPayload))).ToLowerInvariant();
 
             var icd10Code = string.IsNullOrWhiteSpace(dto.Icd10Code) ? null : dto.Icd10Code.Trim();
             var finalDiagnosis = string.IsNullOrWhiteSpace(dto.FinalDiagnosis) ? null : dto.FinalDiagnosis.Trim();
@@ -362,7 +354,7 @@ namespace BMS.Application.Services
                 ValidationStatus: ResultValidationStatus.DoctorApproved,
                 ApprovedByDoctorId: dto.ApproverId,
                 ApprovedAt: now,
-                DigitalSignature: digitalSignature,
+                DigitalSignature: null,
                 ClinicalComment: clinicalComment,
                 Icd10Code: icd10Code,
                 FinalDiagnosis: finalDiagnosis,
@@ -442,7 +434,7 @@ namespace BMS.Application.Services
                 UserId = appointment.DoctorId ?? appointment.PatientId,
                 Role = "Doctor",
                 Title = "KQ Lab sẵn sàng — chờ BS thẩm định",
-                Message = $"Lab đã nhập KQ cho lịch {appointment.AppointmentCode}. Vào /doctor/console → Thẩm Định & Tư Vấn → Ký Số & Trả Kết Quả Cho Bệnh Nhân.",
+                Message = $"Lab đã nhập KQ cho lịch {appointment.AppointmentCode}. Vào /doctor/console → Thẩm Định & Tư Vấn → Phê Duyệt & Trả Kết Quả Cho Bệnh Nhân.",
                 Type = "result_waiting_review",
                 ReferenceId = result.TestResultId,
                 CreatedAt = DateTime.UtcNow
@@ -503,10 +495,25 @@ namespace BMS.Application.Services
                 if (criterion is null || !criterion.IsActive || criterion.IsDeleted || string.IsNullOrWhiteSpace(p.Value))
                     throw new DomainValidationException("INVALID_RESULT_CRITERION", $"Chỉ tiêu '{lookupCode}' không tồn tại, đã ngừng dùng hoặc thiếu giá trị.");
                 var flag = ResultFlag.Normal;
-                if (!string.Equals(criterion.ValueType, "Qualitative", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(criterion.ValueType, "Qualitative", StringComparison.OrdinalIgnoreCase))
+                {
+                    ClinicalMeasurementValidator.ValidateQualitativeValue(criterion, p.Value);
+                    var normalizedText = p.Value.Trim();
+                    if (normalizedText.Contains("Dương", StringComparison.OrdinalIgnoreCase)
+                        || normalizedText.Contains("Positive", StringComparison.OrdinalIgnoreCase)
+                        || (normalizedText.Contains("Reactive", StringComparison.OrdinalIgnoreCase)
+                            && !normalizedText.Contains("Non-reactive", StringComparison.OrdinalIgnoreCase))
+                        || (normalizedText.Contains("Phản ứng", StringComparison.OrdinalIgnoreCase)
+                            && !normalizedText.Contains("Không phản ứng", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        flag = ResultFlag.High;
+                    }
+                }
+                else
                 {
                     if (!double.TryParse(p.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
-                        throw new DomainValidationException("INVALID_MEASURED_VALUE", "Chỉ số định lượng phải là số hữu hạn.");
+                        throw new DomainValidationException("INVALID_MEASURED_VALUE", $"Chỉ số định lượng {criterion.CriterionCode} ({criterion.CriterionName}) phải là một số hợp lệ.");
+                    ClinicalMeasurementValidator.ValidateNumericValue(criterion, value);
                     flag = criterion.PanicLow.HasValue && value < criterion.PanicLow || criterion.PanicHigh.HasValue && value > criterion.PanicHigh ? ResultFlag.CriticalPanic
                         : criterion.NormalMin.HasValue && value < criterion.NormalMin ? ResultFlag.Low
                         : criterion.NormalMax.HasValue && value > criterion.NormalMax ? ResultFlag.High : ResultFlag.Normal;
@@ -515,6 +522,7 @@ namespace BMS.Application.Services
                     CriterionName = criterion.CriterionName, MeasuredValue = p.Value.Trim(), Unit = criterion.Unit,
                     ReferenceInterval = criterion.NormalText ?? $"{criterion.NormalMin}-{criterion.NormalMax}", Flag = flag });
             }
+            ClinicalMeasurementValidator.ValidateCrossAnalyteRules(items);
             return items;
         }
 

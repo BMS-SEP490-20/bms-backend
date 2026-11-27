@@ -10,6 +10,7 @@ using BMS.Core.Constants;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace BMS.Application.Services;
@@ -58,44 +59,80 @@ public class TestResultNotificationService : ITestResultNotificationService
         }
 
         // =====================================================================
-        // RULE 1: Only notify if test result is APPROVED (ISO 15189:2022)
+        // RULE 1: Only notify if test result is APPROVED by Doctor in test_results (ISO 15189:2022)
         // =====================================================================
         if (_db != null)
         {
-            var testResultsCol = _db.GetCollection<TestResult>("test_results");
-            var filter = Builders<TestResult>.Filter.Or(
-                Builders<TestResult>.Filter.Eq(x => x.AppointmentId, dto.TestOrderId.Trim()),
-                Builders<TestResult>.Filter.Eq(x => x.TestResultId, dto.TestOrderId.Trim()),
-                Builders<TestResult>.Filter.Eq(x => x.Id, dto.TestOrderId.Trim()),
-                Builders<TestResult>.Filter.Eq(x => x.SampleId, dto.TestOrderId.Trim()),
-                Builders<TestResult>.Filter.Eq("test_order_id", dto.TestOrderId.Trim())
-            );
-            var testResult = await testResultsCol.Find(filter).FirstOrDefaultAsync(ct);
-            if (testResult != null)
+            var testResultsCol = _db.GetCollection<BsonDocument>("test_results");
+            var candidateIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(dto.TestOrderId)) candidateIds.Add(dto.TestOrderId.Trim());
+            if (!string.IsNullOrWhiteSpace(dto.SpecimenBarcode)) candidateIds.Add(dto.SpecimenBarcode.Trim());
+
+            // Resolve linked sample_id / appointment_id from blood_samples ONLY to look up the corresponding test_results record
+            var samplesCol = _db.GetCollection<BsonDocument>("blood_samples");
+            var sampleLookupFilters = new List<FilterDefinition<BsonDocument>>();
+            foreach (var cid in candidateIds.ToList())
             {
-                if (!TestResultRules.IsSigned(testResult))
+                sampleLookupFilters.Add(Builders<BsonDocument>.Filter.Eq("_id", cid));
+                sampleLookupFilters.Add(Builders<BsonDocument>.Filter.Eq("barcode", cid));
+                sampleLookupFilters.Add(Builders<BsonDocument>.Filter.Eq("appointment_id", cid));
+                sampleLookupFilters.Add(Builders<BsonDocument>.Filter.Eq("test_order_id", cid));
+                sampleLookupFilters.Add(Builders<BsonDocument>.Filter.Eq("order_id", cid));
+            }
+
+            if (sampleLookupFilters.Count > 0)
+            {
+                var linkedSamples = await samplesCol.Find(Builders<BsonDocument>.Filter.Or(sampleLookupFilters)).ToListAsync(ct);
+                foreach (var sDoc in linkedSamples)
                 {
-                    return (false, "Kết quả xét nghiệm chưa được phê duyệt theo quy trình BMS. Chỉ được gửi thông báo khi kết quả đã được bác sĩ / trưởng lab ký duyệt.", null);
+                    foreach (var field in new[] { "_id", "barcode", "appointment_id", "test_order_id", "order_id" })
+                    {
+                        if (sDoc.Contains(field) && !sDoc[field].IsBsonNull)
+                        {
+                            var val = sDoc[field].IsString ? sDoc[field].AsString : sDoc[field].ToString();
+                            if (!string.IsNullOrWhiteSpace(val)) candidateIds.Add(val.Trim());
+                        }
+                    }
                 }
             }
-            else
+
+            var idArray = candidateIds.ToArray();
+            var resultFilter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Ne("isSuperseded", true),
+                Builders<BsonDocument>.Filter.Or(
+                    Builders<BsonDocument>.Filter.In("_id", idArray),
+                    Builders<BsonDocument>.Filter.In("testResultId", idArray),
+                    Builders<BsonDocument>.Filter.In("appointmentId", idArray),
+                    Builders<BsonDocument>.Filter.In("appointment_id", idArray),
+                    Builders<BsonDocument>.Filter.In("test_order_id", idArray),
+                    Builders<BsonDocument>.Filter.In("testOrderId", idArray),
+                    Builders<BsonDocument>.Filter.In("orderId", idArray),
+                    Builders<BsonDocument>.Filter.In("sampleId", idArray),
+                    Builders<BsonDocument>.Filter.In("sample_id", idArray)
+                )
+            );
+
+            var matchingResults = await testResultsCol.Find(resultFilter).ToListAsync(ct);
+            if (matchingResults.Count == 0)
             {
-                // Check blood_samples fallback
-                var samplesCol = _db.GetCollection<Sample>("blood_samples");
-                var sFilter = Builders<Sample>.Filter.Or(
-                    Builders<Sample>.Filter.Eq(x => x.TestOrderId, dto.TestOrderId.Trim()),
-                    Builders<Sample>.Filter.Eq(x => x.Id, dto.TestOrderId.Trim()),
-                    Builders<Sample>.Filter.Eq(x => x.Barcode, dto.TestOrderId.Trim())
-                );
-                var sample = await samplesCol.Find(sFilter).FirstOrDefaultAsync(ct);
-                if (sample != null && sample.Status != SampleStatus.Completed)
-                {
-                    return (false, "Mẫu xét nghiệm chưa hoàn tất xử lý và chưa được phê duyệt kết quả.", null);
-                }
-                else if (sample == null)
-                {
-                    return (false, $"Không tìm thấy kết quả xét nghiệm đã được phê duyệt cho mã đơn '{dto.TestOrderId}'.", null);
-                }
+                return (false, $"Không tìm thấy kết quả xét nghiệm đã được Bác sĩ phê duyệt cho mã đơn '{dto.TestOrderId}'.", null);
+            }
+
+            var approvedStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Approved", "Published", "Signed"
+            };
+
+            var hasDoctorApprovedResult = matchingResults.Any(r =>
+            {
+                if (!r.Contains("status") || r["status"].IsBsonNull) return false;
+                var st = r["status"].IsString ? r["status"].AsString.Trim() : r["status"].ToString()?.Trim();
+                return !string.IsNullOrWhiteSpace(st) && approvedStatuses.Contains(st);
+            });
+
+            if (!hasDoctorApprovedResult)
+            {
+                return (false, "Kết quả xét nghiệm chưa được Bác sĩ phê duyệt. Chỉ những đơn đã được Bác sĩ duyệt kết quả mới được phép gửi thông báo qua Email cho bệnh nhân.", null);
             }
 
             // =====================================================================

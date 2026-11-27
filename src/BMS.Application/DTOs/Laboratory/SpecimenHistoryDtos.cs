@@ -41,23 +41,23 @@ public class SpecimenTimelineEventDto
 /// </summary>
 public class SpecimenStorageInfoDto
 {
-    public string StorageStatus { get; set; } = "Stored";
+    public string StorageStatus { get; set; } = string.Empty;
     public string StorageUnit { get; set; } = string.Empty;
     public string RackId { get; set; } = string.Empty;
     public string SlotPosition { get; set; } = string.Empty;
-    public double TargetTemperatureMin { get; set; } = 2.0;
-    public double TargetTemperatureMax { get; set; } = 8.0;
-    public double CurrentTemperature { get; set; } = 4.0;
-    public double CurrentHumidity { get; set; } = 45.0;
-    public bool IsTemperatureCompliant { get; set; } = true;
+    public double? TargetTemperatureMin { get; set; }
+    public double? TargetTemperatureMax { get; set; }
+    public double? CurrentTemperature { get; set; }
+    public double? CurrentHumidity { get; set; }
+    public bool? IsTemperatureCompliant { get; set; }
     public string PreservationMethod { get; set; } = string.Empty;
-    public string StoredAt { get; set; } = string.Empty;
+    public string? StoredAt { get; set; }
     public string StoredBy { get; set; } = string.Empty;
-    public int RetentionPeriodDays { get; set; } = 7;
-    public string ExpirationDate { get; set; } = string.Empty;
-    public string DisposalDueDate { get; set; } = string.Empty;
-    public string DisposalStatus { get; set; } = "Retained";
-    public int RemainingDays { get; set; } = 7;
+    public int? RetentionPeriodDays { get; set; }
+    public string? ExpirationDate { get; set; }
+    public string? DisposalDueDate { get; set; }
+    public string DisposalStatus { get; set; } = string.Empty;
+    public int? RemainingDays { get; set; }
 }
 
 /// <summary>
@@ -98,11 +98,11 @@ public class SpecimenHistoryDetailDto
     public string CollectionSite { get; set; } = string.Empty;
 
     public List<SpecimenTimelineEventDto> Timeline { get; set; } = [];
-    public SpecimenStorageInfoDto Storage { get; set; } = new();
+    public SpecimenStorageInfoDto? Storage { get; set; }
     public string Notes { get; set; } = string.Empty;
     public string? RejectionReason { get; set; }
     public bool IsRejected { get; set; }
-    public string? QcStatus { get; set; } = "Passed";
+    public string? QcStatus { get; set; }
     public string? ReceivedBy { get; set; }
     public string? ReceivedAt { get; set; }
 }
@@ -130,11 +130,11 @@ public class SpecimenHistoryListItemDto
     public string Priority { get; set; } = string.Empty;
     public string CollectionTime { get; set; } = string.Empty;
 
-    public string StorageUnit { get; set; } = string.Empty;
-    public string RackId { get; set; } = string.Empty;
-    public string SlotPosition { get; set; } = string.Empty;
-    public double CurrentTemperature { get; set; }
-    public int RemainingDays { get; set; }
+    public string? StorageUnit { get; set; }
+    public string? RackId { get; set; }
+    public string? SlotPosition { get; set; }
+    public double? CurrentTemperature { get; set; }
+    public int? RemainingDays { get; set; }
 }
 
 /// <summary>

@@ -16,6 +16,8 @@ public sealed class FlowIndexInitializer(IMongoDatabase database, ILogger<FlowIn
     /// <inheritdoc />
     public async Task EnsureAsync(CancellationToken ct)
     {
+        await TryAsync("accounts", () => database.GetCollection<User>("accounts")
+            .Indexes.CreateManyAsync(UserRepository.Indexes(), ct));
         await TryAsync(QueueRepository.CollectionName, () => database.GetCollection<QueueTicket>(QueueRepository.CollectionName)
             .Indexes.CreateManyAsync(QueueRepository.Indexes(), ct));
         await TryAsync("patients", () => database.GetCollection<Patient>("patients")

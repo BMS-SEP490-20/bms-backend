@@ -69,4 +69,21 @@ public sealed class ReagentsController(IInventoryService service) : ControllerBa
         var item = await service.GetAsync(id, ct);
         return item is null ? NotFound(new { message = "Không tìm thấy vật tư hoặc lô hóa chất." }) : Ok(item);
     }
+
+    /// <summary>
+    /// Deducts medical supplies / reagents consumed during blood collection or lab analysis (ISO 15189 §6.6 traceability).
+    /// </summary>
+    [HttpPost("consume")]
+    [Authorize(Roles = RoleSets.LabOrManager)]
+    [ProducesResponseType(typeof(List<ConsumedSupplySummaryDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Consume([FromBody] ConsumeInventoryBatchDto request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ActorId)) return Unauthorized();
+        var consumed = await service.ConsumeBatchAsync(request, ActorId, ActorName, ct);
+        return Ok(new
+        {
+            message = $"Đã xuất và ghi nhận {consumed.Count} vật tư y tế tiêu hao từ kho.",
+            data = consumed
+        });
+    }
 }

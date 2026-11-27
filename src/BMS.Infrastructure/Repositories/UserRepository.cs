@@ -14,6 +14,46 @@ public sealed class UserRepository : IUserRepository
     public static readonly Collation CaseInsensitive =
         new("en", strength: CollationStrength.Secondary);
 
+    /// <summary>
+    /// Partial unique indexes on <c>accounts</c> enforcing unique Email (case-insensitive),
+    /// PhoneNumber, and 12-digit CCCD (identityCardNumber) among active non-empty values.
+    /// </summary>
+    public static IEnumerable<CreateIndexModel<User>> Indexes()
+    {
+        var fb = Builders<User>.Filter;
+        return
+        [
+            new(Builders<User>.IndexKeys.Ascending(u => u.Email),
+                new CreateIndexOptions<User>
+                {
+                    Name = "ux_accounts_email",
+                    Unique = true,
+                    Collation = CaseInsensitive,
+                    PartialFilterExpression = fb.And(
+                        fb.Eq(u => u.IsDeleted, false),
+                        fb.Gt(u => u.Email, ""))
+                }),
+            new(Builders<User>.IndexKeys.Ascending(u => u.PhoneNumber),
+                new CreateIndexOptions<User>
+                {
+                    Name = "ux_accounts_phone",
+                    Unique = true,
+                    PartialFilterExpression = fb.And(
+                        fb.Eq(u => u.IsDeleted, false),
+                        fb.Gt(u => u.PhoneNumber, ""))
+                }),
+            new(Builders<User>.IndexKeys.Ascending(u => u.IdentityCardNumber),
+                new CreateIndexOptions<User>
+                {
+                    Name = "ux_accounts_cccd",
+                    Unique = true,
+                    PartialFilterExpression = fb.And(
+                        fb.Eq(u => u.IsDeleted, false),
+                        fb.Gt(u => u.IdentityCardNumber, ""))
+                })
+        ];
+    }
+
     private readonly MongoDbContext _context;
     private readonly ILogger<UserRepository> _logger;
 
@@ -179,6 +219,91 @@ public sealed class UserRepository : IUserRepository
             string.Equals(
                 u.Email, keyword,
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<User?> FindByPhoneAsync(
+        string phoneNumber,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(phoneNumber))
+            return null;
+
+        var trimmed = phoneNumber.Trim();
+        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
+        var normalized = digits.StartsWith("84") && digits.Length > 2 ? "0" + digits[2..] : digits;
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { trimmed };
+        if (!string.IsNullOrEmpty(digits)) candidates.Add(digits);
+        if (!string.IsNullOrEmpty(normalized))
+        {
+            candidates.Add(normalized);
+            if (normalized.StartsWith("0") && normalized.Length >= 10)
+            {
+                candidates.Add("84" + normalized[1..]);
+                candidates.Add("+84" + normalized[1..]);
+            }
+        }
+
+        var candidateList = candidates.ToArray();
+
+        if (_context.Users != null)
+        {
+            try
+            {
+                var fb = Builders<User>.Filter;
+                var filter = fb.And(
+                    fb.Or(
+                        fb.In("PhoneNumber", candidateList),
+                        fb.In("phoneNumber", candidateList),
+                        fb.In("phone", candidateList)),
+                    fb.Ne("isDeleted", true));
+
+                var found = await _context.Users.Find(filter).FirstOrDefaultAsync(ct);
+                if (found != null) return found;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to query user by phone. Falling back to memory.");
+            }
+        }
+
+        return _memoryUsers.Values.FirstOrDefault(u =>
+            !u.IsDeleted &&
+            !string.IsNullOrWhiteSpace(u.PhoneNumber) &&
+            candidates.Contains(u.PhoneNumber.Trim()));
+    }
+
+    public async Task<User?> FindByIdentityCardAsync(
+        string identityCardNumber,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(identityCardNumber))
+            return null;
+
+        var keyword = identityCardNumber.Trim();
+
+        if (_context.Users != null)
+        {
+            try
+            {
+                var fb = Builders<User>.Filter;
+                var filter = fb.And(
+                    fb.Or(
+                        fb.Eq("identityCardNumber", keyword),
+                        fb.Eq("IdentityCardNumber", keyword)),
+                    fb.Ne("isDeleted", true));
+
+                var found = await _context.Users.Find(filter).FirstOrDefaultAsync(ct);
+                if (found != null) return found;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to query user by CCCD. Falling back to memory.");
+            }
+        }
+
+        return _memoryUsers.Values.FirstOrDefault(u =>
+            !u.IsDeleted &&
+            string.Equals(u.IdentityCardNumber?.Trim(), keyword, StringComparison.OrdinalIgnoreCase));
     }
 
     // =========================================================

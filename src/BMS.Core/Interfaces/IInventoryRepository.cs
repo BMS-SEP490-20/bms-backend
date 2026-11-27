@@ -14,6 +14,7 @@ public interface IInventoryRepository
     /// <summary>Filters and pages lots; counts refer to the complete filtered set, not the current page.</summary>
     Task<InventoryPage> ListAsync(InventorySearch search, DateTime today, CancellationToken ct = default);
     Task<Reagent?> GetAsync(string id, CancellationToken ct = default);
+    Task<Reagent?> ConsumeAsync(string idOrCode, decimal quantity, InventoryChange change, InventoryTransaction transaction, CancellationToken ct = default);
     Task<(List<InventoryTransaction> Items, long Total)> GetTransactionsAsync(string reagentCode, CancellationToken ct = default);
 }
 

@@ -72,6 +72,25 @@ public class AuthResponseDto
     public string? Token { get; set; }
     public UserDto? User { get; set; }
     public string? ErrorCode { get; set; }
+    public string? Field { get; set; }
+    public bool WalkInLinked { get; set; }
+}
+
+public class RegistrationAvailabilityDto
+{
+    public bool Success { get; set; } = true;
+    public bool Available { get; set; } = true;
+    public bool EmailTaken { get; set; }
+    public string? EmailMessage { get; set; }
+    public bool PhoneTaken { get; set; }
+    public string? PhoneMessage { get; set; }
+    public bool IdentityCardTaken { get; set; }
+    public string? IdentityCardMessage { get; set; }
+    public bool WalkInDetected { get; set; }
+    public string? WalkInPatientCode { get; set; }
+    public string? WalkInMaskedName { get; set; }
+    public string? WalkInMessage { get; set; }
+    public string? Message { get; set; }
 }
 
 public class UserDto

@@ -175,19 +175,39 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                     .Limit(pageSize)
                     .ToListAsync(ct);
 
-                // Merge live blood_samples from MongoDB so /laboratory/specimen-history reflects real specimens
+                // Primary source of truth: live blood_samples in MongoDB, overlaid with any persisted
+                // specimen_histories overrides (storage assignment & manual tracking events) by Barcode.
                 if (_context.Database != null)
                 {
                     try
                     {
                         var samplesCol = _context.Database.GetCollection<Sample>("blood_samples");
                         var liveSamples = await samplesCol.Find(Builders<Sample>.Filter.Ne(s => s.IsDeleted, true))
-                            .SortByDescending(s => s.CollectedAt)
-                            .Limit(100)
+                            .SortByDescending(s => s.UpdatedAt)
+                            .Limit(200)
                             .ToListAsync(ct);
+
                         if (liveSamples.Count > 0)
                         {
-                            var converted = liveSamples.Select(ConvertSampleToHistoryRecord).AsEnumerable();
+                            var persistedDocs = await _context.SpecimenHistories
+                                .Find(Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.IsActive, true))
+                                .ToListAsync(ct);
+                            var persistedByBarcode = persistedDocs
+                                .Where(d => !string.IsNullOrWhiteSpace(d.Barcode))
+                                .GroupBy(d => d.Barcode.Trim().ToUpperInvariant())
+                                .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.UpdatedAt).First());
+
+                            var converted = liveSamples.Select(s =>
+                            {
+                                var rec = ConvertSampleToHistoryRecord(s);
+                                var key = (rec.Barcode ?? string.Empty).Trim().ToUpperInvariant();
+                                if (persistedByBarcode.TryGetValue(key, out var persisted))
+                                {
+                                    MergePersistedOverlay(rec, persisted);
+                                }
+                                return rec;
+                            }).AsEnumerable();
+
                             if (!string.IsNullOrWhiteSpace(keyword))
                             {
                                 var kw = keyword.Trim();
@@ -195,7 +215,8 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                                     x.Barcode.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
                                     x.PatientId.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
                                     x.PatientName.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
-                                    x.OrderId.Contains(kw, StringComparison.OrdinalIgnoreCase));
+                                    x.OrderId.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                                    x.TestPackageName.Contains(kw, StringComparison.OrdinalIgnoreCase));
                             }
                             if (!string.IsNullOrWhiteSpace(sampleType) && !sampleType.Equals("ALL", StringComparison.OrdinalIgnoreCase))
                             {
@@ -203,9 +224,14 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                             }
                             if (!string.IsNullOrWhiteSpace(status) && !status.Equals("ALL", StringComparison.OrdinalIgnoreCase))
                             {
-                                converted = converted.Where(x => x.Status.Equals(status.Trim(), StringComparison.OrdinalIgnoreCase));
+                                var st = status.Trim();
+                                converted = converted.Where(x =>
+                                    x.Status.Equals(st, StringComparison.OrdinalIgnoreCase) ||
+                                    (st.Equals("Stored", StringComparison.OrdinalIgnoreCase) && x.Storage != null && !string.IsNullOrWhiteSpace(x.Storage.StorageUnit)));
                             }
-                            var liveList = converted.ToList();
+                            var liveList = converted
+                                .OrderByDescending(x => x.UpdatedAt != DateTime.MinValue ? x.UpdatedAt : x.CollectionTime)
+                                .ToList();
                             return (liveList.Skip((page - 1) * pageSize).Take(pageSize).ToList(), liveList.Count);
                         }
                     }
@@ -267,8 +293,10 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
     public async Task<SpecimenHistoryRecord?> GetByBarcodeAsync(string barcode, CancellationToken ct = default)
     {
         await EnsureDefaultSpecimensSeededAsync(ct);
-        var norm = barcode.Trim().ToUpperInvariant();
+        var trimmed = barcode.Trim();
+        var norm = trimmed.ToUpperInvariant();
 
+        SpecimenHistoryRecord? persisted = null;
         if (_context.SpecimenHistories != null)
         {
             try
@@ -276,27 +304,22 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                 var filters = new List<FilterDefinition<SpecimenHistoryRecord>>
                 {
                     Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Barcode, norm),
+                    Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Barcode, trimmed),
                     Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.RfidTag, norm)
                 };
-                if (MongoDB.Bson.ObjectId.TryParse(barcode.Trim(), out _))
+                if (MongoDB.Bson.ObjectId.TryParse(trimmed, out _))
                 {
-                    filters.Add(Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Id, barcode.Trim()));
+                    filters.Add(Builders<SpecimenHistoryRecord>.Filter.Eq(x => x.Id, trimmed));
                 }
-                var filter = Builders<SpecimenHistoryRecord>.Filter.Or(filters);
-                var found = await _context.SpecimenHistories.Find(filter).FirstOrDefaultAsync(ct);
-                if (found != null) return found;
+                persisted = await _context.SpecimenHistories
+                    .Find(Builders<SpecimenHistoryRecord>.Filter.Or(filters))
+                    .FirstOrDefaultAsync(ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[SpecimenHistoryRepository] MongoDB find by barcode failed. Fallback to in-memory.");
+                _logger.LogWarning(ex, "[SpecimenHistoryRepository] MongoDB find by barcode failed.");
             }
         }
-
-        var mem = _memoryStore.Values.FirstOrDefault(x =>
-            x.Barcode.Equals(norm, StringComparison.OrdinalIgnoreCase) ||
-            x.Id.Equals(barcode.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            (x.RfidTag != null && x.RfidTag.Equals(norm, StringComparison.OrdinalIgnoreCase)));
-        if (mem != null) return mem;
 
         if (_context.Database != null)
         {
@@ -304,14 +327,19 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
             {
                 var samplesCol = _context.Database.GetCollection<Sample>("blood_samples");
                 var sampleFilter = Builders<Sample>.Filter.Or(
-                    Builders<Sample>.Filter.Eq(s => s.Id, barcode.Trim()),
+                    Builders<Sample>.Filter.Eq(s => s.Id, trimmed),
                     Builders<Sample>.Filter.Eq(s => s.Barcode, norm),
-                    Builders<Sample>.Filter.Eq(s => s.Barcode, barcode.Trim())
+                    Builders<Sample>.Filter.Eq(s => s.Barcode, trimmed)
                 );
                 var sample = await samplesCol.Find(sampleFilter).FirstOrDefaultAsync(ct);
                 if (sample != null)
                 {
-                    return ConvertSampleToHistoryRecord(sample);
+                    var live = ConvertSampleToHistoryRecord(sample);
+                    if (persisted != null)
+                    {
+                        MergePersistedOverlay(live, persisted);
+                    }
+                    return live;
                 }
             }
             catch (Exception ex)
@@ -320,7 +348,7 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
             }
         }
 
-        return null;
+        return persisted;
     }
 
     public async Task<SpecimenHistoryRecord?> GetByIdAsync(string id, CancellationToken ct = default)
@@ -876,39 +904,61 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
         };
     }
 
+    private static void MergePersistedOverlay(SpecimenHistoryRecord live, SpecimenHistoryRecord persisted)
+    {
+        if (persisted.Storage != null && !string.IsNullOrWhiteSpace(persisted.Storage.StorageUnit))
+        {
+            live.Storage = persisted.Storage;
+        }
+        if (persisted.Timeline != null && persisted.Timeline.Count > 0)
+        {
+            var existingIds = new HashSet<string>(live.Timeline.Select(t => t.EventId), StringComparer.OrdinalIgnoreCase);
+            foreach (var evt in persisted.Timeline)
+            {
+                if (!existingIds.Contains(evt.EventId))
+                {
+                    live.Timeline.Add(evt);
+                    existingIds.Add(evt.EventId);
+                }
+            }
+            live.Timeline = live.Timeline.OrderBy(t => t.Timestamp).ToList();
+        }
+    }
+
     private static SpecimenHistoryRecord ConvertSampleToHistoryRecord(Sample sample)
     {
         var isRejected = sample.Status == SampleStatus.Rejected || !string.IsNullOrWhiteSpace(sample.RejectionReason);
         var rec = new SpecimenHistoryRecord
         {
             Id = MongoDB.Bson.ObjectId.TryParse(sample.Id, out _) ? sample.Id : MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
-            Barcode = sample.Barcode,
+            Barcode = sample.Barcode ?? string.Empty,
             RfidTag = sample.RfidTag,
-            SampleType = sample.SampleType ?? "Blood",
-            TubeColor = sample.TubeColor ?? "Purple (EDTA)",
-            Anticoagulant = sample.Anticoagulant ?? "EDTA K2",
+            SampleType = sample.SampleType ?? string.Empty,
+            TubeColor = sample.TubeColor ?? string.Empty,
+            Anticoagulant = sample.Anticoagulant ?? string.Empty,
             VolumeMl = sample.VolumeMl,
-            MinimumRequiredVolumeMl = 1.0,
-            PatientId = sample.PatientId,
-            PatientName = !string.IsNullOrWhiteSpace(sample.PatientName) ? sample.PatientName : "Bệnh nhân",
-            PatientGender = sample.PatientGender ?? "Nam",
-            PatientAge = sample.PatientAge ?? 30,
-            OrderId = sample.TestOrderId,
+            MinimumRequiredVolumeMl = 0,
+            PatientId = sample.PatientId ?? string.Empty,
+            PatientName = sample.PatientName ?? string.Empty,
+            PatientGender = sample.PatientGender ?? string.Empty,
+            PatientAge = sample.PatientAge ?? 0,
+            OrderId = sample.TestOrderId ?? string.Empty,
             AppointmentId = sample.AppointmentId,
             OrderDate = sample.CreatedAt,
-            DoctorName = "BS. Chỉ Định",
-            Department = "Khoa Xét Nghiệm",
-            TestPackageName = !string.IsNullOrWhiteSpace(sample.TestPackageName) ? sample.TestPackageName : "Gói Xét Nghiệm Tiêu Chuẩn",
-            Status = sample.StatusString,
-            Priority = sample.PriorityString,
+            DoctorName = string.Empty,
+            Department = sample.LabRoom ?? string.Empty,
+            TestPackageName = sample.TestPackageName ?? string.Empty,
+            Status = sample.StatusString ?? string.Empty,
+            Priority = sample.PriorityString ?? string.Empty,
             CollectionTime = sample.CollectedAt,
             CollectorId = sample.CollectedBy ?? string.Empty,
-            CollectorName = sample.CollectorName ?? "KTV Lấy Mẫu",
-            CollectionSite = sample.LabRoom ?? "Phòng Lấy Mẫu 102",
+            CollectorName = sample.CollectorName ?? string.Empty,
+            CollectionSite = sample.LabRoom ?? string.Empty,
+            Storage = null,
             Notes = sample.Notes ?? string.Empty,
             RejectionReason = sample.RejectionReason,
             IsRejected = isRejected,
-            QcStatus = isRejected ? "Failed" : "Passed",
+            QcStatus = isRejected ? "Failed" : null,
             ReceivedBy = sample.ReceivedBy,
             ReceivedAt = sample.ReceivedAt,
             CreatedAt = sample.CreatedAt,

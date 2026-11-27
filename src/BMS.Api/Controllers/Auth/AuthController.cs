@@ -278,6 +278,32 @@ public sealed class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Kiểm tra trùng lặp Email, SĐT và CCCD (12 số) ngay ở Bước 1 đăng ký, đồng thời phát hiện hồ sơ khách vãng lai chưa liên kết tài khoản.
+    /// </summary>
+    [HttpGet("check-availability")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    public async Task<IActionResult> CheckRegistrationAvailability(
+        [FromQuery] string? email,
+        [FromQuery] string? phoneNumber,
+        [FromQuery] string? identityCard,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(phoneNumber) && string.IsNullOrWhiteSpace(identityCard))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                available = false,
+                message = "Vui lòng cung cấp ít nhất một thông tin (Email, SĐT hoặc CCCD) để kiểm tra."
+            });
+        }
+
+        var result = await _authService.CheckRegistrationAvailabilityAsync(email, phoneNumber, identityCard, ct);
+        return Ok(result);
+    }
+
     [HttpPost("register")]
     [AllowAnonymous]
     public async Task<IActionResult> Register(

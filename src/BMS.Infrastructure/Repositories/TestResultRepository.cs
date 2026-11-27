@@ -135,10 +135,24 @@ namespace BMS.Infrastructure.Repositories
         public async Task<bool> AnySignedForOrderAsync(IReadOnlyCollection<string> sampleKeys, IReadOnlyCollection<string> orderKeys,
             CancellationToken ct = default)
         {
-            var link = F.Or(F.In(x => x.SampleId, sampleKeys), F.In(x => x.AppointmentId, orderKeys),
-                new BsonDocument("sample_id", new BsonDocument("$in", new BsonArray(sampleKeys))),
-                new BsonDocument("appointment_id", new BsonDocument("$in", new BsonArray(orderKeys))));
-            return await _results.Find(link & Active & Signed).Limit(1).AnyAsync(ct);
+            // Check per-sample first so approving one tube/aliquot (e.g. SMP-...-A01) does NOT lock other tubes
+            // (e.g. SMP-...) belonging to the same appointment/order.
+            var cleanSampleKeys = sampleKeys.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct().ToArray();
+            if (cleanSampleKeys.Length > 0)
+            {
+                var bySample = F.Or(
+                    F.In(x => x.SampleId, cleanSampleKeys),
+                    new BsonDocument("sample_id", new BsonDocument("$in", new BsonArray(cleanSampleKeys))));
+                return await _results.Find(bySample & Active & Signed).Limit(1).AnyAsync(ct);
+            }
+
+            var cleanOrderKeys = orderKeys.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct().ToArray();
+            if (cleanOrderKeys.Length == 0) return false;
+
+            var byOrder = F.Or(
+                F.In(x => x.AppointmentId, cleanOrderKeys),
+                new BsonDocument("appointment_id", new BsonDocument("$in", new BsonArray(cleanOrderKeys))));
+            return await _results.Find(byOrder & Active & Signed).Limit(1).AnyAsync(ct);
         }
 
         /// <inheritdoc />

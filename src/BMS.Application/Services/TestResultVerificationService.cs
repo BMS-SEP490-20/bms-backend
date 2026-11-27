@@ -275,17 +275,12 @@ public class TestResultVerificationService : ITestResultVerificationService
         var normalizedVerifier = string.IsNullOrWhiteSpace(verifierName) ? "Trưởng Khoa Xét Nghiệm" : verifierName.Trim();
         var verifyTime = DateTime.UtcNow;
 
-        // 1. Generate cryptographic SHA-256 digital signature
-        var signaturePayload = $"BMS-ISO15189-VERIFY:{trimmedId}:{entity.OrderId}:{normalizedVerifier}:{verifyTime:yyyyMMddHHmmss}";
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(signaturePayload));
-        var digitalSignature = "SHA256:" + Convert.ToHexString(hashBytes).ToLowerInvariant();
-
-        // 2. Lock verification protocol entity
+        // 1. Lock verification protocol entity (no automatic SHA-256 digital signature assignment)
         entity.Status = "Verified";
         entity.VerifierComment = request.VerifierComment;
         entity.VerifiedBy = normalizedVerifier;
         entity.VerifiedAt = verifyTime;
-        entity.DigitalSignature = digitalSignature;
+        entity.DigitalSignature = null;
         entity.IsLocked = true;
 
         await _repository.UpsertVerificationAsync(entity);
@@ -313,7 +308,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                 var resultUpdate = Builders<BsonDocument>.Update
                     .Set("status", "waiting_doctor_review")
                     .Set("validationStatus", (int)ResultValidationStatus.TechnicianVerified)
-                    .Set("tech_signature", digitalSignature)
+                    .Unset("tech_signature")
                     .Set("reviewedBy", normalizedVerifier)
                     .Set("reviewed_by", normalizedVerifier)
                     .Set("reviewedAt", verifyTime)
@@ -341,7 +336,6 @@ public class TestResultVerificationService : ITestResultVerificationService
                         { "package_id", entity.PackageName },
                         { "status", "waiting_doctor_review" },
                         { "validationStatus", (int)ResultValidationStatus.TechnicianVerified },
-                        { "tech_signature", digitalSignature },
                         { "is_locked", false },
                         { "reviewedBy", normalizedVerifier },
                         { "reviewed_by", normalizedVerifier },
@@ -378,7 +372,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                     { "user_id", entity.PatientId },
                     { "role", "Doctor" },
                     { "title", $"[CHỜ BS THẨM ĐỊNH] Mẫu {trimmedId} - Đơn {entity.OrderId}" },
-                    { "message", $"Trưởng Khoa {normalizedVerifier} đã thẩm định kỹ thuật {entity.PackageName} của BN {entity.PatientName}. Vào /doctor/console → Thẩm Định & Tư Vấn → Ký Số & Trả Kết Quả Cho Bệnh Nhân." },
+                    { "message", $"Trưởng Khoa {normalizedVerifier} đã thẩm định kỹ thuật {entity.PackageName} của BN {entity.PatientName}. Vào /doctor/console → Thẩm Định & Tư Vấn → Phê Duyệt & Trả Kết Quả Cho Bệnh Nhân." },
                     { "type", "TestResultReadyForDoctor" },
                     { "reference_id", trimmedId },
                     { "is_read", false },

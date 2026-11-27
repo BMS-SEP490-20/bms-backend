@@ -117,6 +117,63 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
                 x.Reason, x.At, x.Before?.Quantity, x.After?.Quantity)).ToList());
     }
 
+    public async Task<List<ConsumedSupplySummaryDto>> ConsumeBatchAsync(ConsumeInventoryBatchDto request, string actorId, string actorName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(actorId)) throw new ForbiddenAccessException();
+        if (request.Items is null || request.Items.Count == 0)
+            throw new DomainValidationException("EMPTY_CONSUMABLES", "Vui lòng chọn ít nhất một vật tư y tế tiêu hao.");
+
+        var today = Today;
+        var results = new List<ConsumedSupplySummaryDto>();
+        var stageLabel = string.IsNullOrWhiteSpace(request.Stage) ? "Lab" : request.Stage.Trim();
+        var sampleTag = string.IsNullOrWhiteSpace(request.SampleId) ? "" : $" | Mẫu: {request.SampleId.Trim()}";
+        var pkgTag = string.IsNullOrWhiteSpace(request.TestPackageCode) ? "" : $" | Gói: {request.TestPackageCode.Trim()}";
+        var baseReason = $"Xuất vật tư y tế ({stageLabel}{sampleTag}{pkgTag})" +
+            (string.IsNullOrWhiteSpace(request.Notes) ? "" : $" — {request.Notes.Trim()}");
+
+        foreach (var entry in request.Items)
+        {
+            if (string.IsNullOrWhiteSpace(entry.ReagentId) || entry.Quantity <= 0) continue;
+            var key = entry.ReagentId.Trim();
+            var existing = await repository.GetAsync(key, ct);
+            if (existing is null)
+                throw new DomainValidationException("SUPPLY_NOT_FOUND", $"Không tìm thấy vật tư y tế '{key}' trong kho.");
+            if (existing.ExpiryDate.HasValue && existing.ExpiryDate.Value.Date < today)
+                throw new DomainValidationException("SUPPLY_EXPIRED", $"Vật tư '{existing.Name}' (Lô {existing.LotNumber}) đã hết hạn sử dụng.");
+            if (existing.Quantity < entry.Quantity)
+                throw new DomainValidationException("INSUFFICIENT_STOCK", $"Vật tư '{existing.Name}' chỉ còn {existing.Quantity} {existing.Unit}, không đủ để xuất {entry.Quantity} {existing.Unit}.");
+
+            var afterSnapshot = new InventorySnapshot(existing.Name, existing.Manufacturer, existing.Quantity - entry.Quantity, existing.MinimumStock, existing.ExpiryDate);
+            var change = new InventoryChange
+            {
+                Action = "CONSUME_LAB_WORKFLOW",
+                ActorId = actorId,
+                ActorName = actorName,
+                Reason = baseReason,
+                At = clock.GetUtcNow().UtcDateTime,
+                Before = Snapshot(existing),
+                After = afterSnapshot
+            };
+            var tx = new InventoryTransaction
+            {
+                ReagentCode = existing.Code,
+                Type = "STOCK_OUT",
+                Quantity = entry.Quantity,
+                Department = $"{stageLabel}{sampleTag}{pkgTag} ({actorName})",
+                Timestamp = clock.GetUtcNow().UtcDateTime
+            };
+
+            var updated = await repository.ConsumeAsync(existing.Id, entry.Quantity, change, tx, ct)
+                ?? throw new InventoryConflictException($"Không thể trừ kho vật tư '{existing.Name}' do tồn kho vừa thay đổi.");
+
+            results.Add(new ConsumedSupplySummaryDto(
+                updated.Id, updated.Code, updated.Name, updated.LotNumber,
+                entry.Quantity, updated.Quantity, updated.Unit));
+        }
+
+        return results;
+    }
+
     private static InventoryItemDto Map(Reagent item, DateTime today)
     {
         // Printed expiry dates remain valid through that calendar day. BR-WAR-01 warns when fewer than 30 days remain.

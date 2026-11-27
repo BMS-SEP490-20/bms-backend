@@ -67,3 +67,21 @@ public sealed class DeleteInventoryDto
 
 public sealed record InventoryChangeDto(string Action, string ActorName, string Reason, DateTime At,
     decimal? BeforeQuantity, decimal? AfterQuantity);
+
+public sealed class ConsumeInventoryItemDto
+{
+    [Required, StringLength(100)] public string ReagentId { get; set; } = string.Empty;
+    [Range(typeof(decimal), "0.001", "10000")] public decimal Quantity { get; set; } = 1;
+}
+
+public sealed class ConsumeInventoryBatchDto
+{
+    [StringLength(100)] public string? SampleId { get; set; }
+    [StringLength(100)] public string? TestPackageCode { get; set; }
+    [StringLength(60)] public string? Stage { get; set; }
+    [StringLength(300)] public string? Notes { get; set; }
+    [Required] public List<ConsumeInventoryItemDto> Items { get; set; } = new();
+}
+
+public sealed record ConsumedSupplySummaryDto(string Id, string Code, string Name, string LotNumber,
+    decimal ConsumedQuantity, decimal RemainingQuantity, string Unit);

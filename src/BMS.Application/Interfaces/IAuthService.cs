@@ -15,6 +15,11 @@ public interface IAuthService
 
     Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto);
     Task<bool> IsEmailRegisteredAsync(string email, CancellationToken ct = default);
+    Task<RegistrationAvailabilityDto> CheckRegistrationAvailabilityAsync(
+        string? email,
+        string? phoneNumber,
+        string? identityCard,
+        CancellationToken ct = default);
     Task<AuthResponseDto> VerifyOtpAsync(VerifyOtpDto dto);
     Task<AuthResponseDto> LoginAsync(LoginRequestDto dto);
     Task<AuthResponseDto> ChangePasswordAsync(string userId, ChangePasswordDto dto);
