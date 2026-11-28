@@ -45,7 +45,6 @@ public class SampleListRepository : ISampleListRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -66,7 +65,6 @@ public class SampleListRepository : ISampleListRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -101,7 +99,6 @@ public class SampleListRepository : ISampleListRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -141,7 +138,6 @@ public class SampleListRepository : ISampleListRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -172,7 +168,6 @@ public class SampleListRepository : ISampleListRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 

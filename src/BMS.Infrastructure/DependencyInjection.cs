@@ -14,7 +14,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         services.AddSingleton<MongoDbContext>();
-        // Đợt 2: Patient "own data" checks (TIEU-CHI R14).
+
         services.AddScoped<IPatientOwnership, PatientOwnershipRepository>();
         services.AddScoped<IOtpRepository, OtpRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
@@ -45,7 +45,6 @@ public static class DependencyInjection
         services.AddScoped<IMedicalAssessmentRepository, MedicalAssessmentRepository>();
         services.AddScoped<IBackupRepository, BackupRepository>();
 
-        // Iteration 3 features ported from the old microservices (Đợt 1 recovery): Mongo repositories
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<ILabRoomRepository, LabRoomRepository>();
         services.AddScoped<IBloodSampleRepository, BloodSampleRepository>();

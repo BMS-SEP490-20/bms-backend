@@ -54,14 +54,12 @@ public class TestCriterionService : ITestCriterionService
     {
         var normalizedCode = dto.CriterionCode.Trim().ToUpperInvariant();
 
-        // Check duplicate criterion code
         var existing = await _repository.GetByCodeAsync(normalizedCode, ct);
         if (existing != null)
         {
             return (false, $"Test criterion code '{normalizedCode}' already exists in laboratory master data.", null);
         }
 
-        // Validate clinical range logic
         var validation = ValidateClinicalRanges(dto.NormalMin, dto.NormalMax, dto.PanicLow, dto.PanicHigh);
         if (!validation.IsValid)
         {
@@ -101,7 +99,6 @@ public class TestCriterionService : ITestCriterionService
             return (false, "Test criterion not found.", null);
         }
 
-        // Validate clinical range logic
         var validation = ValidateClinicalRanges(dto.NormalMin, dto.NormalMax, dto.PanicLow, dto.PanicHigh);
         if (!validation.IsValid)
         {

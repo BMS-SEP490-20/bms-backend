@@ -64,8 +64,6 @@ public class TestPackageRepository : ITestPackageRepository
             .ThenBy(p => p.PackageName)
             .ToListAsync(cancellationToken);
 
-        // Synchronize with Admin-managed service_packages (Quản Lý Danh Mục Gói Dịch Vụ & Bảng Giá Viện Phí):
-        // Admin's price, name, category, preparation notes, active status, and newly created packages take priority.
         try
         {
             var allServicePackages = await _servicePackagesCollection
@@ -96,12 +94,10 @@ public class TestPackageRepository : ITestPackageRepository
                     blockedCodes.Add(sp.Code.Trim());
             }
 
-            // Exclude stale test_packages that Admin deactivated or soft-deleted in service_packages.
             result.RemoveAll(tp =>
                 (!string.IsNullOrWhiteSpace(tp.Id) && blockedIds.Contains(tp.Id.Trim())) ||
                 (!string.IsNullOrWhiteSpace(tp.PackageCode) && blockedCodes.Contains(tp.PackageCode.Trim())));
 
-            // Overlay latest Admin metadata/price onto matching test_packages entries.
             foreach (var tp in result)
             {
                 ServicePackage? sp = null;
@@ -202,7 +198,6 @@ public class TestPackageRepository : ITestPackageRepository
         var trimmed = idOrCode.Trim();
         var upper = trimmed.ToUpperInvariant();
 
-        // 1. Check Admin-managed service_packages first so edits/deactivations take immediate effect.
         try
         {
             var sfb = Builders<ServicePackage>.Filter;
@@ -249,10 +244,8 @@ public class TestPackageRepository : ITestPackageRepository
         }
         catch
         {
-            // Fall through to test_packages
         }
 
-        // 2. Fallback to test_packages collection.
         var fb = Builders<TestPackage>.Filter;
         var filter = fb.Or(
             fb.Eq(p => p.Id, trimmed),
@@ -379,7 +372,6 @@ public class TestPackageRepository : ITestPackageRepository
 
         try
         {
-            // Build alias maps between test_packages._id and package_code (e.g. PKG-PKG-GEN-01 <-> PKG-GEN-01, PKG-CBC-01 <-> CBC-01).
             var requestedIdToCodes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             var codeToRequestedIds = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             var lookupKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -433,7 +425,6 @@ public class TestPackageRepository : ITestPackageRepository
                 }
             }
 
-            // Priority 1: Admin-managed service_packages.Tests (authoritative when non-empty).
             var allLookupList = lookupKeys.ToList();
             var spList = await _servicePackagesCollection
                 .Find(Builders<ServicePackage>.Filter.And(
@@ -502,7 +493,6 @@ public class TestPackageRepository : ITestPackageRepository
                 }
             }
 
-            // Priority 2: Fallback to legacy test_package_criteria mappings for packages whose service_packages.Tests is empty.
             var remainingIds = ids.Where(id => !result.ContainsKey(id) || result[id].Count == 0).ToList();
             if (remainingIds.Count > 0)
             {
@@ -608,7 +598,6 @@ public class TestPackageRepository : ITestPackageRepository
         }
         catch
         {
-            // Non-fatal if criteria mapping collections are empty
         }
 
         return result;

@@ -60,7 +60,7 @@ public class PatientReceptionService : IPatientReceptionService
                 if (pkg != null && !string.IsNullOrWhiteSpace(pkg.PackageName))
                     return pkg.PackageName;
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
         return !string.IsNullOrWhiteSpace(key) ? key : null;
     }
@@ -89,14 +89,12 @@ public class PatientReceptionService : IPatientReceptionService
         }
         catch
         {
-            // Ignore fallback error
         }
         return apt.QueueNumber;
     }
 
     public async Task<QueueItemDto?> CallNextPatientAsync(CallNextPatientRequest request, CancellationToken ct = default)
     {
-        // 1. Shift validation (BR-REC-02)
         var hasShift = await _appointmentRepository.HasActiveDoctorShiftTodayAsync(request.DoctorId, ct);
         if (!hasShift)
         {
@@ -104,7 +102,6 @@ public class PatientReceptionService : IPatientReceptionService
             throw new InvalidOperationException("MSG-ERR-RECV-02: Bác sĩ chưa kích hoạt ca trực hôm nay hoặc ngoài giờ làm việc.");
         }
 
-        // Room comes from ca phân công — không bắt BS chọn tay trên console.
         var roomId = request.RoomId;
         if (string.IsNullOrWhiteSpace(roomId))
         {
@@ -118,7 +115,6 @@ public class PatientReceptionService : IPatientReceptionService
         if (string.IsNullOrWhiteSpace(roomId))
             roomId = "ROOM-101";
 
-        // 2. Atomic MongoDB queue lock
         var apt = await _appointmentRepository.CallNextPatientAtomicAsync(request.DoctorId, roomId, ct);
         if (apt == null)
         {
@@ -126,7 +122,6 @@ public class PatientReceptionService : IPatientReceptionService
             return null;
         }
 
-        // 3. Resolve display details
         var doctor = await _appointmentRepository.GetDoctorAsync(request.DoctorId, ct);
         var doctorName = doctor?.FullName ?? "Bác sĩ phụ trách";
 
@@ -153,7 +148,6 @@ public class PatientReceptionService : IPatientReceptionService
             CreatedAt = apt.CreatedAt
         };
 
-        // 4. SignalR Broadcast
         await _queueNotifier.NotifyPatientCalledAsync(roomId, new
         {
             queueNumber = dto.QueueNumberFormatted,
@@ -327,8 +321,6 @@ public class PatientReceptionService : IPatientReceptionService
             if (p != null) patientDict[pid] = p;
         }
 
-        // Prefer this doctor's InProgress in the selected room; if room filter empty, any own InProgress.
-        // Also accept missing RoomId so reload after call-next still restores currentServing.
         var inProgress = appointments.FirstOrDefault(a =>
             a.Status == AppointmentStatus.InProgress
             && (string.IsNullOrWhiteSpace(doctorId) || a.DoctorId == doctorId)
@@ -358,7 +350,6 @@ public class PatientReceptionService : IPatientReceptionService
             }
             catch
             {
-                // Ignore check failure
             }
         }
         QueueItemDto? currentServing = null;

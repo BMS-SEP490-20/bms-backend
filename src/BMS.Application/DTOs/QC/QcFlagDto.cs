@@ -20,7 +20,7 @@ namespace BMS.Application.DTOs.QC
         public string Parameter { get; set; } = null!;
 
         public string RuleType { get; set; } = "Threshold_Out_Of_Bounds";
-        public string Severity { get; set; } = "HIGH"; // CRITICAL, HIGH, MEDIUM, LOW
+        public string Severity { get; set; } = "HIGH";
         public string Status { get; set; } = "ACTIVE";
         public decimal ObservedValue { get; set; }
         public decimal TargetValue { get; set; }
@@ -37,7 +37,7 @@ namespace BMS.Application.DTOs.QC
     /// </summary>
     public class UpdateQcFlagDto
     {
-        public string? Status { get; set; } // ACTIVE, INVESTIGATING, RESOLVED, OVERRIDDEN, DISMISSED
+        public string? Status { get; set; }
         public string? Severity { get; set; }
         public string? ResolutionNotes { get; set; }
         public string? ResolvedBy { get; set; }

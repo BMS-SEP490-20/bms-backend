@@ -53,7 +53,6 @@ public class TestNoteRepository : ITestNoteRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -76,7 +75,6 @@ public class TestNoteRepository : ITestNoteRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -109,7 +107,6 @@ public class TestNoteRepository : ITestNoteRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -137,7 +134,6 @@ public class TestNoteRepository : ITestNoteRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 

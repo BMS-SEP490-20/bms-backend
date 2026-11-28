@@ -12,10 +12,10 @@ public class PatientResultParameterDto
     public string Value { get; set; } = string.Empty;
     public string Unit { get; set; } = string.Empty;
     public string ReferenceRange { get; set; } = string.Empty;
-    public string? DeltaPrevious { get; set; } // e.g. "+0.42 ↑", "-0.12", "—"
-    public string Flag { get; set; } = "N"; // "HH", "H", "N", "L", "LL"
+    public string? DeltaPrevious { get; set; }
+    public string Flag { get; set; } = "N";
     public bool IsAbnormal { get; set; }
-    public string FlagSeverity { get; set; } = "normal"; // "critical", "warning", "normal"
+    public string FlagSeverity { get; set; } = "normal";
 }
 
 /// <summary>

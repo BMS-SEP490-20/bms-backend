@@ -1,18 +1,10 @@
 namespace BMS.Core.Exceptions;
 
-// =========================================================
-// GENERAL AUTHORIZATION / VALIDATION EXCEPTIONS
-// =========================================================
-
 public sealed class ForbiddenAccessException(string message = "Bạn không có quyền truy cập tài nguyên này.")
     : AppException(403, "FORBIDDEN", message);
 
 public sealed class DomainValidationException(string code, string message)
     : AppException(400, code, message);
-
-// =========================================================
-// PATIENT & GUEST PROFILE EXCEPTIONS
-// =========================================================
 
 public sealed class PatientNotFoundException(string? identifier = null)
     : AppException(404, "PATIENT_NOT_FOUND",
@@ -22,10 +14,6 @@ public sealed class PatientNotFoundException(string? identifier = null)
 
 public sealed class PatientDuplicateException(string code, string message)
     : AppException(409, code, message);
-
-// =========================================================
-// SHIFT MANAGEMENT EXCEPTIONS
-// =========================================================
 
 public sealed class ShiftNotFoundException(string? id = null)
     : AppException(404, "SHIFT_NOT_FOUND",
@@ -38,10 +26,6 @@ public sealed class ShiftConflictException(string code, string message)
 
 public sealed class ShiftInUseException(string message)
     : AppException(409, "SHIFT_IN_USE", message);
-
-// =========================================================
-// SAMPLE COLLECTION & LIFECYCLE EXCEPTIONS
-// =========================================================
 
 public sealed class SampleNotFoundException(string? idOrBarcode = null)
     : AppException(404, "SAMPLE_NOT_FOUND",
@@ -57,10 +41,6 @@ public sealed class InvalidSampleStatusTransitionException(string currentStatus,
         string.IsNullOrWhiteSpace(detail)
             ? $"Không thể chuyển trạng thái mẫu từ '{currentStatus}' sang '{targetStatus}'."
             : $"Không thể chuyển trạng thái mẫu từ '{currentStatus}' sang '{targetStatus}': {detail}");
-
-// =========================================================
-// GENERIC RESOURCE EXCEPTIONS
-// =========================================================
 
 /// <summary>
 /// Generic 404 for resources that do not have a dedicated exception type yet

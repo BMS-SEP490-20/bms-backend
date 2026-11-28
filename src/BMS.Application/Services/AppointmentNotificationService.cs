@@ -65,7 +65,6 @@ public class AppointmentNotificationService : IAppointmentNotificationService
             return null;
         }
 
-        // Resolve Patient info from DB
         string patientName = "Bệnh nhân";
         string patientEmail = string.Empty;
         string patientPhone = string.Empty;
@@ -96,7 +95,6 @@ public class AppointmentNotificationService : IAppointmentNotificationService
             }
         }
 
-        // Resolve Doctor info from DB
         string doctorName = "Chưa chỉ định bác sĩ";
         if (!string.IsNullOrEmpty(appt.DoctorId))
         {
@@ -121,7 +119,6 @@ public class AppointmentNotificationService : IAppointmentNotificationService
             }
         }
 
-        // Resolve notifications for delivery status
         var notifs = await _notificationRepository.GetByAppointmentIdAsync(appt.Id, ct);
         var emailNotif = notifs.FirstOrDefault(n => n.Channel == NotificationChannel.Email);
         var pushNotif = notifs.FirstOrDefault(n => n.Channel == NotificationChannel.Push || n.Channel == NotificationChannel.InApp);
@@ -271,7 +268,6 @@ public class AppointmentNotificationService : IAppointmentNotificationService
 
         await _notificationRepository.InsertAsync(notif, ct);
 
-        // Dispatch Email if Email channel requested
         if (request.Channel == NotificationChannel.Email)
         {
             await _emailService.SendAppointmentConfirmationEmailAsync(

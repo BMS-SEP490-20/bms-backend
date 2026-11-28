@@ -52,7 +52,6 @@ public class BackupService : IBackupService
             return (false, "Tên bản sao lưu không được để trống.", null);
         }
 
-        // BK-02: Check database reachability first - prevent false positive backups
         var isDbAlive = await _repository.PingDatabaseAsync(ct);
         if (!isDbAlive)
         {
@@ -70,7 +69,6 @@ public class BackupService : IBackupService
             "[Backup Service] Starting backup '{Name}' ({BackupId}) with Scope: {Scope} by {Operator}",
             dto.BackupName, backupId, dto.Scope, operatorName);
 
-        // Export real collections from database according to scope
         var exported = await _repository.ExportCollectionsAsync(dto.Scope, ct);
         var breakdown = new Dictionary<string, int>();
         int totalRecords = 0;
@@ -86,7 +84,6 @@ public class BackupService : IBackupService
             }
         }
 
-        // Fallback baseline for initial empty collections to ensure schema accuracy
         if (totalRecords == 0)
         {
             if (dto.Scope == BackupScope.PatientTestResults || dto.Scope == BackupScope.ClinicalRecords)
@@ -106,7 +103,6 @@ public class BackupService : IBackupService
             }
         }
 
-        // Generate backup archive payload
         var archiveData = new
         {
             BackupId = backupId,
@@ -124,12 +120,10 @@ public class BackupService : IBackupService
         var jsonBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(archiveData));
         long fileSize = Math.Max(jsonBytes.Length, 1024);
 
-        // Compute SHA-256 hash for tamper-evident data integrity
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(jsonBytes);
         string checksum = Convert.ToHexString(hash).ToLowerInvariant();
 
-        // Persist archive payload into secure storage & disk file
         _inMemoryArchiveStorage[backupId] = jsonBytes;
         try
         {
@@ -157,7 +151,7 @@ public class BackupService : IBackupService
             CollectionBreakdown = breakdown,
             EncryptionAlgorithm = "JSON / SHA-256 Integrity",
             IsEncrypted = false,
-            RetentionUntil = DateTime.UtcNow.AddDays(7), // Retention: 7 days / 7 latest backups
+            RetentionUntil = DateTime.UtcNow.AddDays(7),
             Notes = dto.Notes?.Trim(),
             CreatedAt = DateTime.UtcNow,
             CreatedBy = !string.IsNullOrWhiteSpace(operatorName) ? operatorName : "Hệ thống tự động",
@@ -167,7 +161,6 @@ public class BackupService : IBackupService
 
         var saved = await _repository.AddAsync(entity, ct);
 
-        // Enforce ISO 27001 backup retention policy (keep latest 7 backups)
         try
         {
             await _repository.EnforceRetentionPolicyAsync(7, ct);
@@ -177,7 +170,6 @@ public class BackupService : IBackupService
             _logger.LogWarning(ex, "[Backup Service] Retention policy auto-prune warning.");
         }
 
-        // Audit Trail (ISO 27789 / ISO 27001)
         if (_auditLogService != null)
         {
             await _auditLogService.LogAsync(new CreateAuditLogDto
@@ -261,7 +253,6 @@ public class BackupService : IBackupService
             };
         }
 
-        // Recalculate checksum from in-memory cache or actual archive file on disk
         string calculatedChecksum = entity.ChecksumSha256;
         byte[]? payloadBytes = null;
         if (_inMemoryArchiveStorage.TryGetValue(entity.BackupId, out var memBytes))
@@ -317,7 +308,6 @@ public class BackupService : IBackupService
             };
         }
 
-        // BK-05: Corrupted or failed backups must be rejected
         if (entity.Status == BackupStatus.Corrupted || entity.Status == BackupStatus.Failed)
         {
             return new RestoreValidationResultDto
@@ -328,7 +318,6 @@ public class BackupService : IBackupService
             };
         }
 
-        // Check SHA-256 checksum
         bool checksumValid = true;
         string calculatedChecksum = entity.ChecksumSha256;
         byte[]? payloadBytes = null;
@@ -411,7 +400,6 @@ public class BackupService : IBackupService
             };
         }
 
-        // BK-05: Check backup status for corruption
         if (entity.Status == BackupStatus.Corrupted || entity.Status == BackupStatus.Failed)
         {
             return new RestoreExecutionResultDto
@@ -422,7 +410,6 @@ public class BackupService : IBackupService
             };
         }
 
-        // BK-05: Check SHA-256 cryptographic integrity before restoring
         byte[]? payloadBytes = null;
         if (!_inMemoryArchiveStorage.TryGetValue(entity.BackupId, out payloadBytes))
         {
@@ -455,7 +442,6 @@ public class BackupService : IBackupService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         string restoreId = $"RST-{DateTime.UtcNow:yyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}";
 
-        // BK-04: Parse serialized collections from archive payload and restore into MongoDB
         int restoredCount = 0;
         var archivePayloadBytes = payloadBytes;
         if (archivePayloadBytes != null)
@@ -498,11 +484,9 @@ public class BackupService : IBackupService
             restoredCount = entity.TotalRecords;
         }
 
-        // BK-07: Verify collections record counts post-restore
         var postVerification = await _repository.VerifyCollectionsRecordCountAsync(entity.CollectionBreakdown.Keys, ct);
         bool integrityVerified = postVerification.Values.Any(count => count >= 0);
 
-        // Update backup status
         entity.LastRestoredAt = DateTime.UtcNow;
         entity.LastRestoredBy = operatorName;
         entity.Status = BackupStatus.Restored;
@@ -510,7 +494,6 @@ public class BackupService : IBackupService
 
         stopwatch.Stop();
 
-        // Audit Trail (ISO 27789 / ISO 27001)
         var audit = new RestoreAuditLog
         {
             RestoreId = restoreId,

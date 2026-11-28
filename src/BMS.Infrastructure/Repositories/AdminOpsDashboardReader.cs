@@ -42,7 +42,6 @@ public sealed class AdminOpsDashboardReader(IMongoDatabase database) : IAdminOps
         var result = Enumerable.Range(1, 6).ToDictionary(id => RoleNames.FromRoleId(id)!, _ => 0L);
         foreach (var g in groups)
         {
-            // WHY: missing RoleId and legacy 9 are both read as Patient (User.Role), keep the dashboard consistent.
             var id = g["_id"].IsNumeric ? g["_id"].ToInt32() : (int)UserRole.Patient;
             if (id == User.LegacyPatientRoleId) id = (int)UserRole.Patient;
             var name = RoleNames.FromRoleId(id);

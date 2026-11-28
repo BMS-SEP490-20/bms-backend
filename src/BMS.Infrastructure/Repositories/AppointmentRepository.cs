@@ -40,7 +40,6 @@ namespace BMS.Infrastructure.Repositories
             }
             catch
             {
-                // Ignore index build exception on dirty legacy dev database
             }
         }
 
@@ -199,7 +198,6 @@ namespace BMS.Infrastructure.Repositories
             var doc = await _doctorCollection.Find(x => x.Id == doctorId).FirstOrDefaultAsync(ct);
             if (doc != null) return doc;
 
-            // Fallback to accounts collection (in case doctorId references an account)
             var user = await _userCollection.Find(x => x.Id == doctorId).FirstOrDefaultAsync(ct);
             if (user != null)
             {
@@ -248,7 +246,6 @@ namespace BMS.Infrastructure.Repositories
             return result;
         }
 
-        // UC23: View & Filter Appointments
         public async Task<(List<Appointment> Items, long TotalCount)> GetFilteredAsync(
             DateTime? fromDate,
             DateTime? toDate,
@@ -372,7 +369,6 @@ namespace BMS.Infrastructure.Repositories
             return (items, total);
         }
 
-        // UC28: Smart Queue & Doctor Call
         public async Task<Appointment?> CallNextPatientAtomicAsync(string doctorId, string roomId, CancellationToken ct = default)
         {
             var vnOffset = TimeSpan.FromHours(7);
@@ -389,7 +385,7 @@ namespace BMS.Infrastructure.Repositories
                     fb.And(fb.Gte(x => x.AppointmentDate, startUtc), fb.Lt(x => x.AppointmentDate, endUtc)),
                     fb.And(fb.Gte(x => x.AppointmentDate, dateOnlyStart), fb.Lt(x => x.AppointmentDate, dateOnlyEnd)),
                     fb.And(fb.Gte(x => x.UpdatedAt, startUtc), fb.Lt(x => x.UpdatedAt, endUtc))),
-                // Prefer this doctor's queue; also allow unassigned doctorId so reception can feed the desk.
+
                 fb.Or(
                     fb.Eq(x => x.DoctorId, doctorId),
                     fb.Eq(x => x.DoctorId, null),
@@ -418,14 +414,12 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<List<Appointment>> GetTodayQueueAppointmentsAsync(string? roomId, string? doctorId, CancellationToken ct = default)
         {
-            // Clinic day = Vietnam (UTC+7). AppointmentDate is often stored as local calendar midnight UTC
-            // (e.g. 2026-11-20T00:00:00Z for a 20/11 VN booking) — bound the window in VN then convert to UTC.
             var vnOffset = TimeSpan.FromHours(7);
             var vnNow = DateTime.UtcNow + vnOffset;
             var vnToday = vnNow.Date;
-            var startUtc = vnToday - vnOffset;                 // 00:00 VN → prior day 17:00 UTC
-            var endUtc = vnToday.AddDays(1) - vnOffset;        // next 00:00 VN → today 17:00 UTC
-            // Also accept date-only docs stamped at midnight UTC of the VN calendar day.
+            var startUtc = vnToday - vnOffset;
+            var endUtc = vnToday.AddDays(1) - vnOffset;
+
             var dateOnlyStart = vnToday;
             var dateOnlyEnd = vnToday.AddDays(1);
 
@@ -449,8 +443,6 @@ namespace BMS.Infrastructure.Repositories
                 filter &= filterBuilder.Eq(x => x.DoctorId, doctorId);
             }
 
-            // Room filter: exact match OR unassigned room (null/empty). Strict Eq hid InProgress after reload
-            // when Call-Next wrote a different/missing roomId than the Doctor console dropdown.
             if (!string.IsNullOrWhiteSpace(roomId))
             {
                 filter &= filterBuilder.Or(
@@ -468,7 +460,6 @@ namespace BMS.Infrastructure.Repositories
 
         public async Task<bool> HasActiveDoctorShiftTodayAsync(string doctorId, CancellationToken ct = default)
         {
-            // Match clinic day in VN (UTC+7); ShiftDate is often midnight UTC of the calendar day.
             var vnOffset = TimeSpan.FromHours(7);
             var vnToday = (DateTime.UtcNow + vnOffset).Date;
             var startUtc = vnToday - vnOffset;

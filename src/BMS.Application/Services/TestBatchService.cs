@@ -65,7 +65,6 @@ public class TestBatchService : ITestBatchService
     {
         var code = await _repository.GenerateNextBatchCodeAsync(DateTime.UtcNow, ct);
 
-        // Ensure A1 and A2 controls exist in well plate
         var wells = request.Wells.Select(w => new WellPlatePosition
         {
             WellCoordinate = w.WellCoordinate.Trim().ToUpperInvariant(),
@@ -116,7 +115,6 @@ public class TestBatchService : ITestBatchService
 
         await _repository.InsertAsync(batch, ct);
 
-        // Lock assigned samples to status Testing
         var assignedSampleIds = wells
             .Where(w => !w.IsControlSample && !string.IsNullOrEmpty(w.SampleId))
             .Select(w => w.SampleId!)
@@ -149,7 +147,6 @@ public class TestBatchService : ITestBatchService
             throw new InvalidOperationException("MSG-ERR-BAT-07: Trạng thái không hợp lệ.");
         }
 
-        // State machine guard: Pending -> Running | Cancelled; Running -> Completed | Cancelled; Completed/Cancelled -> terminal
         var allowed = batch.Status switch
         {
             TestBatchStatus.Pending => newStatus is TestBatchStatus.Running or TestBatchStatus.Cancelled,

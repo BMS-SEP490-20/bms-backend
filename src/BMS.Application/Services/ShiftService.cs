@@ -72,7 +72,7 @@ public sealed class ShiftService(
                             Details = $"Unauthorized access attempt to shift {shift.Id} of employee {shift.DoctorId} by user {requesterUserId}."
                         }, ct);
                     }
-                    catch { /* Skip audit failure */ }
+                    catch {  }
                 }
 
                 throw new ForbiddenAccessException("Bạn không có quyền xem thông tin chi tiết ca làm việc của nhân viên khác.");
@@ -89,8 +89,7 @@ public sealed class ShiftService(
     {
         var now = clock.GetUtcNow().UtcDateTime;
         var shiftDate = DateTime.SpecifyKind((request.ShiftDate ?? now).Date, DateTimeKind.Utc);
-        
-        // Validation MSG-ERR-SHIFT-01: Chặn phân ca quá khứ
+
         if (shiftDate < now.Date)
         {
             throw new DomainValidationException(
@@ -101,7 +100,6 @@ public sealed class ShiftService(
         var (startStr, endStr) = ShiftWriteRequest.ResolveWorkingTimeWindow(request.ShiftType, request.ShiftStart, request.ShiftEnd);
         var (startTs, endTs) = ParseWorkingHoursOrThrow(startStr, endStr);
 
-        // 1. Resolve Employee / Doctor assignment
         var rawEmpId = request.EffectiveEmployeeId;
         var (doctor, account) = await shiftRepository.ResolveEmployeeAsync(rawEmpId, ct);
         if (doctor == null && account == null)
@@ -140,11 +138,9 @@ public sealed class ShiftService(
             ? request.Department.Trim()
             : doctor?.Specialty ?? (resolvedEmployeeRole.StartsWith("Lab", StringComparison.OrdinalIgnoreCase) ? "Laboratory" : "Clinical");
 
-        // 2. Resolve Room assignment
         var roomId = request.RoomId.Trim().ToUpperInvariant();
         var (roomName, _, _, roomSpecialty) = await shiftRepository.ResolveRoomAsync(roomId, ct);
 
-        // Validation MSG-ERR-SHIFT-04: Khớp Tam giác chuyên ngành (Bác sĩ chuyên ngành == Phòng khám chuyên ngành)
         if (string.Equals(resolvedEmployeeRole, "Doctor", StringComparison.OrdinalIgnoreCase) || doctor != null)
         {
             var docSpec = !string.IsNullOrWhiteSpace(doctor?.Specialty) ? doctor.Specialty.Trim() : resolvedDepartment;
@@ -160,7 +156,6 @@ public sealed class ShiftService(
             }
         }
 
-        // 3. Conflict Detection (Employee overlap & Room overlap on same calendar date)
         await ValidateNoShiftConflictAsync(
             shiftDate,
             startTs,
@@ -220,7 +215,7 @@ public sealed class ShiftService(
                     Details = $"Created shift {entity.Id} on {entity.ShiftDate:yyyy-MM-dd} ({entity.ShiftStart}-{entity.ShiftEnd}) for {entity.EmployeeName} in room {entity.RoomId}."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         var empMap = await shiftRepository.GetEmployeeMetadataAsync([entity.DoctorId], ct);
@@ -237,7 +232,6 @@ public sealed class ShiftService(
         var existing = await shiftRepository.GetByIdAsync(id, ct)
                        ?? throw new ShiftNotFoundException(id);
 
-        // Validation: Không cho sửa ca đã khóa/chốt
         if (string.Equals(existing.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(existing.Status, "Locked", StringComparison.OrdinalIgnoreCase))
         {
@@ -249,7 +243,6 @@ public sealed class ShiftService(
         var now = clock.GetUtcNow().UtcDateTime;
         var shiftDate = DateTime.SpecifyKind((request.ShiftDate ?? existing.ShiftDate).Date, DateTimeKind.Utc);
 
-        // Validation MSG-ERR-SHIFT-01: Chặn phân ca quá khứ
         if (shiftDate < now.Date)
         {
             throw new DomainValidationException(
@@ -260,7 +253,6 @@ public sealed class ShiftService(
         var (startStr, endStr) = ShiftWriteRequest.ResolveWorkingTimeWindow(request.ShiftType, request.ShiftStart, request.ShiftEnd);
         var (startTs, endTs) = ParseWorkingHoursOrThrow(startStr, endStr);
 
-        // Validate capacity against existing booked patients
         if (request.MaxPatients < existing.CurrentPatientsCount)
         {
             throw new DomainValidationException(
@@ -268,7 +260,6 @@ public sealed class ShiftService(
                 $"Số lượng bệnh nhân tối đa ({request.MaxPatients}) không được nhỏ hơn số lượng bệnh nhân đã đặt lịch hiện tại ({existing.CurrentPatientsCount}).");
         }
 
-        // Guard: Manager cannot modify shifts belonging to an Admin account
         var (_, existingAccount) = await shiftRepository.ResolveEmployeeAsync(existing.DoctorId, ct);
         if (existingAccount?.RoleId == (int)UserRole.Admin
             || string.Equals(RoleNames.Normalize(existing.EmployeeRole), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
@@ -277,7 +268,6 @@ public sealed class ShiftService(
                 "Quản lý không có quyền chỉnh sửa ca trực thuộc tài khoản Quản trị viên hệ thống (Admin).");
         }
 
-        // Resolve Employee / Doctor assignment
         var rawEmpId = request.EffectiveEmployeeId;
         var (doctor, account) = await shiftRepository.ResolveEmployeeAsync(rawEmpId, ct);
         if (doctor == null && account == null)
@@ -319,7 +309,6 @@ public sealed class ShiftService(
         var roomId = request.RoomId.Trim().ToUpperInvariant();
         var (roomName, _, _, roomSpecialty) = await shiftRepository.ResolveRoomAsync(roomId, ct);
 
-        // Validation MSG-ERR-SHIFT-04: Khớp Tam giác chuyên ngành (Bác sĩ chuyên ngành == Phòng khám chuyên ngành)
         if (string.Equals(resolvedEmployeeRole, "Doctor", StringComparison.OrdinalIgnoreCase) || doctor != null)
         {
             var docSpec = !string.IsNullOrWhiteSpace(doctor?.Specialty) ? doctor.Specialty.Trim() : resolvedDepartment;
@@ -335,7 +324,6 @@ public sealed class ShiftService(
             }
         }
 
-        // Conflict Detection (excluding current shift ID)
         var newStatus = NormalizeStatus(request.Status);
         if (!newStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase) &&
             !newStatus.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
@@ -401,7 +389,7 @@ public sealed class ShiftService(
                     Details = $"Updated shift {existing.Id}: Time [{oldStart}-{oldEnd}]->[{startStr}-{endStr}], Room [{oldRoom}]->[{roomId}], Date [{oldDate:yyyy-MM-dd}]->[{shiftDate:yyyy-MM-dd}], Status [{oldStatus}]->[{newStatus}]."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         var empMap = await shiftRepository.GetEmployeeMetadataAsync([existing.DoctorId], ct);
@@ -424,7 +412,6 @@ public sealed class ShiftService(
 
         var now = clock.GetUtcNow().UtcDateTime;
 
-        // Check if shift has started or is in the past
         var isPastOrStarted = existing.ShiftDate.Date < now.Date;
         if (existing.ShiftDate.Date == now.Date)
         {
@@ -435,13 +422,11 @@ public sealed class ShiftService(
             }
         }
 
-        // Check if shift has activity (registered patients or linked appointments)
         var hasActivity = existing.CurrentPatientsCount > 0 || await shiftRepository.HasActiveAppointmentsAsync(existing.Id, ct);
 
         bool softCancelled = false;
         if (isPastOrStarted || hasActivity)
         {
-            // UC35.5 (SHIFT-DEL-02 & SHIFT-DEL-03): Ca đã bắt đầu hoặc đã có dữ liệu hoạt động -> chuyển sang Cancelled thay vì xóa cứng
             existing.Status = "Cancelled";
             existing.UpdatedAt = now;
             existing.UpdatedBy = userId;
@@ -453,7 +438,6 @@ public sealed class ShiftService(
         }
         else
         {
-            // UC35.5 (SHIFT-DEL-01): Ca chưa bắt đầu và chưa có dữ liệu liên quan -> xóa cứng
             if (!await shiftRepository.DeleteAsync(existing.Id, ct))
                 throw new ShiftNotFoundException(id);
         }
@@ -479,7 +463,7 @@ public sealed class ShiftService(
                     Details = $"Shift {existing.Id} on {existing.ShiftDate:yyyy-MM-dd} for {existing.EmployeeName} was {(softCancelled ? "marked as Cancelled (soft-delete)" : "permanently deleted (hard-delete)")} by user {userId}."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         logger.LogInformation(
@@ -519,7 +503,6 @@ public sealed class ShiftService(
                 continue;
             }
 
-            // Two intervals [newStart, newEnd) and [existStart, existEnd) overlap iff newStart < existEnd && existStart < newEnd
             var overlaps = newStart < existEnd && existStart < newEnd;
             if (!overlaps)
                 continue;
@@ -587,7 +570,6 @@ public sealed class ShiftService(
         };
     }
 
-    // 6-role seed: staff roles 1–5 use canonical names; anything else is shown as generic staff.
     private static string ResolveAccountRoleName(User? account)
         => account?.RoleId is >= 1 and <= 5 ? RoleNames.FromRoleId(account.RoleId)! : "Staff";
 

@@ -17,11 +17,9 @@ namespace BMS.Application.Services;
 /// </summary>
 public class PushNotificationService : IPushNotificationService
 {
-    // Thread-safe in-memory stores ensuring high throughput and resilience
     private static readonly ConcurrentDictionary<string, PushNotificationLog> _notificationLogs = new();
     private static readonly ConcurrentDictionary<string, DeviceTokenRegistration> _deviceTokens = new();
 
-    // Anti-spam rate limiting tracking: UserId -> list of dispatch timestamps in the last minute
     private static readonly ConcurrentDictionary<string, List<DateTime>> _userDispatchTimestamps = new();
     private static readonly object _rateLock = new();
 
@@ -29,7 +27,6 @@ public class PushNotificationService : IPushNotificationService
 
     public PushNotificationService()
     {
-        // Seed initial notifications for testing/demo if empty
         if (_notificationLogs.IsEmpty)
         {
             SeedInitialNotifications();
@@ -44,14 +41,13 @@ public class PushNotificationService : IPushNotificationService
         string priority = (request.Priority ?? "NORMAL").Trim().ToUpperInvariant();
         string channel = (request.Channel ?? "ALL").Trim().ToUpperInvariant();
 
-        // 1. Anti-Spam Rate Limit Check (BR-NOTIF-01: max 5 notifications/minute per user unless CRITICAL_PANIC)
         if (priority != "CRITICAL_PANIC" && priority != "CRITICAL")
         {
             lock (_rateLock)
             {
                 var now = DateTime.UtcNow;
                 var list = _userDispatchTimestamps.GetOrAdd(userId, _ => new List<DateTime>());
-                // Purge entries older than 60 seconds
+
                 list.RemoveAll(dt => (now - dt).TotalSeconds > 60);
 
                 if (list.Count >= MaxRateLimitPerMinute)
@@ -72,14 +68,12 @@ public class PushNotificationService : IPushNotificationService
             }
         }
 
-        // 2. Resolve Device Token
         string? deviceToken = request.RecipientDeviceToken;
         if (string.IsNullOrWhiteSpace(deviceToken) && _deviceTokens.TryGetValue(userId, out var reg))
         {
             deviceToken = reg.DeviceToken;
         }
 
-        // 3. Create Notification Log
         string notifId = $"NOTIF-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N").Substring(0, 8).ToUpper()}";
         var log = new PushNotificationLog
         {
@@ -97,7 +91,6 @@ public class PushNotificationService : IPushNotificationService
             DispatchedAt = DateTime.UtcNow,
         };
 
-        // 4. Simulate Multi-Channel Dispatch (FCM, Web, SMS) with retry handling
         bool dispatchSuccess = SimulateDispatch(log);
         if (dispatchSuccess)
         {
@@ -292,7 +285,6 @@ public class PushNotificationService : IPushNotificationService
 
     private static bool SimulateDispatch(PushNotificationLog log)
     {
-        // Resilient retry simulation (up to 3 retries if transient error)
         log.RetryCount = 0;
         return true;
     }

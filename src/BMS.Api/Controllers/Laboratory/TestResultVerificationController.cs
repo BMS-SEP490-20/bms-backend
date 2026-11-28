@@ -18,7 +18,7 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/laboratory/verification")]
-// WHY: UC72: Lab (verifier), Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.LabOrManager)]
 public class TestResultVerificationController : ControllerBase
 {
@@ -87,13 +87,12 @@ public class TestResultVerificationController : ControllerBase
             });
         }
 
-        var verifierName = User.FindFirst(ClaimTypes.Name)?.Value 
-            ?? User.FindFirst("name")?.Value 
+        var verifierName = User.FindFirst(ClaimTypes.Name)?.Value
+            ?? User.FindFirst("name")?.Value
             ?? "BSCKII. Lê Lan Anh (Trưởng Khoa)";
 
         var result = await _verificationService.VerifyTestResultAsync(specimenId, request, verifierName);
 
-        // Real-time SignalR notification broadcast for Doctor Console and Patient Portal
         if (_hubContext != null)
         {
             try
@@ -121,7 +120,6 @@ public class TestResultVerificationController : ControllerBase
             }
             catch
             {
-                // Non-fatal if client broadcast fails
             }
         }
 
@@ -150,8 +148,8 @@ public class TestResultVerificationController : ControllerBase
             });
         }
 
-        var verifierName = User.FindFirst(ClaimTypes.Name)?.Value 
-            ?? User.FindFirst("name")?.Value 
+        var verifierName = User.FindFirst(ClaimTypes.Name)?.Value
+            ?? User.FindFirst("name")?.Value
             ?? "BSCKII. Lê Lan Anh (Trưởng Khoa)";
 
         var result = await _verificationService.ReturnTestResultAsync(specimenId, request, verifierName);

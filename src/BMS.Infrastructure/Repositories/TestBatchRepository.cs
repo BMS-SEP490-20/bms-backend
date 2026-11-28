@@ -115,7 +115,6 @@ public class TestBatchRepository : ITestBatchRepository
 
         var result = await _collection.UpdateOneAsync(x => x.Id == batch.Id, update, cancellationToken: ct);
 
-        // Rollback invariant: Release all assigned samples back to Received status
         await ReleaseSamplesFromBatchAsync(batch.Id, ct);
 
         return result.ModifiedCount > 0;
@@ -129,7 +128,7 @@ public class TestBatchRepository : ITestBatchRepository
 
         return await _sampleCollection
             .Find(filter)
-            .SortByDescending(x => x.PriorityString) // STAT first
+            .SortByDescending(x => x.PriorityString)
             .ThenBy(x => x.ReceivedAt)
             .Limit(limit)
             .ToListAsync(ct);

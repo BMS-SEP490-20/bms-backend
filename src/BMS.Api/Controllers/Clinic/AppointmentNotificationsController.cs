@@ -18,7 +18,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api")]
-// WHY: UC22: Patient reads own; Receptionist sends. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class AppointmentNotificationsController : ControllerBase
 {
@@ -118,7 +118,6 @@ public class AppointmentNotificationsController : ControllerBase
             });
         }
 
-        // If user is a Patient, caller's identity cannot be overridden by query param
         string targetPatientId = User.IsInRole("Patient")
             ? authUserId
             : (!string.IsNullOrWhiteSpace(patientId) ? patientId : authUserId);

@@ -16,7 +16,6 @@ public class OtpRepository : IOtpRepository
     private readonly MongoDbContext _context;
     private readonly ILogger<OtpRepository> _logger;
 
-    // ConcurrentDictionary acting as in-memory fallback when MongoDB service is unreachable
     private static readonly ConcurrentDictionary<string, OtpTokenEntity> _memoryFallback = new();
 
     public OtpRepository(MongoDbContext context, ILogger<OtpRepository> logger)

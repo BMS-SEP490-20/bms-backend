@@ -10,8 +10,8 @@ public class TatQueryParameters
 {
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
-    public string? Department { get; set; } // "Biochemistry", "Hematology", "Immunology", etc.
-    public string? Priority { get; set; }   // "Stat", "Urgent", "Normal", or "All"
+    public string? Department { get; set; }
+    public string? Priority { get; set; }
     public string? LabRoom { get; set; }
     public int TargetStatMinutes { get; set; } = 60;
     public int TargetUrgentMinutes { get; set; } = 120;
@@ -36,7 +36,7 @@ public class TatSummaryStatisticsDto
     public string P90TatFormatted { get; set; } = "0m";
     public double MinTatMinutes { get; set; }
     public double MaxTatMinutes { get; set; }
-    public double TargetComplianceRate { get; set; } // e.g. 94.5%
+    public double TargetComplianceRate { get; set; }
     public int ViolationCount { get; set; }
 }
 
@@ -45,7 +45,7 @@ public class TatSummaryStatisticsDto
 /// </summary>
 public class TatPriorityBreakdownDto
 {
-    public string Priority { get; set; } = string.Empty; // "Stat", "Urgent", "Normal"
+    public string Priority { get; set; } = string.Empty;
     public int TotalCount { get; set; }
     public double TargetMinutes { get; set; }
     public double AverageTatMinutes { get; set; }
@@ -72,11 +72,11 @@ public class TatDepartmentBreakdownDto
 /// </summary>
 public class TatPhaseBreakdownDto
 {
-    public string PhaseName { get; set; } = string.Empty; // "PreAnalytical", "Analytical", "PostAnalytical"
+    public string PhaseName { get; set; } = string.Empty;
     public string PhaseDescription { get; set; } = string.Empty;
     public double AverageMinutes { get; set; }
     public string AverageFormatted { get; set; } = "0m";
-    public double PercentageOfTotal { get; set; } // e.g. 25.0%
+    public double PercentageOfTotal { get; set; }
 }
 
 /// <summary>
@@ -84,7 +84,7 @@ public class TatPhaseBreakdownDto
 /// </summary>
 public class TatTrendPointDto
 {
-    public string DateLabel { get; set; } = string.Empty; // "2026-10-22"
+    public string DateLabel { get; set; } = string.Empty;
     public int Volume { get; set; }
     public double AverageTatMinutes { get; set; }
     public double TargetTatMinutes { get; set; }

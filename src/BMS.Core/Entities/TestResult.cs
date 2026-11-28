@@ -220,7 +220,7 @@ public class TestResult : ISupportInitialize
     public string? DeviceId { get; set; }
 
     [BsonElement("createdAt")]
-    // Writers supply the timestamp explicitly; an absent historical date must remain detectable.
+
     public DateTime CreatedAt { get; set; }
 
     [BsonElement("updatedAt")]

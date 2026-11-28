@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.IoT;
 /// </summary>
 [ApiController]
 [Route("api/iot/thresholds")]
-// WHY: UC67: view Admin, Manager, Lab; change Admin, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class IotThresholdsController : ControllerBase
 {
@@ -50,7 +50,6 @@ public class IotThresholdsController : ControllerBase
         }
         catch
         {
-            // Non-fatal
         }
     }
 

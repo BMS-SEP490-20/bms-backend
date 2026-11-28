@@ -16,7 +16,7 @@ namespace BMS.WalkIn.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/walk-in")]
-// WHY: UC26: Receptionist only (Admin removed). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleNames.Receptionist)]
 public class WalkInController : ControllerBase
 {

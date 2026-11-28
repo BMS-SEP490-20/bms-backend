@@ -22,7 +22,7 @@ public class CreateMedicalAssessmentDto : IValidatableObject
 
     public string? EncounterId { get; set; }
     public string? OrderId { get; set; }
-    public string EncounterType { get; set; } = "ClinicVisit"; // ClinicVisit, FollowUp, Emergency, RoutineCheckup
+    public string EncounterType { get; set; } = "ClinicVisit";
 
     public string? DoctorId { get; set; }
     public string? DoctorName { get; set; }
@@ -55,8 +55,8 @@ public class CreateMedicalAssessmentDto : IValidatableObject
     [MaxLength(1000, ErrorMessage = "Chẩn đoán xác định không được vượt quá 1000 ký tự.")]
     public string FinalDiagnosis { get; set; } = string.Empty;
 
-    public string Severity { get; set; } = "Mild"; // Mild, Moderate, Severe, Critical
-    public string RiskLevel { get; set; } = "Low"; // Low, Medium, High
+    public string Severity { get; set; } = "Mild";
+    public string RiskLevel { get; set; } = "Low";
 
     [MaxLength(2000, ErrorMessage = "Nhận định lâm sàng không được vượt quá 2000 ký tự.")]
     public string? ClinicalImpression { get; set; }
@@ -74,7 +74,7 @@ public class CreateMedicalAssessmentDto : IValidatableObject
     [MaxLength(1000, ErrorMessage = "Dặn dò tái khám không được vượt quá 1000 ký tự.")]
     public string? FollowUpNotes { get; set; }
 
-    public string Status { get; set; } = "Draft"; // Draft, Finalized
+    public string Status { get; set; } = "Draft";
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {

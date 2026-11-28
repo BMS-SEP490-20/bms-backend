@@ -18,7 +18,7 @@ namespace BMS.Api.Controllers.Laboratory
     [Route("api/testorder/labroom")]
     [Route("api/labroom")]
     [ApiController]
-// WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.AdminOrManager)]
     public class LabRoomController : ControllerBase
     {
@@ -49,10 +49,7 @@ namespace BMS.Api.Controllers.Laboratory
             if (page <= 0 || pageSize <= 0)
                 return BadRequest(new { message = "Giá trị phân trang không hợp lệ." });
 
-            // Paging is done in MongoDB (Skip/Limit) instead of loading every room into memory.
             var (pagedRooms, totalCount) = await _service.GetPagedAsync(page, Math.Min(pageSize, 100), ct);
-
-            // Empty list returns 200 OK with empty array
 
             return Ok(new
             {
@@ -116,7 +113,6 @@ namespace BMS.Api.Controllers.Laboratory
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] UpdateLabRoomDto dto, CancellationToken ct)
         {
-            // Not-found is raised as ResourceNotFoundException and mapped to 404 by GlobalExceptionHandler.
             await _service.UpdateAsync(id, dto, ct);
             return Ok(new { message = "Cập nhật phòng thành công." });
         }
@@ -134,7 +130,6 @@ namespace BMS.Api.Controllers.Laboratory
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken ct)
         {
-            // Soft delete: the room stays referenced by historical shifts and lab profiles.
             await _service.DeleteAsync(id, ct);
             return Ok(new { message = "Xóa phòng thành công." });
         }

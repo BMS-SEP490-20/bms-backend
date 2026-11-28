@@ -15,7 +15,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/test-batches")]
 [Route("api/v1/test-batches")]
 [Produces("application/json")]
-// WHY: UC38: Lab; Manager view. Web only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class TestBatchesController(ITestBatchService testBatchService) : ControllerBase
 {
@@ -96,11 +96,11 @@ public class TestBatchesController(ITestBatchService testBatchService) : Control
             return BadRequest(new { success = false, errors = ModelState });
         }
 
-        var technicianId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-            ?? User.FindFirst("sub")?.Value 
+        var technicianId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
             ?? "TECH-SYSTEM";
-        var technicianName = User.FindFirst(ClaimTypes.Name)?.Value 
-            ?? User.Identity?.Name 
+        var technicianName = User.FindFirst(ClaimTypes.Name)?.Value
+            ?? User.Identity?.Name
             ?? "Lab Technician";
 
         try

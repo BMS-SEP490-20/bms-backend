@@ -36,7 +36,7 @@ public sealed partial class BillingSettingsService(
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        // Normalize first (trim + upper), then validate (Quy trình Đợt 3A Q1).
+
         var normalized = BhytCard.NormalizeGroupCode(code);
         if (!GroupCodeFormat().IsMatch(normalized))
             throw new DomainValidationException("BHYT_GROUP_CODE_INVALID", "Mã nhóm đối tượng BHYT phải gồm đúng 2 chữ cái (A–Z).");

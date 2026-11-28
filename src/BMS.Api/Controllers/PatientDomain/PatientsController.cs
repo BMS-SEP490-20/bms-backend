@@ -18,7 +18,7 @@ namespace BMS.Api.Controllers.PatientDomain;
 [Route("api/patients")]
 [Route("api/v1/patients")]
 [Produces("application/json")]
-// WHY: UC30 search/view: Admin, Manager, Doctor, Lab, Receptionist; Patient /me; guest profile Receptionist.
+
 [Authorize]
 public class PatientsController(
     IPatientService patients,
@@ -148,7 +148,7 @@ public class PatientsController(
     /// Retrieves detailed patient information by Patient ID, Patient Code, or CCCD/CMND (UC30).
     /// Staff/Doctors/Receptionists can view any patient; Patients can only view their own profile.
     /// </summary>
-    // Patient is admitted here but the service limits a Patient to their own profile (CanViewAllPatientsAsync = false).
+
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception + "," + RoleNames.Patient)]
     [HttpGet("{id}")]
     [ProducesResponseType(typeof(PatientInformationDto), StatusCodes.Status200OK)]
@@ -162,7 +162,7 @@ public class PatientsController(
         {
             var isStaffOrAdmin = await CanViewAllPatientsAsync();
             var result = await patients.GetPatientInformationAsync(id, CurrentUserId, isStaffOrAdmin, ct);
-            // Strip clinical EMR notes for Receptionist & Lab (only Doctor, Manager, and Patient own-record may read EMR summaries)
+
             if (result != null && !User.IsInRole(RoleNames.Doctor) && !User.IsInRole(RoleNames.Manager) && !User.IsInRole(RoleNames.Patient))
             {
                 result.RecentMedicalRecords = new List<PatientMedicalRecordSummaryDto>();
@@ -259,7 +259,6 @@ public class PatientsController(
 
     private bool IsReceptionist()
     {
-        // WHY (TIEU-CHI R10, matrix UC25): only Lễ tân creates guest profiles; Admin was removed (decision 10).
         return User.Identity?.IsAuthenticated == true && User.IsInRole(RoleNames.Receptionist);
     }
 
@@ -268,8 +267,6 @@ public class PatientsController(
 
     private async Task<bool> CanViewAllPatientsAsync()
     {
-        // WHY: anonymous callers used to get "view all" (PII leak, matrix UC30). The class attribute now
-        // rejects anonymous and Admin callers; staff roles admitted there may list patients, a Patient may not.
         if (User.Identity?.IsAuthenticated != true)
             return false;
         if (!User.IsInRole(RoleNames.Patient))

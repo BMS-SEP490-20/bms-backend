@@ -51,7 +51,6 @@ public class ServicePackage
     /// <summary>Đang được bán/cho phép đặt hay không.</summary>
     public bool IsActive { get; set; } = true;
 
-    // --- Xoá mềm: giữ lại để hoá đơn/lịch sử cũ vẫn tham chiếu được ---
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAt { get; set; }
     public string? DeletedBy { get; set; }

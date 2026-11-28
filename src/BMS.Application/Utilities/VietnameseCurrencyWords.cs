@@ -21,7 +21,7 @@ public static class VietnameseCurrencyWords
         }
 
         string sNumber = integral.ToString();
-        // Pad with zeros to multiple of 3
+
         while (sNumber.Length % 3 != 0)
         {
             sNumber = "0" + sNumber;
@@ -57,10 +57,8 @@ public static class VietnameseCurrencyWords
             return "Không đồng chẵn";
         }
 
-        // Clean up redundant spaces
         rawText = System.Text.RegularExpressions.Regex.Replace(rawText, @"\s+", " ");
 
-        // Capitalize first letter and append standard suffix
         string formatted = char.ToUpper(rawText[0]) + rawText.Substring(1) + " đồng chẵn";
         return formatted;
     }
@@ -112,7 +110,7 @@ public static class VietnameseCurrencyWords
                 sb.Append(" ").Append(Digits[ones]);
             }
         }
-        else // tens == 0
+        else
         {
             if (ones > 0)
             {

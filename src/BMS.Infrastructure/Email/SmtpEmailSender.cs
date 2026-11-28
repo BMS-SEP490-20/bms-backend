@@ -18,7 +18,6 @@ public sealed class SmtpEmailSender(IOptions<EmailOptions> options, ILogger<Smtp
         var username = (_o.Username ?? string.Empty).Trim();
         var password = (_o.Password ?? string.Empty).Replace(" ", "").Trim();
 
-        // Với Gmail SMTP, FromAddress bắt buộc phải là địa chỉ Gmail đăng nhập (username)
         var fromAddress = !string.IsNullOrWhiteSpace(_o.FromAddress) ? _o.FromAddress.Trim() : username;
         if ((string.IsNullOrWhiteSpace(fromAddress) || fromAddress.EndsWith("@bms.com", StringComparison.OrdinalIgnoreCase)) &&
             _o.Host?.Contains("gmail.com", StringComparison.OrdinalIgnoreCase) == true &&

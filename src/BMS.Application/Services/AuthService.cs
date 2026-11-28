@@ -105,7 +105,6 @@ public class AuthService : IAuthService
                 (u.IdentityCardNumber != null && u.IdentityCardNumber.Equals(login, StringComparison.OrdinalIgnoreCase)));
         }
 
-        // 1. User not found -> constant-time dummy BCrypt verify to prevent timing-based account enumeration
         if (user is null)
         {
             _passwordHasher?.VerifyDummy(request.Password);
@@ -137,7 +136,6 @@ public class AuthService : IAuthService
             return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
-        // 2. Check temporary brute-force lockout (BR-IAM-03: 15 minutes after 5 consecutive failures)
         if (user.LockoutEnd is { } until)
         {
             if (until > now)
@@ -149,13 +147,11 @@ public class AuthService : IAuthService
             }
             else
             {
-                // Lockout period expired: cleanly reset lockout counter
                 user.LockoutEnd = null;
                 user.FailedLoginCount = 0;
             }
         }
 
-        // 3. Verify password against stored hash (no cross-store in-memory fallback for Mongo accounts)
         bool passwordValid = VerifyUserPassword(request.Password, user.PasswordHash);
 
         if (!passwordValid)
@@ -180,7 +176,7 @@ public class AuthService : IAuthService
                         Details = $"Failed password attempt for login: {login}"
                     }, ct);
                 }
-                catch { /* Audit logging failure should not abort response */ }
+                catch {  }
             }
 
             if (fromMongo && _userRepository != null)
@@ -212,7 +208,6 @@ public class AuthService : IAuthService
             return AuthLoginResult.Fail(401, "Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!", "INVALID_CREDENTIALS");
         }
 
-        // 4. Check account activation & active status AFTER password check so attackers cannot probe disabled accounts
         if (user.Status == (int)UserStatus.PendingActivation || (!user.EmailConfirmed && !user.IsActive))
         {
             _logger?.LogWarning("Login blocked: unactivated account {UserId} from {Ip}", user.Id, client.IpAddress);
@@ -224,7 +219,6 @@ public class AuthService : IAuthService
             return AuthLoginResult.Fail(403, "Tài khoản của bạn đã bị vô hiệu hóa hoặc chưa được kích hoạt.", "ACCOUNT_DISABLED");
         }
 
-        // 5. Reset failed login counter & record LastLoginAt
         if (fromMongo && _userRepository != null)
         {
             await _userRepository.RecordSuccessfulLoginAsync(user.Id, now, null, ct);
@@ -267,7 +261,7 @@ public class AuthService : IAuthService
                     Details = $"User {user.Username} successfully logged in."
                 }, ct);
             }
-            catch { /* Audit logging failure should not abort response */ }
+            catch {  }
         }
 
         return AuthLoginResult.Ok(tokens);
@@ -353,7 +347,6 @@ public class AuthService : IAuthService
 
         if (user != null)
         {
-            // Existing user
             if (user.Status == (int)UserStatus.Inactive || user.Status == (int)UserStatus.Suspended)
             {
                 return AuthLoginResult.Fail(403, "Tài khoản của bạn đã bị vô hiệu hóa hoặc tạm khóa. Vui lòng liên hệ ban quản trị.", "ACCOUNT_DISABLED");
@@ -380,7 +373,6 @@ public class AuthService : IAuthService
         }
         else
         {
-            // Auto-register as Patient
             var baseUsername = email.Split('@')[0].Replace(".", "_");
             var username = baseUsername;
             int counter = 1;
@@ -416,7 +408,6 @@ public class AuthService : IAuthService
             user = newUser;
         }
 
-        // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection (BR-REC-01)
         if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
         {
             Patient? existingPat = null;
@@ -431,7 +422,6 @@ public class AuthService : IAuthService
                 _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile for Google SSO user {UserId}", user.Id);
             }
 
-            // Insert only when confirmed missing by successful read OR when newly auto-registered user
             if ((readSuccess && existingPat == null) || (isNewGoogleUser && existingPat == null))
             {
                 var idNum = user.IdentityCardNumber?.Trim();
@@ -506,12 +496,11 @@ public class AuthService : IAuthService
                     Details = $"User {user.Email} successfully signed in via Google OAuth2 SSO."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         return AuthLoginResult.Ok(tokens);
     }
-
 
     public async Task<AuthResponse> RefreshAsync(string rawRefreshToken, ClientContext client, CancellationToken ct = default)
     {
@@ -535,7 +524,6 @@ public class AuthService : IAuthService
             throw new InvalidRefreshTokenException();
         }
 
-        // Reuse Detection: token was already rotated/revoked -> revoke the entire token family immediately
         if (stored.RevokedAt is not null)
         {
             await _refreshTokenRepository.RevokeFamilyAsync(stored.FamilyId, now, "reuse_detected", ct);
@@ -566,7 +554,6 @@ public class AuthService : IAuthService
         var access = _tokenService.CreateAccessToken(user, role);
         var nextRefresh = _tokenService.GenerateRefreshToken();
 
-        // Atomic Compare-And-Swap: ensure concurrent requests cannot both rotate the same token
         var revoked = await _refreshTokenRepository.TryRevokeAsync(
             stored.Id, now, "rotated", nextRefresh.TokenHash, ct);
         if (!revoked)
@@ -667,22 +654,18 @@ public class AuthService : IAuthService
 
     private Task<Role> ResolveRoleAsync(User user, CancellationToken ct)
     {
-        // Canonical 6-role IDs: 1 Admin, 2 Doctor, 3 Lab, 4 Receptionist, 5 Patient, 6 Manager.
-        // Never trust Mongo `roles` docs for JWT permissions — legacy seed still has LabHead at
-        // _id:4 / Nurse at _id:5 while users.roleId maps Receptionist=4, Patient=5.
-        // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
         var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? (int)user.Role;
         var roleName = RoleNames.FromRoleId(roleId) ?? throw new RoleNotAssignedException();
 
         var permissions = roleId switch
         {
             1 => new List<string> { "MANAGE_SERVICE_PACKAGE", "MANAGE_USERS", "MANAGE_ROLES", "MANAGE_SCHEDULE" },
-            // ISO 15189 / QĐ 2429: only Doctor clinically approves & signs results for patient release.
+
             2 => new List<string> { "EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "APPROVE_RESULTS", "APPROVE_RESULT", "SIGN_REPORTS" },
             3 => new List<string> { "RECEIVE_SAMPLE", "RECEIVE_SAMPLES", "COLLECT_SAMPLE", "COLLECT_SAMPLES", "RUN_ANALYZER", "ENTER_RESULT", "ENTER_LAB_RESULTS", "MANAGE_REAGENTS", "VIEW_ALL_LAB" },
             4 => new List<string> { "CHECK_IN", "CHECKIN_PATIENT", "REGISTER_PATIENTS", "VIEW_PATIENTS", "PROCESS_PAYMENT", "MANAGE_APPOINTMENT", "CREATE_APPOINTMENTS", "MANAGE_QUEUE" },
             5 => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" },
-            // Manager: tech-verify / QC unlock only — NOT Doctor SIGN_REPORTS / patient publish.
+
             6 => new List<string> { "TECH_VERIFY_RESULT", "APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD", "MANAGE_SCHEDULE", "MANAGE_REAGENTS", "VIEW_PATIENT_RECORDS", "VIEW_ALL_LAB" },
             _ => new List<string> { "BOOK_APPOINTMENT", "VIEW_OWN_RESULT", "MANAGE_PROFILE" }
         };
@@ -800,7 +783,6 @@ public class AuthService : IAuthService
         var phoneNormalized = NormalizePhone(phoneNumber);
         var cccdTrimmed = (identityCard ?? string.Empty).Trim();
 
-        // 1. Check Email uniqueness
         if (!string.IsNullOrWhiteSpace(emailTrimmed))
         {
             var emailTaken = await IsEmailRegisteredAsync(emailTrimmed, ct);
@@ -812,7 +794,6 @@ public class AuthService : IAuthService
             }
         }
 
-        // 2. Check CCCD uniqueness (accounts + patients) & detect unlinked Walk-In guest profile
         Patient? walkInPatient = null;
         if (!string.IsNullOrWhiteSpace(cccdTrimmed))
         {
@@ -843,7 +824,6 @@ public class AuthService : IAuthService
                     }
                     else
                     {
-                        // Walk-in guest patient without an online account -> allow linking after identity match & OTP
                         walkInPatient = existingPat;
                         result.WalkInDetected = true;
                         result.WalkInPatientCode = existingPat.Id;
@@ -854,7 +834,6 @@ public class AuthService : IAuthService
             }
         }
 
-        // 3. Check Phone uniqueness (accounts + linked patients; allow walk-in patient's own phone if linking)
         if (!string.IsNullOrWhiteSpace(phoneNormalized))
         {
             User? phoneUser = null;
@@ -892,7 +871,6 @@ public class AuthService : IAuthService
         var phoneNormalized = NormalizePhone(dto.PhoneNumber);
         var cccdTrimmed = dto.IdentityCard?.Trim();
 
-        // Compose detailed address from cascading parts if provided
         var resolvedAddress = dto.Address;
         if (!string.IsNullOrWhiteSpace(dto.StreetAddress))
         {
@@ -903,7 +881,6 @@ public class AuthService : IAuthService
             resolvedAddress = string.Join(", ", parts);
         }
 
-        // 1. Check duplicate Email / Username
         User? existingUser = null;
         if (_userRepository != null)
         {
@@ -932,7 +909,6 @@ public class AuthService : IAuthService
 
         var currentPendingUserId = existingUser?.Id;
 
-        // 2. Check duplicate Phone Number across active accounts
         if (!string.IsNullOrWhiteSpace(phoneNormalized))
         {
             User? phoneOwner = null;
@@ -956,7 +932,6 @@ public class AuthService : IAuthService
             }
         }
 
-        // 3. Check duplicate CCCD (12 digits) across accounts & patients + validate Walk-In guest linking
         bool willLinkWalkIn = false;
         if (!string.IsNullOrWhiteSpace(cccdTrimmed))
         {
@@ -995,7 +970,6 @@ public class AuthService : IAuthService
                         };
                     }
 
-                    // Walk-in guest profile exists without AccountId -> verify multi-factor identity BEFORE sending OTP
                     if (string.IsNullOrWhiteSpace(existingPatient.AccountId))
                     {
                         var nameMatches = !string.IsNullOrWhiteSpace(existingPatient.FullName)
@@ -1025,7 +999,6 @@ public class AuthService : IAuthService
 
         if (existingUser != null)
         {
-            // Pending unconfirmed self-registration for the same email: refresh OTP and resend
             var freshOtp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
             existingUser.VerificationOtp = freshOtp;
             existingUser.OtpExpiresAt = DateTime.UtcNow.AddMinutes(15);
@@ -1070,7 +1043,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 4. Generate 6-digit CSPRNG OTP
         var otp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
         var expiresAt = DateTime.UtcNow.AddMinutes(15);
         var hashedPassword = _passwordHasher != null
@@ -1115,7 +1087,6 @@ public class AuthService : IAuthService
         }
         _context.Users.Add(newUser);
 
-        // 5. Dispatch live OTP email via Gmail SMTP
         bool sent = false;
         if (_emailService != null)
         {
@@ -1203,7 +1174,6 @@ public class AuthService : IAuthService
                            user.OtpExpiresAt.HasValue &&
                            user.OtpExpiresAt.Value >= DateTime.UtcNow);
 
-        // Fallback: Check if resent via IOtpRepository
         if (!isOtpValid && _otpRepository != null)
         {
             var otpEntity = await _otpRepository.GetLatestActiveByRecipientAsync(emailTrimmed, "Registration");
@@ -1223,7 +1193,6 @@ public class AuthService : IAuthService
 
         if (!isOtpValid)
         {
-            // Server-side failed OTP attempt limit (max 5 attempts)
             user.FailedLoginCount++;
             if (user.FailedLoginCount >= 5)
             {
@@ -1243,7 +1212,6 @@ public class AuthService : IAuthService
             return new AuthResponseDto { Success = false, Message = $"Mã OTP không đúng hoặc đã hết hạn (còn {5 - user.FailedLoginCount} lần thử)." };
         }
 
-        // Tự động đồng bộ và tạo hồ sơ Bệnh nhân trong MongoDB patients collection trước khi confirm email (BR-REC-01)
         if (_patientRepository != null && user.RoleId == (int)UserRole.Patient)
         {
             Patient? existingPat = null;
@@ -1258,7 +1226,6 @@ public class AuthService : IAuthService
                 _logger?.LogWarning(ex, "Transient warning: could not verify existing patient profile during OTP verification for user {UserId}", user.Id);
             }
 
-            // Fail-closed: If reading existing patient profile failed, do not assume safe to proceed
             if (!readSuccess)
             {
                 return new AuthResponseDto
@@ -1319,7 +1286,7 @@ public class AuthService : IAuthService
                 catch (Exception ex)
                 {
                     _logger?.LogError(ex, "Failed to auto-create patient profile in MongoDB for verified OTP user {UserId}", user.Id);
-                    // Do NOT confirm email, PRESERVE OTP so user can retry without getting stuck
+
                     return new AuthResponseDto
                     {
                         Success = false,
@@ -1330,7 +1297,6 @@ public class AuthService : IAuthService
             }
         }
 
-        // Confirm email, activate account (PendingActivation -> Active), and clear OTP only AFTER patient profile is ensured
         user.EmailConfirmed = true;
         user.Status = (int)UserStatus.Active;
         user.IsActive = true;
@@ -1369,8 +1335,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // WHY: this legacy in-memory login used to grant every user the "ALL" permission.
-        // Reuse the canonical 6-role resolution instead so its tokens carry the same claims as the main login.
         var roleEntity = await ResolveRoleAsync(user, CancellationToken.None);
         var token = _tokenService != null
             ? _tokenService.CreateAccessToken(user, roleEntity).Token
@@ -1481,7 +1445,6 @@ public class AuthService : IAuthService
         var identifier = dto.Email.Trim();
         var now = _clock.GetUtcNow().UtcDateTime;
 
-        // 1. Look for user in MongoDB first, then fallback to in-memory context
         User? user = null;
         if (_userRepository != null)
         {
@@ -1499,7 +1462,6 @@ public class AuthService : IAuthService
                 u.Username.Equals(identifier, StringComparison.OrdinalIgnoreCase));
         }
 
-        // 2. Anti-Enumeration: generic response when account does not exist or inactive (OWASP ASVS 5.0 §2.1.8)
         if (user == null || !user.IsActive)
         {
             _passwordHasher?.VerifyDummy("dummy_password_for_timing_safety");
@@ -1534,7 +1496,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 3. Resend Cooldown (60 seconds)
         if (user.PasswordResetRequestedAt.HasValue && (now - user.PasswordResetRequestedAt.Value).TotalSeconds < 60)
         {
             var remaining = (int)Math.Ceiling(60 - (now - user.PasswordResetRequestedAt.Value).TotalSeconds);
@@ -1546,7 +1507,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 4. Generate cryptographically random 6-digit OTP (5 minutes expiration)
         var otp = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
         var expiresAt = now.AddMinutes(5);
 
@@ -1565,11 +1525,9 @@ public class AuthService : IAuthService
             }
             catch
             {
-                // In-memory or test scenario fallback
             }
         }
 
-        // 5. Dispatch OTP via Email service (simulated or live)
         if (_emailService != null)
         {
             try
@@ -1586,7 +1544,6 @@ public class AuthService : IAuthService
             }
         }
 
-        // 6. Security Audit Trail (ISO 27001 Control 8.15)
         if (_auditLogRepository != null)
         {
             try
@@ -1716,7 +1673,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // Đúng OTP nhưng chưa tiêu thụ — chờ bước đặt mật khẩu mới
         return new AuthResponseDto
         {
             Success = true,
@@ -1756,7 +1712,6 @@ public class AuthService : IAuthService
             return new AuthResponseDto { Success = false, ErrorCode = "INVALID_REQUEST", Message = "Yêu cầu đặt lại mật khẩu không hợp lệ hoặc mã OTP không chính xác." };
         }
 
-        // 1. Check temporary lockout (Brute Force Protection on OTP - Max 5 attempts)
         if (user.PasswordResetLockoutEnd is { } lockedUntil && lockedUntil > now)
         {
             var remainingMinutes = (int)Math.Ceiling((lockedUntil - now).TotalMinutes);
@@ -1768,7 +1723,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 2. Check single-use: OTP cannot be empty or already consumed
         if (string.IsNullOrWhiteSpace(user.PasswordResetOtp))
         {
             return new AuthResponseDto
@@ -1779,7 +1733,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 3. Check expiration (5 minutes)
         if (user.PasswordResetExpiresAt == null || user.PasswordResetExpiresAt < now)
         {
             return new AuthResponseDto
@@ -1790,7 +1743,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 4. Verify OTP using constant-time comparison to prevent timing attacks
         var otpMatch = CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(user.PasswordResetOtp.Trim()),
             Encoding.UTF8.GetBytes(dto.Otp.Trim()));
@@ -1801,7 +1753,7 @@ public class AuthService : IAuthService
             if (user.PasswordResetFailedAttempts >= 5)
             {
                 user.PasswordResetLockoutEnd = now.AddMinutes(15);
-                user.PasswordResetOtp = null; // Invalidate OTP on lockout
+                user.PasswordResetOtp = null;
             }
 
             if (_userRepository != null && !string.IsNullOrWhiteSpace(user.Id))
@@ -1852,7 +1804,6 @@ public class AuthService : IAuthService
             };
         }
 
-        // 5. OTP Valid -> Consume OTP immediately (Single-Use), Hash Password, Clear Lockout
         var newHash = _passwordHasher != null ? _passwordHasher.Hash(dto.NewPassword) : BmsDbContext.HashPassword(dto.NewPassword);
         user.PasswordHash = newHash;
         user.Password = newHash;
@@ -1871,11 +1822,9 @@ public class AuthService : IAuthService
             }
             catch
             {
-                // In-memory or test scenario fallback
             }
         }
 
-        // 6. Session Revocation: Invalidate all existing Refresh Tokens for this user (OWASP ASVS 5.0 §3.3)
         if (_refreshTokenRepository != null && !string.IsNullOrWhiteSpace(user.Id))
         {
             try
@@ -1888,7 +1837,6 @@ public class AuthService : IAuthService
             }
         }
 
-        // 7. Security Audit Trail (ISO 27001 Control 8.15)
         if (_auditLogRepository != null)
         {
             try
@@ -2021,11 +1969,9 @@ public class AuthService : IAuthService
 
         try
         {
-            // 1. Check if user's account already has a patient record
             var byAccount = await _patientRepository.GetByAccountIdAsync(user.Id, ct);
             if (byAccount != null) return (true, false);
 
-            // 2. Check if a patient record exists with this CCCD
             Patient? existing = null;
             if (!string.IsNullOrWhiteSpace(identityNumber))
             {
@@ -2039,7 +1985,6 @@ public class AuthService : IAuthService
                 }
             }
 
-            // 3. Check by patient ID fallback
             if (existing == null && !string.IsNullOrWhiteSpace(patId))
             {
                 try
@@ -2057,7 +2002,6 @@ public class AuthService : IAuthService
                 if (existing.AccountId == user.Id)
                     return (true, false);
 
-                // Guest profile created previously without an online account -> link to this user only if multi-factor identity matches
                 if (string.IsNullOrWhiteSpace(existing.AccountId))
                 {
                     var nameMatches = !string.IsNullOrWhiteSpace(existing.FullName) &&
@@ -2072,7 +2016,6 @@ public class AuthService : IAuthService
                     var normUserPhone = NormalizePhone(user.PhoneNumber);
                     var phoneMatches = !string.IsNullOrEmpty(normExistingPhone) && normExistingPhone == normUserPhone;
 
-                    // Multi-field verification (>= 2 identity attributes: FullName + DateOfBirth or PhoneNumber): prevent unauthorized account takeover
                     bool canLinkGuest = nameMatches && (dobMatches || phoneMatches);
 
                     if (!canLinkGuest)
@@ -2110,7 +2053,6 @@ public class AuthService : IAuthService
                     }
                 }
 
-                // Conflict: CCCD already linked to a different account
                 _logger?.LogWarning("Patient identity conflict: CCCD {Cccd} belongs to patient {PatientId} linked to account {ExistingAccountId}, not user {UserId}",
                     identityNumber, existing.Id, existing.AccountId, user.Id);
                 return (false, true);

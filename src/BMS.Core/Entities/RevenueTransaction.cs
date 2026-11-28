@@ -16,10 +16,10 @@ public class RevenueTransaction
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("transaction_number")]
-    public string TransactionNumber { get; set; } = string.Empty; // e.g. TXN-2026-000123
+    public string TransactionNumber { get; set; } = string.Empty;
 
     [BsonElement("order_number")]
-    public string OrderNumber { get; set; } = string.Empty; // e.g. ORD-2026-8891
+    public string OrderNumber { get; set; } = string.Empty;
 
     [BsonElement("patient_name")]
     public string PatientName { get; set; } = string.Empty;
@@ -28,10 +28,10 @@ public class RevenueTransaction
     public string PatientId { get; set; } = string.Empty;
 
     [BsonElement("service_type")]
-    public string ServiceType { get; set; } = "InClinic"; // InClinic | HomeCollection
+    public string ServiceType { get; set; } = "InClinic";
 
     [BsonElement("category")]
-    public string Category { get; set; } = "Biochemistry"; // Biochemistry | Hematology | Immunology | Microbiology | GeneralCheckup
+    public string Category { get; set; } = "Biochemistry";
 
     [BsonElement("gross_amount")]
     public decimal GrossAmount { get; set; }
@@ -46,10 +46,10 @@ public class RevenueTransaction
     public decimal HomeSurchargeAmount { get; set; }
 
     [BsonElement("net_amount")]
-    public decimal NetAmount { get; set; } // Gross - BHYT - Discount + Surcharge
+    public decimal NetAmount { get; set; }
 
     [BsonElement("payment_method")]
-    public string PaymentMethod { get; set; } = "VietQR"; // Cash | VietQR | VNPay | BankTransfer | BhytDirect
+    public string PaymentMethod { get; set; } = "VietQR";
 
     [BsonElement("referral_doctor")]
     public string ReferralDoctor { get; set; } = "BS. Trưởng Khoa";

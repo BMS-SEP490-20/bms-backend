@@ -28,7 +28,6 @@ public sealed class IotLogRollupHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Delay initial rollup so MongoDB indexes and startup seeding finish first
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);

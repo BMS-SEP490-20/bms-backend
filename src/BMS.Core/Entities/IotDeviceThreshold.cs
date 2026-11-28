@@ -17,19 +17,19 @@ public class IotDeviceThreshold
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("device_id")]
-    public string DeviceId { get; set; } = string.Empty; // e.g. TEMP-001, HUM-001
+    public string DeviceId { get; set; } = string.Empty;
 
     [BsonElement("device_name")]
     public string DeviceName { get; set; } = string.Empty;
 
     [BsonElement("location")]
-    public string Location { get; set; } = string.Empty; // e.g. Fridge R-01, Lab Room 01
+    public string Location { get; set; } = string.Empty;
 
     [BsonElement("sensor_type")]
-    public string SensorType { get; set; } = "Temperature"; // "Temperature" | "Humidity"
+    public string SensorType { get; set; } = "Temperature";
 
     [BsonElement("unit")]
-    public string Unit { get; set; } = "°C"; // "°C" | "%"
+    public string Unit { get; set; } = "°C";
 
     [BsonElement("low_alert")]
     public double LowAlert { get; set; }
@@ -41,7 +41,7 @@ public class IotDeviceThreshold
     public int IntervalSeconds { get; set; } = 60;
 
     [BsonElement("status")]
-    public string Status { get; set; } = "Active"; // "Active" | "Warning" | "Inactive"
+    public string Status { get; set; } = "Active";
 
     [BsonElement("last_updated")]
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
@@ -65,7 +65,7 @@ public class IotAlertRecipient
     public string FullName { get; set; } = string.Empty;
 
     [BsonElement("role")]
-    public string Role { get; set; } = string.Empty; // e.g. Manager, Cold storage lead
+    public string Role { get; set; } = string.Empty;
 
     [BsonElement("email")]
     public string Email { get; set; } = string.Empty;

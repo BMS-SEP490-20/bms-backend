@@ -28,7 +28,6 @@ public class SampleOriginTraceService : ISampleOriginTraceService
         var entity = await _repository.GetBySpecimenIdAsync(specimenId);
         if (entity == null)
         {
-            // Fallback generation for requested barcode/specimen
             entity = new SampleOriginTrace
             {
                 SpecimenId = specimenId,

@@ -40,9 +40,6 @@ public sealed class JwtTokenService : ITokenService
     /// </summary>
     public AccessTokenResult CreateAccessToken(User user, Role? role)
     {
-        // WHY (R8): the role claim must be one of the six canonical names, derived from the seeded RoleId,
-        // never from a display name in the roles collection. No resolvable role => no token.
-        // TODO(phat, DOT2-followup-5): drop the RoleId 9 safety net after UserRoleMigration has run everywhere.
         var roleId = user.RoleId == User.LegacyPatientRoleId ? (int)UserRole.Patient : user.RoleId ?? role?.Id;
         var roleName = RoleNames.FromRoleId(roleId) ?? RoleNames.Normalize(role?.RoleName)
             ?? throw new RoleNotAssignedException();
@@ -62,7 +59,6 @@ public sealed class JwtTokenService : ITokenService
             new("role", roleName)
         };
 
-        // Mỗi permission là 1 claim; JWT sẽ serialize thành mảng
         foreach (var permission in role?.Permissions ?? [])
             claims.Add(new Claim("permission", permission));
 
@@ -82,7 +78,6 @@ public sealed class JwtTokenService : ITokenService
 
     public RefreshTokenResult GenerateRefreshToken()
     {
-        // 64 byte từ CSPRNG; token gốc chỉ trả cho client, DB chỉ lưu hash
         var raw = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(64));
         var expires = _clock.GetUtcNow().UtcDateTime.AddDays(_jwt.RefreshTokenDays);
         return new RefreshTokenResult(raw, HashToken(raw), expires);

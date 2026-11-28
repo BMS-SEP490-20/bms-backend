@@ -36,7 +36,6 @@ public class TestCriterionEntity
     [BsonElement("valueType")]
     public string ValueType { get; set; } = "Numeric";
 
-    // Biological normal reference range
     [BsonElement("normalMin")]
     public double? NormalMin { get; set; }
 
@@ -46,7 +45,6 @@ public class TestCriterionEntity
     [BsonElement("normalText")]
     public string? NormalText { get; set; }
 
-    // Panic Critical Values (Red alert thresholds threatening patient life)
     [BsonElement("panicLow")]
     public double? PanicLow { get; set; }
 

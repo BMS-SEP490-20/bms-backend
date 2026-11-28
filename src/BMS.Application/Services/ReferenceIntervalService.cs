@@ -77,8 +77,8 @@ public class ReferenceIntervalService : IReferenceIntervalService
         string? currentUserName = null,
         CancellationToken ct = default)
     {
-        var testId = !string.IsNullOrWhiteSpace(dto.TestId) 
-            ? dto.TestId.Trim() 
+        var testId = !string.IsNullOrWhiteSpace(dto.TestId)
+            ? dto.TestId.Trim()
             : (!string.IsNullOrWhiteSpace(dto.CriterionCode) ? dto.CriterionCode.Trim() : dto.CriterionId?.Trim() ?? string.Empty);
 
         if (string.IsNullOrWhiteSpace(testId))
@@ -90,14 +90,12 @@ public class ReferenceIntervalService : IReferenceIntervalService
         var lowerLimit = dto.LowerLimit ?? dto.NormalMin;
         var upperLimit = dto.UpperLimit ?? dto.NormalMax;
 
-        // 1. Validate age and numerical bounds (LowerLimit <= UpperLimit)
         var validation = ValidateIntervalBounds(dto.AgeMin, dto.AgeMax, lowerLimit, upperLimit, dto.PanicLow, dto.PanicHigh);
         if (!validation.IsValid)
         {
             return (false, validation.Message, null);
         }
 
-        // 2. Check criterion existence and verify unit compatibility (ISO 15189 / Business Logic)
         var criterion = await _criterionRepository.GetByCodeAsync(normalizedCode, ct);
         if (criterion == null && normalizedCode.StartsWith("TEST-"))
         {
@@ -113,14 +111,13 @@ public class ReferenceIntervalService : IReferenceIntervalService
         }
 
         var criterionId = dto.CriterionId ?? criterion?.Id ?? normalizedCode;
-        var criterionName = !string.IsNullOrWhiteSpace(dto.CriterionName) 
-            ? dto.CriterionName.Trim() 
+        var criterionName = !string.IsNullOrWhiteSpace(dto.CriterionName)
+            ? dto.CriterionName.Trim()
             : (criterion?.CriterionName ?? normalizedCode);
         var unit = !string.IsNullOrWhiteSpace(dto.Unit)
             ? dto.Unit.Trim()
             : (criterion?.Unit ?? string.Empty);
 
-        // 2b. Kiểm tra trùng khoảng phân tầng (Giới tính + Khoảng tuổi + Điều kiện sinh lý) — cho phép nhiều nhóm tuổi cho cùng giới tính
         var targetGender = NormalizeGender(dto.Gender);
         var targetCond = (dto.Condition ?? string.Empty).Trim();
         var newMinYears = ToYears(dto.AgeMin, dto.AgeUnit);
@@ -149,7 +146,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
             return (false, $"Khoảng tham chiếu của '{normalizedCode}' bị chồng lấn nhóm nhân khẩu học với bản ghi hiện có '{overlap.DemographicLabel}' (Mã: {overlap.Id}). Vui lòng điều chỉnh khoảng tuổi/giới tính không chồng lấn hoặc cập nhật bản ghi hiện có.", null);
         }
 
-        // 3. Generate demographic label if missing
         var demographicLabel = !string.IsNullOrWhiteSpace(dto.DemographicLabel)
             ? dto.DemographicLabel.Trim()
             : GenerateDemographicLabel(dto.Gender, dto.AgeMin, dto.AgeMax, dto.AgeUnit, dto.Condition);
@@ -187,7 +183,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
 
         var created = await _repository.CreateAsync(entity, ct);
 
-        // ISO 27789 Audit Trail for creation
         if (_db != null)
         {
             try
@@ -238,7 +233,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
             return (false, validation.Message, null);
         }
 
-        // Unit compatibility check
         if (!string.IsNullOrWhiteSpace(dto.Unit) && !string.IsNullOrWhiteSpace(existing.Unit))
         {
             if (!IsUnitCompatible(existing.Unit, dto.Unit))
@@ -247,7 +241,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
             }
         }
 
-        // Chặn trùng lặp giới tính khi cập nhật: Mỗi chỉ số xét nghiệm chỉ có 1 Nam và 1 Nữ (hoặc 1 All)
         var newGender = NormalizeGender(dto.Gender);
 
         if (!string.Equals(existing.Gender, newGender, StringComparison.OrdinalIgnoreCase))
@@ -266,7 +259,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
             }
         }
 
-        // Archive prior version into PreviousVersions (Version Control / Audit Trail)
         existing.PreviousVersions.Add(new ReferenceIntervalVersionSnapshot
         {
             Version = existing.Version,
@@ -338,7 +330,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
 
         var updated = await _repository.UpdateAsync(existing, ct);
 
-        // ISO 27789 Audit Trail for modification
         if (_db != null)
         {
             try
@@ -417,12 +408,8 @@ public class ReferenceIntervalService : IReferenceIntervalService
         var normalizedCode = request.CriterionCode.Trim().ToUpperInvariant();
         var intervals = await _repository.GetByCriterionCodeAsync(normalizedCode, activeOnly: true, ct);
 
-        // Normalize patient gender
         var patientGender = NormalizeGender(request.PatientGender);
 
-        // Find best matching interval based on:
-        // 1. Exact Gender match & Age range
-        // 2. Gender "All" & Age range
         var matched = intervals.FirstOrDefault(i =>
             (i.Gender.Equals(patientGender, StringComparison.OrdinalIgnoreCase) || i.Gender == "All") &&
             request.PatientAge >= i.AgeMin && request.PatientAge <= i.AgeMax &&
@@ -433,8 +420,8 @@ public class ReferenceIntervalService : IReferenceIntervalService
         var response = new EvaluateTestResultResponseDto
         {
             CriterionCode = normalizedCode,
-            ValueEvaluated = request.NumericValue.HasValue 
-                ? request.NumericValue.Value.ToString("0.##") 
+            ValueEvaluated = request.NumericValue.HasValue
+                ? request.NumericValue.Value.ToString("0.##")
                 : (request.TextValue ?? "N/A"),
             MatchedInterval = matched != null ? MapToDto(matched) : null
         };
@@ -447,12 +434,10 @@ public class ReferenceIntervalService : IReferenceIntervalService
             return response;
         }
 
-        // Quantitative numeric evaluation
         if (request.NumericValue.HasValue)
         {
             var val = request.NumericValue.Value;
 
-            // 1. Panic Low Check (BR-LAB-03)
             if (matched.PanicLow.HasValue && val <= matched.PanicLow.Value)
             {
                 response.Flag = "PANIC_LOW";
@@ -463,7 +448,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
                 return response;
             }
 
-            // 2. Panic High Check (BR-LAB-03)
             if (matched.PanicHigh.HasValue && val >= matched.PanicHigh.Value)
             {
                 response.Flag = "PANIC_HIGH";
@@ -474,7 +458,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
                 return response;
             }
 
-            // 3. Normal Range Low Check (BR-LAB-02)
             if (matched.NormalMin.HasValue && val < matched.NormalMin.Value)
             {
                 response.Flag = "L";
@@ -485,7 +468,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
                 return response;
             }
 
-            // 4. Normal Range High Check (BR-LAB-02)
             if (matched.NormalMax.HasValue && val > matched.NormalMax.Value)
             {
                 response.Flag = "H";
@@ -496,7 +478,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
                 return response;
             }
 
-            // 5. Normal In-Range
             response.Flag = "NORMAL";
             response.FlagColor = "success";
             response.IsPanic = false;
@@ -504,7 +485,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
             return response;
         }
 
-        // Qualitative textual evaluation
         if (!string.IsNullOrWhiteSpace(request.TextValue) && !string.IsNullOrWhiteSpace(matched.NormalText))
         {
             var isNegativeNormal = request.TextValue.Trim().Equals(matched.NormalText.Trim(), StringComparison.OrdinalIgnoreCase) ||
@@ -571,7 +551,6 @@ public class ReferenceIntervalService : IReferenceIntervalService
         var u2 = inputUnit.Trim().ToLowerInvariant();
         if (u1 == u2) return true;
 
-        // Known compatible laboratory unit groups (e.g. concentration equivalents)
         string[][] compatibleGroups = new[]
         {
             new[] { "mmol/l", "mg/dl", "mg/l", "g/l" },

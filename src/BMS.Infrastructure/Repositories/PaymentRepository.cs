@@ -25,8 +25,6 @@ namespace BMS.Infrastructure.Repositories
         /// <inheritdoc />
         public async Task<Payment> CreateAsync(Payment payment, CancellationToken ct = default)
         {
-            // The unique _id index rejects duplicates; Guid v4 collisions are not a practical concern,
-            // so the old "loop until unused id" scan is unnecessary.
             if (payment.PaymentId == Guid.Empty) payment.PaymentId = Guid.NewGuid();
             await _payments.InsertOneAsync(payment, cancellationToken: ct);
             return payment;
@@ -39,7 +37,6 @@ namespace BMS.Infrastructure.Repositories
         /// <inheritdoc />
         public async Task<Payment?> GetByReferenceAsync(string reference, CancellationToken ct = default)
         {
-            // One indexed-friendly query instead of "load all payments and filter in memory".
             var exact = new BsonRegularExpression($"^{Regex.Escape(reference)}$", "i");
             return await _payments.Find(F.Or(F.Regex(p => p.TxnRef, exact), F.Regex(p => p.TransactionCode, exact)))
                 .FirstOrDefaultAsync(ct);

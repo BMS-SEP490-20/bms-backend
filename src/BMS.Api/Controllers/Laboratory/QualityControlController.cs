@@ -17,7 +17,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [ApiController]
 [Route("api/v1/qc")]
 [Route("api/qc")]
-// WHY: UC73: lots/runs Lab, Manager; unlock (CAPA sign-off) Manager only (decision 1). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class QualityControlController : ControllerBase
 {

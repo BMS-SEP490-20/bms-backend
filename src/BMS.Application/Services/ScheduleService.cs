@@ -36,7 +36,6 @@ public class ScheduleService : IScheduleService
             throw new InvalidOperationException(
                 "MSG-ERR-SCHED-02: Đã có ca cùng loại trong ngày này. Hãy cập nhật ca hiện có.");
 
-        // Default window from shift type when start/end omitted.
         var (start, end) = ResolveWindow(request.ShiftType, request.ShiftStart, request.ShiftEnd);
         await ValidateWindowAsync(request.DoctorId, request.ShiftDate, start, end, null, ct);
 

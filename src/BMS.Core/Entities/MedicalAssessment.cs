@@ -49,7 +49,7 @@ public class MedicalAssessment
     public string? OrderId { get; set; }
 
     [BsonElement("encounter_type")]
-    public string EncounterType { get; set; } = "ClinicVisit"; // ClinicVisit, FollowUp, Emergency, RoutineCheckup
+    public string EncounterType { get; set; } = "ClinicVisit";
 
     [BsonElement("encounter_date")]
     [BsonIgnoreIfNull]
@@ -97,10 +97,10 @@ public class MedicalAssessment
     public string FinalDiagnosis { get; set; } = string.Empty;
 
     [BsonElement("severity")]
-    public string Severity { get; set; } = "Mild"; // Mild, Moderate, Severe, Critical
+    public string Severity { get; set; } = "Mild";
 
     [BsonElement("risk_level")]
-    public string RiskLevel { get; set; } = "Low"; // Low, Medium, High
+    public string RiskLevel { get; set; } = "Low";
 
     [BsonElement("clinical_impression")]
     [BsonIgnoreIfNull]
@@ -126,7 +126,7 @@ public class MedicalAssessment
     public string? FollowUpNotes { get; set; }
 
     [BsonElement("status")]
-    public string Status { get; set; } = "Draft"; // Draft, Finalized
+    public string Status { get; set; } = "Draft";
 
     [BsonElement("is_finalized")]
     public bool IsFinalized { get; set; } = false;

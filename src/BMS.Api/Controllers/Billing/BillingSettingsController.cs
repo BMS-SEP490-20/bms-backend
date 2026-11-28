@@ -13,7 +13,7 @@ namespace BMS.Api.Controllers.Billing;
 /// </summary>
 [ApiController]
 [Route("api/billing/settings")]
-// WHY: BHYT group catalog = Admin or Manager (Q1); priority discount = Manager only (Q2). Others 403.
+
 [Authorize]
 public class BillingSettingsController(IBillingSettingsService settings) : ControllerBase
 {
@@ -45,7 +45,6 @@ public class BillingSettingsController(IBillingSettingsService settings) : Contr
     public async Task<IActionResult> SetPriorityDiscount([FromBody] PriorityDiscountSettingsDto request, CancellationToken ct) =>
         Ok(new { success = true, data = await settings.SetPriorityDiscountAsync(request, CurrentActor(), ct) });
 
-    // WHY from the token only: the audit row must name the real actor (ISO 15189 traceability).
     private Actor CurrentActor() => new(
         User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? string.Empty,
         User.FindFirstValue(ClaimTypes.Name),

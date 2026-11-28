@@ -71,7 +71,7 @@ public static class ServiceCollectionExtensions
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(o =>
             {
-                o.MapInboundClaims = false; // giữ nguyên tên claim: sub, role, permission...
+                o.MapInboundClaims = false;
                 o.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
@@ -90,7 +90,6 @@ public static class ServiceCollectionExtensions
                 {
                     OnMessageReceived = context =>
                     {
-                        // Allow SignalR WebSocket/SSE clients to pass JWT via ?access_token=
                         var accessToken = context.Request.Query["access_token"];
                         var path = context.HttpContext.Request.Path;
                         if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
@@ -102,9 +101,6 @@ public static class ServiceCollectionExtensions
                 };
             });
 
-        // WHY (TIEU-CHI R4, decision 18): default-deny. Any endpoint without its own [Authorize]/[AllowAnonymous]
-        // requires an authenticated user, so a new controller can never ship anonymous by accident.
-        // Public endpoints (login, OTP, password reset, catalog, tracking by code) opt out with [AllowAnonymous].
         services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolicyBuilder()
             .RequireAuthenticatedUser()
             .Build());
@@ -124,7 +120,6 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddOptions<EmailOptions>().Bind(config.GetSection(EmailOptions.SectionName));
 
-        // Chưa cấu hình SMTP: ở Development in link ra log để test, ở môi trường khác thì báo lỗi khi gửi
         if (string.IsNullOrWhiteSpace(config[$"{EmailOptions.SectionName}:Host"]) && env.IsDevelopment())
             services.AddSingleton<IEmailSender, DevLoggingEmailSender>();
         else
@@ -155,7 +150,6 @@ public static class ServiceCollectionExtensions
         services.AddProblemDetails();
         services.AddExceptionHandler<GlobalExceptionHandler>();
 
-        // Model validation -> ProblemDetails có code VALIDATION_ERROR
         services.Configure<ApiBehaviorOptions>(o =>
             o.InvalidModelStateResponseFactory = ctx =>
             {
@@ -168,7 +162,6 @@ public static class ServiceCollectionExtensions
                 return new BadRequestObjectResult(pd);
             });
 
-        // Rate limit theo IP cho /login và /refresh (chống brute-force / credential stuffing)
         services.AddRateLimiter(o =>
         {
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -180,7 +173,7 @@ public static class ServiceCollectionExtensions
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0
                 }));
-            // Quên mật khẩu: chặt hơn vì mỗi request có thể gửi 1 email
+
             o.AddPolicy("forgot-password", ctx => RateLimitPartition.GetFixedWindowLimiter(
                 ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 _ => new FixedWindowRateLimiterOptions
@@ -203,7 +196,6 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // CORS cho web frontend / mobile web
         var origins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         services.AddCors(o => o.AddDefaultPolicy(p =>
         {

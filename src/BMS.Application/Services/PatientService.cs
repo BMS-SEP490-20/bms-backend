@@ -43,8 +43,6 @@ public sealed class PatientService(
 
         PatientIdentityRules.Validate(identityNumber, phone, request.DateOfBirth);
 
-        // 1. Check duplicate identity card number (CCCD) — MSG-ERR-REC-01. WHY masked: the message reaches the
-        // UI and logs; it must not echo the full CCCD or another patient's name (INV-4).
         if (!string.IsNullOrWhiteSpace(identityNumber))
         {
             var existingByIdCard = await patientRepository.FindByIdentityNumberAsync(identityNumber, ct);
@@ -56,7 +54,6 @@ public sealed class PatientService(
             }
         }
 
-        // 2. Check duplicate walk-in profile by (FullName + PhoneNumber + DateOfBirth)
         var existingByDemographics = await patientRepository.FindDuplicateGuestAsync(
             fullName, phone, request.DateOfBirth, ct);
         if (existingByDemographics != null)
@@ -66,8 +63,6 @@ public sealed class PatientService(
                 $"Hồ sơ bệnh nhân với số điện thoại {PiiMasker.Mask(phone)} và ngày sinh này đã tồn tại (mã {existingByDemographics.Id}).");
         }
 
-        // 3. Patient code PAT-YYMMDD-XXXX from the atomic daily counter (BA:L32). WHY: the old code embedded
-        // the CCCD in the id (PII in every URL/log) and used random suffixes that could collide.
         var localDate = ClinicTime.LocalDate(now);
         var seq = await sequences.NextAsync($"patient:{localDate:yyyy-MM-dd}", ct);
         if (seq > 9999) throw new SequenceExhaustedException("PAT-");
@@ -85,7 +80,6 @@ public sealed class PatientService(
         string? temporaryPassword = null;
         bool accountAutoCreated = false;
 
-        // Always provision a dedicated isolated Patient portal account per patient record so patients never see another patient's history.
         try
         {
             User? existingAccount = null;
@@ -148,7 +142,7 @@ public sealed class PatientService(
             GenderString = NormalizeGender(request.Gender),
             PhoneNumber = phone,
             Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant(),
-            // WHY null (not the patient id) when absent: a fake CCCD would occupy the unique CCCD index.
+
             IdentityCardNumber = identityNumber,
             Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim(),
             BloodType = string.IsNullOrWhiteSpace(request.BloodType) ? "Unknown" : request.BloodType.Trim().ToUpperInvariant(),
@@ -175,7 +169,6 @@ public sealed class PatientService(
 
         await patientRepository.InsertAsync(entity, ct);
 
-        // Ghi nhận Audit Trail (ISO 15189 / ISO 27789)
         if (auditLogs != null)
         {
             try
@@ -197,7 +190,7 @@ public sealed class PatientService(
                     Details = $"Created guest profile {entity.Id} for patient {PiiMasker.MaskName(entity.FullName)} (DOB: {entity.DateOfBirth:yyyy-MM-dd}, Phone: {PiiMasker.Mask(entity.PhoneNumber)})."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         if (accountAutoCreated &&
@@ -254,8 +247,6 @@ public sealed class PatientService(
         if (patient is null)
             throw new PatientNotFoundException(idOrCode);
 
-        // Enforce HIPAA / clinical RBAC access control (UC30 Anti-IDOR):
-        // Non-staff (Patient role) can only view their own profile.
         if (!isStaffOrAdmin)
         {
             var isOwner = !string.IsNullOrWhiteSpace(requesterUserId) &&
@@ -285,7 +276,7 @@ public sealed class PatientService(
                             Details = $"Unauthorized access attempt (IDOR) to patient record {patient.Id} by user {requesterUserId}."
                         }, ct);
                     }
-                    catch { /* Skip audit failure */ }
+                    catch {  }
                 }
 
                 throw new ForbiddenAccessException(
@@ -293,7 +284,6 @@ public sealed class PatientService(
             }
         }
 
-        // Audit Trail for viewing patient information (ISO 27789:2021 / ISO 15189)
         if (auditLogs != null)
         {
             try
@@ -315,7 +305,7 @@ public sealed class PatientService(
                     Details = $"User {requesterUserId} viewed clinical patient record {patient.Id}."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         var appointments = await patientRepository.GetRecentAppointmentsAsync(patient.Id, 10, ct);
@@ -353,7 +343,6 @@ public sealed class PatientService(
             };
         }
 
-        // Validate CCCD duplicate if modified
         var cleanCccd = request.IdentityNumber.Trim();
         if (!string.Equals(patient.IdentityCardNumber, cleanCccd, StringComparison.OrdinalIgnoreCase))
         {
@@ -420,7 +409,6 @@ public sealed class PatientService(
             await patientRepository.UpdateAsync(patient, ct);
         }
 
-        // Synchronize basic fields to accounts collection if linked
         try
         {
             var account = await userRepository.FindByIdAsync(userId, ct);

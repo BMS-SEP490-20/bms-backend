@@ -113,7 +113,6 @@ namespace BMS.Application.Services
                 }
             }
 
-            // Business rule: clamp rating strictly between 1 and 5 stars.
             var feedback = new PatientFeedback
             {
                 FeedbackId = $"FB-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
@@ -231,7 +230,6 @@ namespace BMS.Application.Services
                 }
             }
 
-            // Collect refunded appointment/order IDs so refunded orders do NOT count as completed successfully
             var refundedRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
@@ -249,7 +247,7 @@ namespace BMS.Application.Services
                     }
                 }
             }
-            catch { /* non-blocking */ }
+            catch {  }
 
             var completedCodes = new List<string>();
             try
@@ -273,7 +271,7 @@ namespace BMS.Application.Services
                     }
                 }
             }
-            catch { /* non-blocking */ }
+            catch {  }
 
             try
             {
@@ -296,7 +294,7 @@ namespace BMS.Application.Services
                     }
                 }
             }
-            catch { /* non-blocking */ }
+            catch {  }
 
             if (completedCodes.Count == 0)
             {
@@ -346,7 +344,7 @@ namespace BMS.Application.Services
                         ReferenceId = existing.FeedbackId
                     }, ct);
                 }
-                catch { /* non-blocking */ }
+                catch {  }
             }
 
             return existing;
@@ -392,7 +390,7 @@ namespace BMS.Application.Services
                         ReferenceId = existing.FeedbackId
                     }, ct);
                 }
-                catch { /* non-blocking */ }
+                catch {  }
             }
 
             return existing;
@@ -558,6 +556,5 @@ namespace BMS.Application.Services
 
             return result;
         }
-
     }
 }

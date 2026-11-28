@@ -19,7 +19,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/samples")]
 [Route("api/v1/samples")]
 [Produces("application/json")]
-// WHY: UC17/40/45/47: queue Lab, Manager (view); collection Lab; status Lab, Manager; rerun Lab; rerun view + Doctor. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class SamplesController(ILabQueueService labQueueService, IQcService? qcService = null) : ControllerBase
 {
@@ -292,15 +292,12 @@ public class SamplesController(ILabQueueService labQueueService, IQcService? qcS
         [FromBody] UpdateSampleStatusDto request,
         CancellationToken ct)
     {
-        // RÀNG BUỘC NGHIỆP VỤ Y TẾ (ISO 15189 / Westgard IQC Multi-Rules):
-        // Nếu chuyển trạng thái sang Testing (Đang phân tích), kiểm tra trạng thái máy xét nghiệm / cờ vi phạm IQC
         if (!string.IsNullOrWhiteSpace(request.Status) &&
             request.Status.Trim().Equals("Testing", StringComparison.OrdinalIgnoreCase) &&
             qcService != null)
         {
             var activeFlags = await qcService.GetActiveQcFlagsAsync(ct);
-            // Chỉ chặn khi máy còn IsLocked. Sau Manager ký corrective action, IsLocked=false
-            // nhưng Status vẫn giữ REJECT_1_3S (lịch sử IQC) — không được tiếp tục khóa Testing.
+
             var lockedFlag = activeFlags.FirstOrDefault(f => f.IsLocked);
 
             if (lockedFlag != null)

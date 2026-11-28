@@ -58,15 +58,11 @@ public class TestResultNotificationService : ITestResultNotificationService
             return (false, "Thông tin bệnh nhân (Mã và Họ tên) là bắt buộc.", null);
         }
 
-        // Workflow 9 sync: hệ thống không sử dụng kênh SMS (chỉ Email + In-App/Push)
         if (dto.Channel == TestResultNotificationChannel.Sms)
         {
             return (false, "Hệ thống không hỗ trợ gửi thông báo qua SMS (theo phạm vi Workflow 9 chỉ dùng Email và Thông báo ứng dụng).", null);
         }
 
-        // =====================================================================
-        // RULE 1: Only notify if test result is APPROVED by Doctor in test_results (ISO 15189:2022)
-        // =====================================================================
         if (_db != null)
         {
             var testResultsCol = _db.GetCollection<BsonDocument>("test_results");
@@ -74,7 +70,6 @@ public class TestResultNotificationService : ITestResultNotificationService
             if (!string.IsNullOrWhiteSpace(dto.TestOrderId)) candidateIds.Add(dto.TestOrderId.Trim());
             if (!string.IsNullOrWhiteSpace(dto.SpecimenBarcode)) candidateIds.Add(dto.SpecimenBarcode.Trim());
 
-            // Resolve linked sample_id / appointment_id from blood_samples ONLY to look up the corresponding test_results record
             var samplesCol = _db.GetCollection<BsonDocument>("blood_samples");
             var sampleLookupFilters = new List<FilterDefinition<BsonDocument>>();
             foreach (var cid in candidateIds.ToList())
@@ -141,9 +136,6 @@ public class TestResultNotificationService : ITestResultNotificationService
                 return (false, "Kết quả xét nghiệm chưa được Bác sĩ phê duyệt. Chỉ những đơn đã được Bác sĩ duyệt kết quả mới được phép gửi thông báo qua Email cho bệnh nhân.", null);
             }
 
-            // =====================================================================
-            // RULE 2: Recipient Account Binding Verification (OWASP ASVS / Anti-mismatch)
-            // =====================================================================
             var patientsCol = _db.GetCollection<Patient>("patients");
             var pFilter = Builders<Patient>.Filter.Or(
                 Builders<Patient>.Filter.Eq(x => x.Id, dto.PatientId.Trim()),
@@ -190,9 +182,6 @@ public class TestResultNotificationService : ITestResultNotificationService
             }
         }
 
-        // =====================================================================
-        // RULE 3: Data Protection: Do not put full raw clinical values into email
-        // =====================================================================
         bool hasPanic = dto.IsCriticalPanicValue || (dto.CriticalParameters != null && dto.CriticalParameters.Count > 0);
         var priority = hasPanic ? NotificationPriority.Critical : dto.Priority;
         bool requiresImmediate = hasPanic || dto.RequiresImmediateAction;
@@ -210,7 +199,6 @@ public class TestResultNotificationService : ITestResultNotificationService
         var deliveryStatus = NotificationDeliveryStatus.Delivered;
         string? failureReason = null;
 
-        // Ensure walk-in patients have a live Patient Portal account before sending result email
         string emailMessage = message;
         if (!string.IsNullOrWhiteSpace(dto.PatientEmail) &&
             (dto.Channel == TestResultNotificationChannel.Email || dto.Channel == TestResultNotificationChannel.All) &&
@@ -289,7 +277,6 @@ public class TestResultNotificationService : ITestResultNotificationService
             }
         }
 
-        // Dispatches email when channel includes Email
         if (!string.IsNullOrWhiteSpace(dto.PatientEmail) &&
             (dto.Channel == TestResultNotificationChannel.Email || dto.Channel == TestResultNotificationChannel.All))
         {
@@ -349,9 +336,6 @@ public class TestResultNotificationService : ITestResultNotificationService
 
         var saved = await _repository.AddAsync(notification, ct);
 
-        // =====================================================================
-        // RULE 4: ISO 27789 Audit Trail for Notification Dispatch
-        // =====================================================================
         if (_db != null)
         {
             try
@@ -528,7 +512,6 @@ public class TestResultNotificationService : ITestResultNotificationService
 
         var updated = await _repository.UpdateAsync(existing, ct);
 
-        // ISO 27789 Audit Trail for Resend
         if (_db != null)
         {
             try

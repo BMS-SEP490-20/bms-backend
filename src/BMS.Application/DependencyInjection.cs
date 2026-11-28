@@ -31,9 +31,8 @@ public static class DependencyInjection
         services.AddScoped<ITestHistoryService, TestHistoryService>();
         services.AddScoped<IPatientReceptionService, PatientReceptionService>();
 
-        // Iteration 3: Core Medical, Billing & Tracking Services
         services.AddScoped<ITrackTestProgressService, TrackTestProgressService>();
-        // WHY a factory: the parameterless constructor exists only for the offline UC53 check; DI must use the catalog one.
+
         services.AddScoped<BillingSettingsService>();
         services.AddScoped<IBillingSettingsService>(sp => sp.GetRequiredService<BillingSettingsService>());
         services.AddScoped<IFeePolicyProvider>(sp => sp.GetRequiredService<BillingSettingsService>());
@@ -47,14 +46,11 @@ public static class DependencyInjection
         services.AddScoped<IPushNotificationService, PushNotificationService>();
         services.AddScoped<IQcService, QcService>();
 
-        // Iteration 3: IoT & Cold Chain Surveillance
         services.AddScoped<IIotAlertService, IotAlertService>();
 
-        // Iteration 3: Analytics & Reporting Services
         services.AddScoped<ITatStatisticsService, TatStatisticsService>();
         services.AddScoped<IRevenueReportService, RevenueReportService>();
 
-        // Iteration 3 features ported from the old microservices (Đợt 1 recovery)
         services.AddScoped<IAuditLogService, AuditLogService>();
         services.AddScoped<ILabRoomService, LabRoomService>();
         services.AddScoped<IBloodSampleService, BloodSampleService>();

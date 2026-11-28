@@ -22,7 +22,6 @@ public class TatStatisticsService : ITatStatisticsService
     private readonly IMongoDatabase? _database;
     private readonly ILogger<TatStatisticsService> _logger;
 
-    // Realistic seed benchmark samples for zero-downtime offline tests and demo environments
     private static readonly List<TatBenchmarkRecord> _mockRecords = InitializeMockRecords();
 
     public TatStatisticsService(ILogger<TatStatisticsService> logger, IMongoDatabase? database = null)
@@ -84,7 +83,6 @@ public class TatStatisticsService : ITatStatisticsService
         var records = await LoadRecordsAsync(parameters, ct);
         var sb = new StringBuilder();
 
-        // UTF-8 CSV Header
         sb.AppendLine("Mã mẫu,Barcode,Bệnh nhân,Gói xét nghiệm,Chuyên khoa,Ưu tiên,Thời gian lấy mẫu,Thời gian hoàn tất,TAT thực tế (phút),TAT mục tiêu (phút),Đạt chuẩn,Trễ (phút),Kỹ thuật viên");
 
         foreach (var r in records)
@@ -108,7 +106,6 @@ public class TatStatisticsService : ITatStatisticsService
             ));
         }
 
-        // Return with UTF-8 BOM for Microsoft Excel compatibility
         var preamble = Encoding.UTF8.GetPreamble();
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());
         var result = new byte[preamble.Length + bytes.Length];
@@ -127,7 +124,6 @@ public class TatStatisticsService : ITatStatisticsService
 
         List<TatBenchmarkRecord> items = new();
 
-        // 1. Try querying MongoDB blood_samples if available
         if (_database != null)
         {
             try
@@ -195,9 +191,6 @@ public class TatStatisticsService : ITatStatisticsService
             }
         }
 
-        // 2. Real MongoDB data only — never inject hardcoded mock benchmark records (SMP-2026-901..906)
-
-        // 3. Apply memory filters
         var filtered = items.AsEnumerable();
 
         if (parameters.FromDate.HasValue)
@@ -268,7 +261,6 @@ public class TatStatisticsService : ITatStatisticsService
         var min = tatValues.First();
         var max = tatValues.Last();
 
-        // Median (50th percentile)
         double median;
         int count = tatValues.Count;
         if (count % 2 == 1)
@@ -280,7 +272,6 @@ public class TatStatisticsService : ITatStatisticsService
             median = (tatValues[count / 2 - 1] + tatValues[count / 2]) / 2.0;
         }
 
-        // 90th percentile
         int p90Index = (int)Math.Ceiling(count * 0.90) - 1;
         p90Index = Math.Clamp(p90Index, 0, count - 1);
         double p90 = tatValues[p90Index];
@@ -453,7 +444,6 @@ public class TatStatisticsService : ITatStatisticsService
             });
         }
 
-        // If dataset is small or single date, synthesize continuous daily buckets for smooth charts
         if (points.Count < 5)
         {
             var now = DateTime.UtcNow.Date;
@@ -478,7 +468,6 @@ public class TatStatisticsService : ITatStatisticsService
                 }
                 else
                 {
-                    // Real 0-volume day (never fabricate fake volume or compliance rates)
                     points.Add(new TatTrendPointDto
                     {
                         DateLabel = d.ToString("yyyy-MM-dd"),
@@ -503,7 +492,6 @@ public class TatStatisticsService : ITatStatisticsService
             .Take(parameters.PageSize > 0 ? parameters.PageSize : 20)
             .Select(r =>
             {
-                // Identify which phase contributed most to delay
                 string bottleneck = "Analytical";
                 if (r.PreAnalyticalMinutes >= r.AnalyticalMinutes && r.PreAnalyticalMinutes >= r.PostAnalyticalMinutes)
                     bottleneck = "PreAnalytical";
@@ -643,7 +631,7 @@ public class TatStatisticsService : ITatStatisticsService
                 PostAnalyticalMinutes = 20,
                 TotalTatMinutes = 170,
                 TargetTatMinutes = 120,
-                IsCompliant = false, // Outlier violation
+                IsCompliant = false,
                 DelayMinutes = 50,
                 TechnicianName = "KTV. Nguyễn Hoàng Yến"
             },
@@ -712,7 +700,7 @@ public class TatStatisticsService : ITatStatisticsService
                 PostAnalyticalMinutes = 10,
                 TotalTatMinutes = 78,
                 TargetTatMinutes = 60,
-                IsCompliant = false, // Outlier violation
+                IsCompliant = false,
                 DelayMinutes = 18,
                 TechnicianName = "BS. Lê Minh Tuấn"
             }

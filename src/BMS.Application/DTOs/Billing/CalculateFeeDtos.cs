@@ -56,7 +56,7 @@ public class FeeItemBreakdownDto
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
-    public string ItemType { get; set; } = "Package"; // Package, IndividualTest, Surcharge
+    public string ItemType { get; set; } = "Package";
     public decimal UnitPrice { get; set; }
     public int Quantity { get; set; } = 1;
     public decimal TotalPrice => UnitPrice * Quantity;

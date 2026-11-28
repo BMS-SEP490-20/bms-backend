@@ -22,12 +22,11 @@ public class OtpService : IOtpService
     private readonly IEmailService _emailService;
     private readonly ISmsService _smsService;
 
-    // Core business security constraints (BR-IAM-03)
-    private const int OtpExpirySeconds = 60; // BR-IAM-03: Mã OTP hết hạn sau 60 giây
+    private const int OtpExpirySeconds = 60;
     private const int ResendCooldownSeconds = 60;
     private const int MaxAllowedRequestsInWindow = 3;
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(5);
-    private const int MaxFailedAttempts = 3; // BR-IAM-03: Giới hạn tối đa 3 lần thử sai
+    private const int MaxFailedAttempts = 3;
 
     public OtpService(
         IOtpRepository otpRepository,
@@ -50,7 +49,6 @@ public class OtpService : IOtpService
         var recipient = request.Destination.Trim().ToLowerInvariant();
         var purposeStr = request.Purpose.ToString();
 
-        // 1. Sliding window Rate Limiting: prevent telecom abuse and SMS flooding
         var recentCount = await _otpRepository.CountRecentRequestsAsync(recipient, RateLimitWindow, ct);
         if (recentCount >= MaxAllowedRequestsInWindow)
         {
@@ -64,7 +62,6 @@ public class OtpService : IOtpService
             };
         }
 
-        // 2. Enforce 60-second cooldown between consecutive requests
         var latestActive = await _otpRepository.GetLatestActiveByRecipientAsync(recipient, purposeStr, ct);
         if (latestActive != null)
         {
@@ -83,18 +80,14 @@ public class OtpService : IOtpService
             }
         }
 
-        // 3. Cryptographically Secure Pseudo-Random Number Generator (CSPRNG)
         var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
 
-        // 4. Generate 16-byte random salt and compute SHA-256 hash
         var saltBytes = RandomNumberGenerator.GetBytes(16);
         var salt = Convert.ToBase64String(saltBytes);
         var hashedOtp = ComputeHash(otpCode, salt);
 
-        // 5. Invalidate any previous unconsumed active tokens for this recipient and purpose
         await _otpRepository.InvalidatePreviousOtpsAsync(recipient, purposeStr, ct);
 
-        // 6. Persist secure token record into MongoDB (BR-IAM-03: 60 seconds lifetime)
         var now = DateTime.UtcNow;
         var entity = new OtpTokenEntity
         {
@@ -111,7 +104,6 @@ public class OtpService : IOtpService
 
         await _otpRepository.CreateAsync(entity, ct);
 
-        // 7. Dispatch notification via Email or SMS
         var purposeDescription = GetPurposeDescription(request.Purpose);
         bool sendSuccess;
 
@@ -121,7 +113,7 @@ public class OtpService : IOtpService
                 recipient,
                 otpCode,
                 purposeDescription,
-                1, // 1 phút = 60s
+                1,
                 ct);
         }
         else
@@ -152,7 +144,6 @@ public class OtpService : IOtpService
         var recipient = request.Destination.Trim().ToLowerInvariant();
         var purposeStr = request.Purpose.ToString();
 
-        // 1. Locate the latest active unexpired token (BR-IAM-03: 60s)
         var otpRecord = await _otpRepository.GetLatestActiveByRecipientAsync(recipient, purposeStr, ct);
         if (otpRecord == null)
         {
@@ -163,7 +154,6 @@ public class OtpService : IOtpService
             };
         }
 
-        // 2. Protect against brute-force guessing attacks (BR-IAM-03: max 3 failed attempts)
         if (otpRecord.AttemptCount >= MaxFailedAttempts)
         {
             return new VerifyOtpResponseDto
@@ -174,7 +164,6 @@ public class OtpService : IOtpService
             };
         }
 
-        // 3. Compute hash and compare using constant-time equality
         var candidateHash = ComputeHash(request.Otp.Trim(), otpRecord.Salt);
         var isMatch = CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(candidateHash),
@@ -196,11 +185,9 @@ public class OtpService : IOtpService
             };
         }
 
-        // 4. Mark token as consumed to prevent replay attacks
         otpRecord.IsUsed = true;
         await _otpRepository.UpdateAsync(otpRecord, ct);
 
-        // 5. Generate a cryptographically secure one-time verification token
         var tokenBytes = RandomNumberGenerator.GetBytes(32);
         var verificationToken = Convert.ToHexString(tokenBytes).ToLowerInvariant();
 

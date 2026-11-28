@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Laboratory
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
-// WHY: UC39/UC44: CRUD Lab; validate Lab, Manager; barcode label Lab, Receptionist. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
     public class BloodSampleController : ControllerBase
     {

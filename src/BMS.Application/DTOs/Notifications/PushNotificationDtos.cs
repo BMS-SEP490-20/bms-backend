@@ -46,7 +46,7 @@ public class DispatchNotificationResultDto
     public bool Success { get; set; }
     public string NotificationId { get; set; } = string.Empty;
     public string RecipientUserId { get; set; } = string.Empty;
-    public string Status { get; set; } = "DELIVERED"; // PENDING, DELIVERED, FAILED
+    public string Status { get; set; } = "DELIVERED";
     public string Channel { get; set; } = "ALL";
     public string Priority { get; set; } = "NORMAL";
     public DateTime DispatchedAt { get; set; } = DateTime.UtcNow;
@@ -66,7 +66,7 @@ public class RegisterDeviceTokenRequestDto
     [Required]
     public string DeviceToken { get; set; } = string.Empty;
 
-    public string Platform { get; set; } = "Android"; // Android, iOS, Web
+    public string Platform { get; set; } = "Android";
 }
 
 /// <summary>

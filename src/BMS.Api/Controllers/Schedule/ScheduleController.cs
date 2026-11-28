@@ -10,7 +10,7 @@ namespace BMS.Schedule.Controllers;
 /// <summary>UC31 – Manage Personal Schedule (CRUD doctor_shifts).</summary>
 [ApiController]
 [Route("api/schedules")]
-// WHY: UC31: Doctor, Lab, Receptionist (own personal schedule). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.ScheduleOwners)]
 public class ScheduleController : ControllerBase
 {
@@ -49,7 +49,6 @@ public class ScheduleController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateShiftRequest request, CancellationToken ct)
     {
-        // Personal schedules are scoped to the authenticated employee; managers use the shifts API.
         if (!Owns(request.DoctorId)) return Forbid();
         if (!ModelState.IsValid)
             return BadRequest(new ApiErrorResponse { Code = "MSG-ERR-VAL-01", Message = "Invalid data." });

@@ -28,12 +28,12 @@ public class LabQueueItemDto
     public string? PackageId { get; set; }
     public string? PackageCode { get; set; }
     public IReadOnlyList<SampleExpectedParameterDto> PackageParameters { get; set; } = Array.Empty<SampleExpectedParameterDto>();
-    public string SampleType { get; set; } = "Blood"; // Blood, Serum, Plasma...
+    public string SampleType { get; set; } = "Blood";
     public string? TubeColor { get; set; }
     public string? Anticoagulant { get; set; }
     public double VolumeMl { get; set; } = 2.0;
-    public string Status { get; set; } = string.Empty; // PendingCollection, Collected, InTransit, Received, Processing, Testing, Completed, Rejected, RerunRequested
-    public string Priority { get; set; } = "Normal"; // Normal, Urgent, Stat
+    public string Status { get; set; } = string.Empty;
+    public string Priority { get; set; } = "Normal";
     public string? LabRoom { get; set; }
     public string? CollectedBy { get; set; }
     public string? CollectorName { get; set; }
@@ -217,7 +217,7 @@ public class SampleRerunDetailsDto
 public class QueueFilterDto
 {
     public string? Status { get; set; }
-    public string? Search { get; set; } // barcode, sample ID, patient ID, or patient name
+    public string? Search { get; set; }
     public string? Priority { get; set; }
     public string? LabRoom { get; set; }
     public string? PatientId { get; set; }

@@ -1,4 +1,3 @@
-
 using System.Collections.Concurrent;
 using BMS.Core.Entities;
 using BMS.Core.Interfaces;
@@ -67,10 +66,6 @@ public sealed class UserRepository : IUserRepository
         _context = context;
         _logger = logger;
     }
-
-    // =========================================================
-    // QUERY
-    // =========================================================
 
     public async Task<User?> GetByIdAsync(
         string id,
@@ -306,10 +301,6 @@ public sealed class UserRepository : IUserRepository
             string.Equals(u.IdentityCardNumber?.Trim(), keyword, StringComparison.OrdinalIgnoreCase));
     }
 
-    // =========================================================
-    // COUNT BY ROLE
-    // =========================================================
-
     public async Task<long> CountUsersByRoleIdAsync(
         string roleId,
         CancellationToken ct = default)
@@ -358,10 +349,6 @@ public sealed class UserRepository : IUserRepository
                  roleId,
                  StringComparison.OrdinalIgnoreCase)));
     }
-
-    // =========================================================
-    // CREATE / UPDATE
-    // =========================================================
 
     public async Task CreateAsync(
         User user,
@@ -434,10 +421,6 @@ public sealed class UserRepository : IUserRepository
 
         _memoryUsers[user.Id] = user;
     }
-
-    // =========================================================
-    // LOGIN SECURITY
-    // =========================================================
 
     public async Task<int> IncrementFailedLoginAsync(
         string id,
@@ -532,10 +515,6 @@ public sealed class UserRepository : IUserRepository
             }
         }
     }
-
-    // =========================================================
-    // FORGOT PASSWORD
-    // =========================================================
 
     public async Task UpdatePasswordAsync(
         string id,

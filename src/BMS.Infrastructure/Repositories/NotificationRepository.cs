@@ -62,7 +62,6 @@ namespace BMS.Infrastructure.Repositories
         /// <inheritdoc />
         public async Task<long> MarkAllAsReadAsync(string userId, DateTime readAt, CancellationToken ct = default)
         {
-            // Only notifications owned by the user: marking a broadcast ("ALL") read would hide it for everyone.
             var result = await _notifications.UpdateManyAsync(F.Eq(n => n.UserId, userId) & F.Eq(n => n.IsRead, false),
                 Builders<Notification>.Update.Set(n => n.IsRead, true).Set(n => n.ReadAt, readAt), cancellationToken: ct);
             return result.ModifiedCount;

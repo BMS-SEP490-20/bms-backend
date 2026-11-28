@@ -15,8 +15,7 @@ namespace BMS.Api.Controllers
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
-// WHY: UC64: Admin only (C5). Audit rows are written only by the system through IAuditLogService.LogAsync;
-// the public POST endpoint was removed (Quy trình ruling on DOT2 open question 1) so nobody can forge audit entries.
+
 [Authorize(Roles = RoleNames.Admin)]
     public class AuditLogController : ControllerBase
     {

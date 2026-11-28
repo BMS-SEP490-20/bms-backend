@@ -79,7 +79,7 @@ namespace BMS.Application.Services
             if (!string.IsNullOrWhiteSpace(dto.Status))
             {
                 existing.Status = dto.Status;
-                // Side effect: record resolution timestamp and technician upon resolving/dismissing
+
                 if (dto.Status == "RESOLVED" || dto.Status == "DISMISSED")
                 {
                     existing.ResolvedAt = DateTime.UtcNow;
@@ -109,7 +109,6 @@ namespace BMS.Application.Services
         /// </summary>
         public async Task<QcFlagStatisticsDto> GetStatisticsAsync(CancellationToken ct = default)
         {
-            // Server-side counts instead of loading every flag into memory.
             return new QcFlagStatisticsDto(
                 await _repository.CountAsync(ct: ct),
                 await _repository.CountAsync(status: "ACTIVE", ct: ct),

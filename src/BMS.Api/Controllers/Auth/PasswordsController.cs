@@ -25,10 +25,6 @@ public sealed class PasswordsController : ControllerBase
         _authService = authService;
     }
 
-    // =========================================================
-    // UC07 - CHANGE PASSWORD
-    // =========================================================
-
     /// <summary>
     /// Đổi mật khẩu tài khoản hiện tại.
     /// Production: lấy userId từ JWT, không tin userId do client gửi lên.
@@ -77,10 +73,6 @@ public sealed class PasswordsController : ControllerBase
         return Ok(result);
     }
 
-    // =========================================================
-    // FORGOT PASSWORD - EMAIL RESET TOKEN & OTP DISPATCH
-    // =========================================================
-
     /// <summary>
     /// Gửi email hướng dẫn đặt lại mật khẩu và mã OTP xác thực (UC10 / BR-032).
     /// Luôn trả cùng thông báo để hạn chế dò tìm tài khoản (OWASP Anti-Enumeration).
@@ -98,7 +90,6 @@ public sealed class PasswordsController : ControllerBase
             GetClient(),
             ct);
 
-        // Also generate and dispatch 6-digit OTP for users on the OTP verification interface (UC10/UC11)
         if (!string.IsNullOrWhiteSpace(request.Email))
         {
             try
@@ -107,7 +98,6 @@ public sealed class PasswordsController : ControllerBase
             }
             catch
             {
-                // Fallback to maintain anti-enumeration response
             }
         }
 
@@ -134,10 +124,6 @@ public sealed class PasswordsController : ControllerBase
 
         return NoContent();
     }
-
-    // =========================================================
-    // LEGACY / MAIN - FORGOT PASSWORD VIA OTP
-    // =========================================================
 
     /// <summary>
     /// Yêu cầu quên mật khẩu theo luồng OTP hiện có của main.
@@ -235,10 +221,6 @@ public sealed class PasswordsController : ControllerBase
 
         return Ok(result);
     }
-
-    // =========================================================
-    // HELPER
-    // =========================================================
 
     private ClientContext GetClient()
     {

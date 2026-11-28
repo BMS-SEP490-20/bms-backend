@@ -24,7 +24,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/medical-assessments")]
-// WHY: UC50: Doctor writes; Doctor, Manager (view), Patient (own) read. Admin denied (decision 10). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class MedicalAssessmentsController : ControllerBase
 {
@@ -229,7 +229,6 @@ public class MedicalAssessmentsController : ControllerBase
     {
         try
         {
-            // Unlike the other reads, this service call has no viewer argument, so the Patient "own" rule is applied here.
             if (!await this.MayAccessPatientAsync(patientId, ct)) return Forbid();
             var encounters = await _service.GetPatientEncountersAsync(patientId, ct);
             return Ok(new

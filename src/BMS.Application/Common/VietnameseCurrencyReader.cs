@@ -44,7 +44,7 @@ public static class VietnameseCurrencyReader
         }
 
         var text = result.ToString().Trim();
-        // Normalize whitespace
+
         while (text.Contains("  "))
         {
             text = text.Replace("  ", " ");
@@ -55,7 +55,6 @@ public static class VietnameseCurrencyReader
             text = "không";
         }
 
-        // Capitalize first character
         text = char.ToUpper(text[0]) + text[1..] + " đồng chẵn";
         return text;
     }

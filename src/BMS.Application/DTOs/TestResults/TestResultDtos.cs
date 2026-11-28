@@ -2,9 +2,6 @@ using System.ComponentModel.DataAnnotations;
 
 namespace BMS.Application.DTOs.TestResults;
 
-// These DTOs were referenced by Approve Test Results (I3-004) but never committed; they are
-// reconstructed from the service/controller usage and the web client payloads (labTestService.js).
-
 /// <summary>One measured parameter of a test result (stored as a <c>TestResultItem</c>).</summary>
 public class TestParameterDto
 {

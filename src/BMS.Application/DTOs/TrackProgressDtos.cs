@@ -21,7 +21,7 @@ public enum TrackingStepStatus
 public class TrackingStepDto
 {
     public int StepNumber { get; set; }
-    public string StepCode { get; set; } = string.Empty; // REGISTERED, SAMPLE_COLLECTED, LAB_RECEIVED, ANALYZING, MEDICAL_REVIEW, COMPLETED
+    public string StepCode { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public TrackingStepStatus Status { get; set; } = TrackingStepStatus.Pending;
@@ -45,7 +45,7 @@ public class TrackProgressResponse
     public string PatientName { get; set; } = string.Empty;
     public string? PatientGender { get; set; }
     public int? PatientAge { get; set; }
-    public string Priority { get; set; } = "Normal"; // Normal, Urgent, Stat
+    public string Priority { get; set; } = "Normal";
     public List<string> TestPackageNames { get; set; } = new();
     public string OverallStatus { get; set; } = "Pending";
     public int CurrentStepNumber { get; set; } = 1;

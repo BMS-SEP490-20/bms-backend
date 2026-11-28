@@ -10,16 +10,9 @@ using BMS.Infrastructure.Data;
 using BMS.Infrastructure.Repositories;
 using Microsoft.AspNetCore.HttpOverrides;
 
-// -------------------------------------------------------------
-// SECURE CONFIGURATION: Load .env file into Environment variables
-// -------------------------------------------------------------
 LoadDotEnvFiles();
 
 var builder = WebApplication.CreateBuilder(args);
-
-// =========================================================
-// SERVICES
-// =========================================================
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -53,16 +46,13 @@ builder.Services.AddControllers()
         };
     });
 
-// Shared (once)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 builder.Services.AddBmsSwagger();
 
-// Database and authentication
 builder.Services.AddMongo(builder.Configuration);
 builder.Services.AddAuthModule(builder.Configuration);
 
-// Password recovery and API security
 builder.Services.AddPasswordRecovery(
     builder.Configuration,
     builder.Environment);
@@ -71,14 +61,11 @@ builder.Services.AddServicePackages();
 builder.Services.AddTestCriteria();
 builder.Services.AddApiHardening(builder.Configuration);
 
-// Clean Architecture
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices();
 
-// Development context
 builder.Services.AddSingleton<BmsDbContext>();
 
-// Main branch services
 builder.Services.AddScoped<ILabQueueService, LabQueueService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAppointmentNotificationRepository, AppointmentNotificationRepository>();
@@ -116,22 +103,7 @@ builder.Services.AddScoped<BMS.Core.Interfaces.IBackupRepository, BMS.Infrastruc
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultNotificationRepository, BMS.Infrastructure.Repositories.TestResultNotificationRepository>();
 builder.Services.AddScoped<ITestResultNotificationService, TestResultNotificationService>();
-// builder.Services.AddScoped<BMS.Core.Interfaces.ITestResultNotificationRepository, BMS.Infrastructure.Repositories.TestResultNotificationRepository>();
-// builder.Services.AddScoped<ITestResultNotificationService, TestResultNotificationService>();
 
-
-
-// IMPORTANT:
-// Không đăng ký IAuthService lần nữa ở đây nếu
-// AddAuthModule(), AddApplicationServices() hoặc
-// AddInfrastructureServices() đã đăng ký dịch vụ này.
-
-
-// =========================================================
-// CORS
-// =========================================================
-
-// SignalR Real-Time Queue & IoT Monitoring
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IQueueNotifier, BMS.Api.Services.QueueNotifier>();
 builder.Services.AddSingleton<IIotRealtimeNotifier, BMS.Api.Services.IotRealtimeNotifier>();
@@ -157,11 +129,6 @@ builder.Services.AddCors(options =>
     });
 });
 
-
-// =========================================================
-// FORWARDED HEADERS
-// =========================================================
-
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders =
@@ -169,20 +136,13 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
         ForwardedHeaders.XForwardedProto;
 });
 
-// =========================================================
-// BUILD APPLICATION
-// =========================================================
-
-// Features
 builder.Services.AddServiceCatalog();
 builder.Services.AddDoctorSchedule();
 
 var app = builder.Build();
 
-// Forwarded headers should run early in the pipeline.
 app.UseForwardedHeaders();
 
-// Exception handling (RFC 7807 ProblemDetails via GlobalExceptionHandler in all environments)
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
@@ -194,8 +154,6 @@ else
     app.UseHsts();
 }
 
-// HTTP pipeline
-// Only enforce HTTPS redirect in non-development so local ESP32 hardware can POST over plain HTTP on port 5000
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
@@ -211,16 +169,10 @@ app.UseRateLimiter();
 
 app.UseAuthorization();
 
-// Controllers & Hubs
 app.MapControllers();
 app.MapHub<BMS.Api.Hubs.QueueHub>("/hubs/queue");
 app.MapHub<BMS.Api.Hubs.IotHub>("/hubs/iot");
 
-// =========================================================
-// HEALTH CHECK
-// =========================================================
-
-// Health probe stays public (no data); everything else is behind the fallback policy.
 app.MapGet("/", () => Results.Ok(new
 {
     system = "BMS Blood Laboratory Management System API",
@@ -231,9 +183,6 @@ app.MapGet("/", () => Results.Ok(new
 
 app.Run();
 
-// -----------------------------------------------------------------------------
-// DotEnv Loader: reads key=value pairs into process environment variables
-// -----------------------------------------------------------------------------
 static void LoadDotEnvFiles()
 {
     var roots = new List<string>();

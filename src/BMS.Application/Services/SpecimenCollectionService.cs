@@ -50,7 +50,6 @@ public sealed class SpecimenCollectionService(
             barcodes.Add($"SMP-{day:yyyyMMdd}-{seq:D4}");
         }
 
-        // Conditional transition = the single winner (a parallel collect or a cancel loses with 409).
         var from = order.PaymentDeferred
             ? new[] { TestOrderStatus.PaidPendingSample, TestOrderStatus.AwaitingPayment, TestOrderStatus.Ordered }
             : new[] { TestOrderStatus.PaidPendingSample };
@@ -87,7 +86,6 @@ public sealed class SpecimenCollectionService(
         }
         catch
         {
-            // WHY compensate: without tubes the order must go back to collectable, otherwise it is stuck.
             await orders.TryTransitionAsync(order.Id, [TestOrderStatus.SampleCollected], order.Status, labUserId, now, "rollback: specimen insert failed", CancellationToken.None);
             throw;
         }

@@ -114,7 +114,6 @@ public class LabQueueService : ILabQueueService
         var allSamples = await LoadAllSamplesEnrichedAsync();
         var query = allSamples.AsQueryable();
 
-        // 1. Status filter
         if (!string.IsNullOrWhiteSpace(filter.Status) && !filter.Status.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
             if (Enum.TryParse<SampleStatus>(filter.Status.Trim(), true, out var statusEnum))
@@ -130,7 +129,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // 2. Priority filter
         if (!string.IsNullOrWhiteSpace(filter.Priority) && !filter.Priority.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
             if (Enum.TryParse<SamplePriority>(filter.Priority.Trim(), true, out var prioEnum))
@@ -139,7 +137,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // 3. Patient / Appointment filter
         if (!string.IsNullOrWhiteSpace(filter.PatientId))
         {
             var pid = filter.PatientId.Trim();
@@ -152,7 +149,6 @@ public class LabQueueService : ILabQueueService
             query = query.Where(s => s.TestOrderId.Equals(aid, StringComparison.OrdinalIgnoreCase));
         }
 
-        // 4. Search query (Barcode, Sample ID, Patient ID, Patient Name, or Package Name)
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var s = filter.Search.Trim();
@@ -164,7 +160,6 @@ public class LabQueueService : ILabQueueService
                 x.TestPackageName.Contains(s, StringComparison.OrdinalIgnoreCase));
         }
 
-        // 5. Lab Room filter
         if (!string.IsNullOrWhiteSpace(filter.LabRoom) && !filter.LabRoom.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(x => x.LabRoom != null && x.LabRoom.Contains(filter.LabRoom.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -174,7 +169,6 @@ public class LabQueueService : ILabQueueService
         var page = Math.Max(1, filter.Page);
         var pageSize = Math.Clamp(filter.PageSize, 1, 100);
 
-        // Sort newest updated/created first so freshly ordered or updated tubes always appear at row #1
         var paged = query
             .OrderByDescending(s => s.UpdatedAt > s.CreatedAt ? s.UpdatedAt : s.CreatedAt)
             .ThenByDescending(s => s.CreatedAt)
@@ -214,7 +208,6 @@ public class LabQueueService : ILabQueueService
     {
         var now = _clock.GetUtcNow().UtcDateTime;
 
-        // 1. Validate collection timestamp
         var collectedAt = request.CollectedAt.HasValue
             ? (request.CollectedAt.Value.Kind == DateTimeKind.Unspecified
                 ? DateTime.SpecifyKind(request.CollectedAt.Value, DateTimeKind.Utc)
@@ -249,13 +242,11 @@ public class LabQueueService : ILabQueueService
             sample = await FindSampleAsync(targetKey, ct);
         }
 
-        // If targetKey was explicitly specified in route (idOrBarcode) and sample not found -> throw 404
         if (sample == null && !string.IsNullOrWhiteSpace(idOrBarcode))
         {
             throw new SampleNotFoundException(idOrBarcode);
         }
 
-        // Validate patient & appointment association
         var patientId = !string.IsNullOrWhiteSpace(request.PatientId)
             ? request.PatientId.Trim()
             : sample?.PatientId;
@@ -276,7 +267,6 @@ public class LabQueueService : ILabQueueService
         }
         else
         {
-            // Verify patient / appointment consistency if caller passed both
             if (!string.IsNullOrWhiteSpace(request.PatientId) &&
                 !string.IsNullOrWhiteSpace(sample.PatientId) &&
                 !sample.PatientId.Equals(request.PatientId.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -296,7 +286,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Validate against appointment in MongoDB if present
         BsonDocument? appointmentDoc = null;
         if (!string.IsNullOrWhiteSpace(appointmentId) && AppointmentsCol != null)
         {
@@ -363,7 +352,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Validate patient exists if PatientsCol is available
         Patient? patientDoc = null;
         if (!string.IsNullOrWhiteSpace(patientId) && PatientsCol != null)
         {
@@ -377,8 +365,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Validate sample is not already in a terminal state (Completed / Rejected).
-        // Updating collection time on a Collected sample is permitted with mandatory ISO 27789 Audit Trail.
         if (sample != null && sample.Status is SampleStatus.Completed or SampleStatus.Rejected)
         {
             throw new InvalidSampleStatusTransitionException(
@@ -397,7 +383,6 @@ public class LabQueueService : ILabQueueService
 
         if (isNewSample)
         {
-            // Auto-link the patient's latest active appointment or test order when caller omitted AppointmentId.
             if (string.IsNullOrWhiteSpace(appointmentId) && !string.IsNullOrWhiteSpace(patientId))
             {
                 var patientKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { patientId };
@@ -423,7 +408,6 @@ public class LabQueueService : ILabQueueService
                     }
                     catch
                     {
-                        // Non-fatal
                     }
                 }
 
@@ -447,7 +431,6 @@ public class LabQueueService : ILabQueueService
                     }
                     catch
                     {
-                        // Non-fatal
                     }
                 }
             }
@@ -456,8 +439,6 @@ public class LabQueueService : ILabQueueService
                 ? request.Barcode.Trim()
                 : $"SMP-{now:yyyyMMdd}-{RandomNumberGenerator.GetInt32(100000, 1000000)}";
 
-            // Unify SampleId with Barcode when Barcode already uses the canonical SMP-... format
-            // so the same tube never displays two different SMP-... codes across Lab, Doctor, and Patient screens.
             var generatedId = !string.IsNullOrWhiteSpace(request.SampleId)
                 ? request.SampleId.Trim()
                 : (generatedBarcode.StartsWith("SMP-", StringComparison.OrdinalIgnoreCase)
@@ -527,7 +508,7 @@ public class LabQueueService : ILabQueueService
                         Details = $"Recorded initial collection time for sample {sample.Id} (Barcode: {sample.Barcode}, Patient: {sample.PatientId}) at {collectedAt:yyyy-MM-dd HH:mm:ss} UTC. System CreatedAt: {now:yyyy-MM-dd HH:mm:ss} UTC."
                     }, cancellationToken: ct);
                 }
-                catch { /* Skip audit failure */ }
+                catch {  }
             }
         }
         else
@@ -588,11 +569,10 @@ public class LabQueueService : ILabQueueService
                         Details = $"Updated collection time for sample {sample.Id} (Barcode: {sample.Barcode}) from {oldCollectedAt:yyyy-MM-dd HH:mm:ss} UTC to {collectedAt:yyyy-MM-dd HH:mm:ss} UTC. System UpdatedAt: {now:yyyy-MM-dd HH:mm:ss} UTC."
                     }, cancellationToken: ct);
                 }
-                catch { /* Skip audit failure */ }
+                catch {  }
             }
         }
 
-        // Update linked appointment status to SampleCollected if currently CheckedIn/Pending
         if (!string.IsNullOrWhiteSpace(sample.TestOrderId) && AppointmentsCol != null)
         {
             try
@@ -606,11 +586,9 @@ public class LabQueueService : ILabQueueService
             }
             catch
             {
-                // Non-fatal
             }
         }
 
-        // Append RFID tracking log if RfidTag is present
         if (!string.IsNullOrWhiteSpace(sample.RfidTag) && RfidLogsCol != null)
         {
             try
@@ -627,7 +605,6 @@ public class LabQueueService : ILabQueueService
             }
             catch
             {
-                // Non-fatal
             }
         }
 
@@ -668,7 +645,6 @@ public class LabQueueService : ILabQueueService
         var currentStatus = sample.Status;
         var allowed = AllowedTransitions.TryGetValue(currentStatus, out var nextStates) ? nextStates : [];
 
-        // Validate permitted status transition (strictly forward-only; reject same-status loops)
         if (currentStatus == targetStatus)
         {
             throw new InvalidSampleStatusTransitionException(
@@ -685,12 +661,10 @@ public class LabQueueService : ILabQueueService
                 $"Không thể chuyển trạng thái mẫu từ '{sample.StatusString}' sang '{targetStatus}'. Các trạng thái hợp lệ theo ISO 15189: {string.Join(", ", allowed.Select(s => s.ToString()))}.");
         }
 
-        // Rejection requires a non-empty clinical rejection reason (ISO 15189 pre-analytical control)
         var rejectionReason = !string.IsNullOrWhiteSpace(dto.RejectionReason)
             ? dto.RejectionReason.Trim()
             : (!string.IsNullOrWhiteSpace(dto.Notes) ? dto.Notes.Trim() : null);
 
-        // Rejection requires a non-empty clinical rejection reason (ISO 15189 pre-analytical control)
         if (targetStatus == SampleStatus.Rejected && string.IsNullOrWhiteSpace(rejectionReason))
         {
             throw new DomainValidationException(
@@ -720,7 +694,7 @@ public class LabQueueService : ILabQueueService
         }
 
         var prevStatusString = sample.StatusString;
-        // Preserve exact string if user passed "Testing" vs "Processing"
+
         sample.StatusString = dto.Status.Trim().Equals("Testing", StringComparison.OrdinalIgnoreCase)
             ? "Testing"
             : targetStatus.ToString();
@@ -803,7 +777,6 @@ public class LabQueueService : ILabQueueService
 
         await PersistSampleUpdateAsync(sample, ct);
 
-        // M2: Gửi thông báo thật cho Bệnh nhân & Bác sĩ khi Lab từ chối mẫu (SampleRejected)
         if (targetStatus == SampleStatus.Rejected && _notifications != null)
         {
             try
@@ -830,10 +803,9 @@ public class LabQueueService : ILabQueueService
                     ReferenceId = sample.Id
                 }, ct);
             }
-            catch { /* non-blocking */ }
+            catch {  }
         }
 
-        // ISO 27789 Audit Trail Logging for specimen lifecycle transition
         if (AuditLogsCol != null)
         {
             try
@@ -868,7 +840,7 @@ public class LabQueueService : ILabQueueService
                     Details = details
                 }, cancellationToken: ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         _logger?.LogInformation(
@@ -1007,7 +979,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Only fallback to in-memory store if MongoDB has no rerun requests
         if (result.Count == 0)
         {
             lock (_context.Samples)
@@ -1165,7 +1136,6 @@ public class LabQueueService : ILabQueueService
                     };
                 }
 
-                // Ensure lab_user_profiles entries appear even if their account document is missing.
                 foreach (var (pid, prof) in labProfileMap)
                 {
                     if (staffById.ContainsKey(pid) || string.IsNullOrWhiteSpace(prof.FullName)) continue;
@@ -1187,7 +1157,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // In-memory fallback only when MongoDB is unavailable (unit tests / offline dev).
         if (staffById.Count == 0 && _db == null)
         {
             foreach (var u in _context.Users.Where(u => u.IsActive && u.Role != UserRole.Patient))
@@ -1222,7 +1191,6 @@ public class LabQueueService : ILabQueueService
         IReadOnlyDictionary<string, (string FullName, string? AssignedRoom)> labProfiles,
         IReadOnlyDictionary<string, (string FullName, string? Specialty, string? RoomId)> doctors)
     {
-        // Prefer explicit role string on the account document (handles legacy seeded accounts accurately).
         var explicitRole = GetBsonString(doc, "Role", "role", "roleName", "RoleName");
         if (!string.IsNullOrWhiteSpace(explicitRole))
         {
@@ -1242,7 +1210,6 @@ public class LabQueueService : ILabQueueService
         if (roleId.Value == User.LegacyPatientRoleId || roleId.Value == (int)UserRole.Patient)
             return RoleNames.Patient;
 
-        // Legacy self-registered patient documents had RoleId = 6 alongside patientCode/bloodType fields.
         if (roleId.Value == (int)UserRole.Manager)
         {
             var hasPatientSchema = doc.Contains("patientCode") || doc.Contains("bloodType") ||
@@ -1334,13 +1301,11 @@ public class LabQueueService : ILabQueueService
             try
             {
                 var fb = Builders<Sample>.Filter;
-                // Exact Id match first (UUID / sample PK) — unambiguous.
+
                 var byId = await SamplesCol.Find(fb.Eq(s => s.Id, idOrBarcode)).FirstOrDefaultAsync(ct);
                 if (byId != null)
                     return byId;
 
-                // Barcode/RFID can collide after reject+recollect. Prefer the active
-                // lifecycle specimen so Lab check-in / result entry are not stuck on Rejected.
                 var barcodeMatches = await SamplesCol
                     .Find(fb.Or(
                         fb.Eq(s => s.Barcode, idOrBarcode),
@@ -1444,7 +1409,6 @@ public class LabQueueService : ILabQueueService
             }
         }
 
-        // Only use in-memory store if MongoDB has no samples (dev fallback)
         if (byId.Count == 0)
         {
             foreach (var memSample in _context.Samples)
@@ -1531,7 +1495,6 @@ public class LabQueueService : ILabQueueService
                 }
             }
 
-            // Enrich TestPackageName, PackageId, and exact PackageParameters from linked Appointment / ServicePackage / TestOrder.
             var samplesNeedingPkg = samples
                 .Where(s => string.IsNullOrWhiteSpace(s.TestPackageName) || s.PackageParameters == null || s.PackageParameters.Count == 0)
                 .ToList();
@@ -1541,7 +1504,6 @@ public class LabQueueService : ILabQueueService
                 var pkgNameByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var pkgCanonicalIdByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                // Load service_packages first so Admin-configured Tests and Names take priority, then test_packages.
                 foreach (var pkgCol in new[] { ServicePackagesCol, TestPackagesCol })
                 {
                     if (pkgCol == null) continue;
@@ -1588,11 +1550,9 @@ public class LabQueueService : ILabQueueService
                     }
                     catch
                     {
-                        // Non-fatal
                     }
                 }
 
-                // Load master test_criteria (preferring canonical active documents with ranges/panic thresholds).
                 var criteriaByCode = new Dictionary<string, SampleExpectedParameter>(StringComparer.OrdinalIgnoreCase);
                 var criteriaCodeById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (TestCriteriaCol != null)
@@ -1640,11 +1600,9 @@ public class LabQueueService : ILabQueueService
                     }
                     catch
                     {
-                        // Non-fatal
                     }
                 }
 
-                // Load test_package_criteria lookup (package_id -> list of criterion codes).
                 var mappedCodesByPkgId = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
                 if (TestPackageCriteriaCol != null)
                 {
@@ -1668,11 +1626,9 @@ public class LabQueueService : ILabQueueService
                     }
                     catch
                     {
-                        // Non-fatal
                     }
                 }
 
-                // Map PatientId -> PatientCode so appointments stored under either key can be matched.
                 var patientCodeMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (PatientsCol != null)
                 {
@@ -1751,7 +1707,6 @@ public class LabQueueService : ILabQueueService
                         catch { }
                     }
 
-                    // 1. Try package.Tests from service_packages
                     var lookupKeys = new[] { resolvedPkgId, s.PackageCode, resolvedPkgName }
                         .Where(k => !string.IsNullOrWhiteSpace(k))
                         .Select(k => k!)
@@ -1780,7 +1735,6 @@ public class LabQueueService : ILabQueueService
                         }
                     }
 
-                    // 2. Fallback to test_package_criteria mappings (e.g. PKG-CBC-01 -> CRT-RBC, CRT-HGB, ...)
                     if (rawParams.Count == 0)
                     {
                         var candidatePkgIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1800,7 +1754,6 @@ public class LabQueueService : ILabQueueService
                         }
                     }
 
-                    // 3. Fallback to UC32 test_orders items
                     if (TestOrdersCol != null && (string.IsNullOrWhiteSpace(resolvedPkgName) || rawParams.Count == 0))
                     {
                         try
@@ -1884,7 +1837,6 @@ public class LabQueueService : ILabQueueService
         }
         catch
         {
-            // Non-fatal
         }
     }
 

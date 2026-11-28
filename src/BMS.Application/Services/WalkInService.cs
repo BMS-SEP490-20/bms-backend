@@ -26,7 +26,6 @@ public sealed class WalkInService(
         var cleanPhone = request.Phone.Trim();
         var cleanEmail = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
 
-        // Enforce 1-to-1 identity binding across CCCD, Phone, and Email in DB
         var byCccd = await LookupByIdentityAsync(cleanCccd, ct);
         if (byCccd.Exists)
         {
@@ -88,8 +87,6 @@ public sealed class WalkInService(
                 }
         };
 
-        // WHY no try/catch: PatientDuplicateException (409, MSG-ERR-REC-01) and validation errors reach the
-        // global handler with their stable codes instead of being re-wrapped by message prefix.
         var dto = await patientService.CreateGuestProfileAsync(
             createRequest,
             receptionistUserId,
@@ -226,7 +223,7 @@ public sealed class WalkInService(
                     if (string.IsNullOrWhiteSpace(resolvedPhone)) resolvedPhone = acc.PhoneNumber;
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
 
         return new PatientLookupResponse

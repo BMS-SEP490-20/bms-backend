@@ -18,7 +18,7 @@ namespace BMS.Api.Controllers.Users;
 [Route("api/shifts")]
 [Route("api/v1/shifts")]
 [Produces("application/json")]
-// WHY: UC35: view all staff; create/edit/delete Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class ShiftsController(IShiftService shifts) : ControllerBase
 {

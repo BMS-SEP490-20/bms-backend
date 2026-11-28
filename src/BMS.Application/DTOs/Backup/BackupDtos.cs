@@ -120,7 +120,7 @@ public class RestoreRequestDto
     public bool OverwriteExisting { get; set; } = true;
 
     [Required(ErrorMessage = "Bắt buộc nhập cụm từ xác nhận khôi phục.")]
-    public string ConfirmationPhrase { get; set; } = string.Empty; // Must be "XAC_NHAN_KHOI_PHUC" or "CONFIRM_RESTORE"
+    public string ConfirmationPhrase { get; set; } = string.Empty;
 }
 
 /// <summary>

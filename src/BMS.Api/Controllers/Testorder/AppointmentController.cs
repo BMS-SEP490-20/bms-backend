@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Testorder
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
-// WHY: UC24 legacy: Receptionist, Manager, Doctor. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.AppointmentReaders)]
     public class AppointmentController : ControllerBase
     {

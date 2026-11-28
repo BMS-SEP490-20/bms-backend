@@ -15,10 +15,10 @@ public class VerificationCheckItem
     public string CheckName { get; set; } = string.Empty;
 
     [BsonElement("status")]
-    public string Status { get; set; } = "OK"; // "OK", "Flag", "None", "Confirmed"
+    public string Status { get; set; } = "OK";
 
     [BsonElement("status_type")]
-    public string StatusType { get; set; } = "ok"; // "ok", "warn", "err"
+    public string StatusType { get; set; } = "ok";
 
     [BsonElement("details")]
     public string Details { get; set; } = string.Empty;
@@ -37,10 +37,10 @@ public class TestResultVerification
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("specimen_id")]
-    public string SpecimenId { get; set; } = string.Empty; // e.g. SPC-261006-A1-0089
+    public string SpecimenId { get; set; } = string.Empty;
 
     [BsonElement("order_id")]
-    public string OrderId { get; set; } = string.Empty; // e.g. ORD-261006-0187
+    public string OrderId { get; set; } = string.Empty;
 
     [BsonElement("package_name")]
     public string PackageName { get; set; } = "Lipid Profile";
@@ -58,7 +58,7 @@ public class TestResultVerification
     public string VerifierComment { get; set; } = string.Empty;
 
     [BsonElement("status")]
-    public string Status { get; set; } = "PendingVerification"; // "PendingVerification" | "Verified" | "ReturnedForCorrection"
+    public string Status { get; set; } = "PendingVerification";
 
     [BsonElement("verified_by")]
     public string VerifiedBy { get; set; } = string.Empty;

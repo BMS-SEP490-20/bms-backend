@@ -15,7 +15,7 @@ public class CreateTestNoteRequestDto
     [Required]
     public string NoteType { get; set; } = "Technical observation";
 
-    public string Visibility { get; set; } = "Internal"; // "Internal" or "Report"
+    public string Visibility { get; set; } = "Internal";
 
     public bool IsInternalOnly { get; set; } = true;
 

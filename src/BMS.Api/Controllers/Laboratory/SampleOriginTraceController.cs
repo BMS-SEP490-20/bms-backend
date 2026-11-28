@@ -12,7 +12,7 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/laboratory/trace")]
-// WHY: UC77: Lab, Manager, Doctor; Admin denied. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.ClinicalStaff)]
 public class SampleOriginTraceController : ControllerBase
 {

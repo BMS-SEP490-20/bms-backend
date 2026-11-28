@@ -100,8 +100,7 @@ namespace BMS.Application.Services
 
             var now = DateTime.UtcNow;
             var operatorId = string.IsNullOrWhiteSpace(labUserId) ? null : labUserId;
-            // Validate Sample (#73) maps onto the ISO 15189 reception step: an accepted specimen is Received,
-            // a rejected one is Rejected with the reason kept, instead of writing free-text statuses.
+
             SampleFieldChanges changes = status.Trim().ToLowerInvariant() switch
             {
                 ValidatedStatus => new(Status: SampleStatus.Received.ToString(), Notes: notes, AssignedTechnicianId: operatorId,
@@ -126,7 +125,6 @@ namespace BMS.Application.Services
                 ? s
                 : throw new DomainValidationException("INVALID_SAMPLE_STATUS", $"Trạng thái mẫu '{raw}' không hợp lệ.");
 
-        // Barcode format follows the BMS convention SMP-YYYYMMDD-XXXX (same as LabQueueService).
         private async Task<string> GenerateUniqueBarcodeAsync(CancellationToken ct)
         {
             for (var i = 0; i < MaxBarcodeAttempts; i++)

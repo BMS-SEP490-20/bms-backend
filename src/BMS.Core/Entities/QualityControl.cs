@@ -10,13 +10,13 @@ namespace BMS.Core.Entities;
 /// </summary>
 public enum WestgardStatus
 {
-    PASS = 1,              // In control (|Z| <= 2)
-    WARNING_1_2S = 2,      // Warning: 1 control observation exceeds +/- 2s
-    REJECT_1_3S = 3,       // Rejection: 1 control observation exceeds +/- 3s (Random error)
-    REJECT_2_2S = 4,       // Rejection: 2 consecutive observations exceed +/- 2s on same side (Systematic error)
-    REJECT_R_4S = 5,       // Rejection: Range of 2 observations in run >= 4s (Random error)
-    REJECT_4_1S = 6,       // Rejection: 4 consecutive observations exceed +/- 1s on same side (Systematic error)
-    REJECT_10_X = 7        // Rejection: 10 consecutive observations on same side of mean (Systematic drift)
+    PASS = 1,
+    WARNING_1_2S = 2,
+    REJECT_1_3S = 3,
+    REJECT_2_2S = 4,
+    REJECT_R_4S = 5,
+    REJECT_4_1S = 6,
+    REJECT_10_X = 7
 }
 
 /// <summary>
@@ -31,28 +31,28 @@ public class QcLot
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("lot_number")]
-    public string LotNumber { get; set; } = string.Empty; // e.g. LOT-GLU-2026A
+    public string LotNumber { get; set; } = string.Empty;
 
     [BsonElement("control_name")]
-    public string ControlName { get; set; } = string.Empty; // e.g. Bio-Rad Liquid Assayed Multiqual
+    public string ControlName { get; set; } = string.Empty;
 
     [BsonElement("analyte_name")]
-    public string AnalyteName { get; set; } = string.Empty; // e.g. Glucose, Creatinine, AST, ALT
+    public string AnalyteName { get; set; } = string.Empty;
 
     [BsonElement("instrument_id")]
-    public string InstrumentId { get; set; } = string.Empty; // e.g. ROCHE-COBAS-c501
+    public string InstrumentId { get; set; } = string.Empty;
 
     [BsonElement("manufacturer")]
     public string Manufacturer { get; set; } = "Bio-Rad Laboratories";
 
     [BsonElement("level")]
-    public int Level { get; set; } = 1; // 1 = Normal, 2 = High, 3 = Low
+    public int Level { get; set; } = 1;
 
     [BsonElement("target_mean")]
-    public double TargetMean { get; set; } // Expected target value (mu)
+    public double TargetMean { get; set; }
 
     [BsonElement("target_sd")]
-    public double TargetStandardDeviation { get; set; } // Expected standard deviation (sigma)
+    public double TargetStandardDeviation { get; set; }
 
     [BsonElement("unit")]
     public string Unit { get; set; } = "mmol/L";
@@ -116,7 +116,7 @@ public class QcRun
     public List<string> ViolatedRules { get; set; } = new();
 
     [BsonElement("is_locked")]
-    public bool IsLocked { get; set; } // If true, analyzer batch is locked from releasing patient results
+    public bool IsLocked { get; set; }
 
     [BsonElement("corrective_action")]
     public string? CorrectiveAction { get; set; }

@@ -10,9 +10,9 @@ namespace BMS.Core.Entities;
 /// </summary>
 public enum IotAlertSeverity
 {
-    Warning = 1,          // Minor excursion (e.g. +0.5°C over threshold)
-    Critical = 2,         // Serious excursion (e.g. +2.0°C over threshold)
-    Danger_Emergency = 3  // Severe risk of specimen spoilage (e.g. > +3.0°C or power failure)
+    Warning = 1,
+    Critical = 2,
+    Danger_Emergency = 3
 }
 
 /// <summary>
@@ -37,16 +37,16 @@ public class IotThresholdAlert
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("device_id")]
-    public string DeviceId { get; set; } = string.Empty; // e.g. TEMP-001, HUM-002
+    public string DeviceId { get; set; } = string.Empty;
 
     [BsonElement("device_name")]
     public string DeviceName { get; set; } = string.Empty;
 
     [BsonElement("location")]
-    public string Location { get; set; } = string.Empty; // e.g. Tủ lưu trữ máu R-01
+    public string Location { get; set; } = string.Empty;
 
     [BsonElement("sensor_type")]
-    public string SensorType { get; set; } = "Temperature"; // "Temperature", "Humidity"
+    public string SensorType { get; set; } = "Temperature";
 
     [BsonElement("unit")]
     public string Unit { get; set; } = "°C";

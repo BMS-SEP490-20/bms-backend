@@ -39,7 +39,7 @@ public class SampleCollectionItem
     public string PackageName { get; set; } = string.Empty;
 
     [BsonElement("tubes")]
-    public List<string> Tubes { get; set; } = new(); // e.g. ["SST", "NaF"]
+    public List<string> Tubes { get; set; } = new();
 
     [BsonElement("collector_id")]
     public string? CollectorId { get; set; }

@@ -58,7 +58,6 @@ public sealed class SePayController(SePayPaymentService sePay) : ControllerBase
         });
     }
 
-    // WHY: Staff (Receptionist/Manager/Admin) can always confirm; Patient can self-simulate only when SePay:EnableSandbox is enabled.
     [Authorize(Roles = RoleSets.ReceptionOrPatient + "," + RoleNames.Manager + "," + RoleNames.Admin)]
     [HttpPost("simulate/{appointmentId}")]
     public async Task<IActionResult> SimulateSuccess(string appointmentId, CancellationToken ct)

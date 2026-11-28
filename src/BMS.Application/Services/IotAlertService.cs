@@ -39,11 +39,9 @@ public class IotAlertService : IIotAlertService
     private readonly IIotRealtimeNotifier? _realtimeNotifier;
     private readonly ILogger<IotAlertService> _logger;
 
-    // In-memory live cache hydrated purely from MongoDB (starts empty — ZERO fake seed rows!)
     private static readonly ConcurrentDictionary<string, IotThresholdAlert> _alerts = new(StringComparer.OrdinalIgnoreCase);
     private static volatile bool _legacySeedCleaned;
 
-    // Tracks start of continuous threshold violation per (DeviceId:SensorType) for BR-IOT-02 5-minute escalation
     private static readonly ConcurrentDictionary<string, DateTime> _continuousViolationStart = new(StringComparer.OrdinalIgnoreCase);
 
     public IotAlertService(
@@ -69,7 +67,6 @@ public class IotAlertService : IIotAlertService
             }
             catch
             {
-                // Fallback if MongoDB is unavailable during unit tests
             }
         }
     }
@@ -93,9 +90,6 @@ public class IotAlertService : IIotAlertService
         {
             _continuousViolationStart.TryRemove(violationKey, out _);
 
-            // ISO 15189 CAPA Compliance:
-            // Do NOT auto-resolve open alerts! Mark TemperatureRecovered = true and keep status OPEN
-            // until authorized staff assess specimen damage and sign CAPA resolution notes.
             var openAlerts = _alerts.Values
                 .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
                          && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
@@ -142,13 +136,11 @@ public class IotAlertService : IIotAlertService
 
         var severity = DetermineSeverity(reading.SensorType, excursion);
 
-        // BR-IOT-02: Escalate to Danger_Emergency if violation persists continuously for >= 5 minutes
         if (continuousMinutes >= 5.0 && severity < IotAlertSeverity.Danger_Emergency)
         {
             severity = IotAlertSeverity.Danger_Emergency;
         }
 
-        // Deduplicate high-frequency readings for the same open alert while preserving escalation
         var existingOpen = _alerts.Values
             .Where(a => a.DeviceId.Equals(reading.DeviceId, StringComparison.OrdinalIgnoreCase)
                      && a.SensorType.Equals(reading.SensorType, StringComparison.OrdinalIgnoreCase)
@@ -301,7 +293,6 @@ public class IotAlertService : IIotAlertService
             .ToList();
         var allResolved = all.Where(a => a.Status == IotAlertStatus.Resolved && a.DurationMinutes > 0).ToList();
 
-        // 100% real average resolution duration — ZERO hardcoded fallback like 18.5!
         double avgResolution = resolvedToday.Count > 0
             ? resolvedToday.Average(a => a.DurationMinutes)
             : (allResolved.Count > 0 ? allResolved.Average(a => a.DurationMinutes) : 0.0);
@@ -451,7 +442,6 @@ public class IotAlertService : IIotAlertService
         var title = $"Cảnh báo IoT [{alert.SeverityString}]: {alert.DeviceId} ({alert.ObservedValue:F1}{alert.Unit})";
         var message = $"Tủ/Thiết bị {alert.DeviceName} tại {alert.Location} ghi nhận {alert.SensorType} = {alert.ObservedValue:F1}{alert.Unit} (Ngưỡng an toàn: {alert.LowAlert:F1} – {alert.HighAlert:F1}{alert.Unit}). Yêu cầu kiểm tra mẫu bệnh phẩm và hoàn tất CAPA (ISO 15189).";
 
-        // 1. Real In-App Notifications persisted to MongoDB `notifications` collection for Manager & Lab roles
         if (_notificationRepository != null)
         {
             try
@@ -479,7 +469,6 @@ public class IotAlertService : IIotAlertService
             }
         }
 
-        // 2. Real-time SignalR push via /hubs/iot
         if (_realtimeNotifier != null)
         {
             var pushed = await _realtimeNotifier.BroadcastAlertAsync("Triggered", MapToDto(alert), ct);
@@ -489,8 +478,6 @@ public class IotAlertService : IIotAlertService
             }
         }
 
-        // 3. Real SMTP Email dispatch for Critical / Danger_Emergency alerts in background so ESP32 HTTP/MQTT ingest stays < 50ms.
-        // "Email" is recorded in NotificationChannelsDispatched ONLY after real SMTP delivery succeeds.
         if (_emailService != null && alert.Severity >= IotAlertSeverity.Critical && _database != null)
         {
             _ = DispatchAlertEmailsInBackgroundAsync(alert);
@@ -564,7 +551,6 @@ public class IotAlertService : IIotAlertService
         }
         catch
         {
-            // Non-fatal
         }
 
         return result;
@@ -583,7 +569,6 @@ public class IotAlertService : IIotAlertService
         }
         catch
         {
-            // Keep in-memory state if Mongo write fails
         }
     }
 
@@ -592,7 +577,6 @@ public class IotAlertService : IIotAlertService
         if (_alertsCollection == null) return;
         try
         {
-            // Purge legacy hardcoded demo seed records if they were previously persisted
             if (!_legacySeedCleaned)
             {
                 _legacySeedCleaned = true;
@@ -623,7 +607,6 @@ public class IotAlertService : IIotAlertService
         }
         catch
         {
-            // Ignore Mongo read error and use in-memory cache
         }
     }
 
@@ -698,7 +681,6 @@ public class IotAlertService : IIotAlertService
             return IotAlertSeverity.Danger_Emergency;
         }
 
-        // Temperature (°C)
         if (excursion <= 1.0) return IotAlertSeverity.Warning;
         if (excursion <= 3.0) return IotAlertSeverity.Critical;
         return IotAlertSeverity.Danger_Emergency;

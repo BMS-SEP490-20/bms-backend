@@ -57,7 +57,6 @@ public class TestNoteService : ITestNoteService
             throw new ArgumentException("Note content cannot be empty.", nameof(request.Content));
         }
 
-        // Resolve specimen metadata dynamically from database
         var sample = await FindSampleAsync(request.SpecimenId);
 
         var note = new TestNote
@@ -125,7 +124,6 @@ public class TestNoteService : ITestNoteService
     {
         var key = specimenBarcodeOrId.Trim();
 
-        // 1. Check MongoDB blood_samples collection
         if (_samplesCol != null)
         {
             try
@@ -139,11 +137,9 @@ public class TestNoteService : ITestNoteService
             }
             catch
             {
-                // Fall through to in-memory check
             }
         }
 
-        // 2. Check BmsDbContext in-memory store
         lock (_dbContext.Samples)
         {
             return _dbContext.Samples.FirstOrDefault(s =>

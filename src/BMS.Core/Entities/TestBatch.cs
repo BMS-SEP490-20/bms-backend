@@ -15,13 +15,13 @@ public enum TestBatchStatus
 public class WellPlatePosition
 {
     [BsonElement("wellCoordinate")]
-    public string WellCoordinate { get; set; } = string.Empty; // e.g. "A1", "A2", "B3"
+    public string WellCoordinate { get; set; } = string.Empty;
 
     [BsonElement("isControlSample")]
     public bool IsControlSample { get; set; } = false;
 
     [BsonElement("controlLevel")]
-    public string? ControlLevel { get; set; } // "IQC Level 1", "IQC Level 2"
+    public string? ControlLevel { get; set; }
 
     [BsonElement("sampleId")]
     public string? SampleId { get; set; }
@@ -33,7 +33,7 @@ public class WellPlatePosition
     public string? PatientName { get; set; }
 
     [BsonElement("priority")]
-    public string? Priority { get; set; } // "Routine", "STAT"
+    public string? Priority { get; set; }
 }
 
 /// <summary>
@@ -55,10 +55,10 @@ public class TestBatch
     public string AnalyzerName { get; set; } = string.Empty;
 
     [BsonElement("category")]
-    public string Category { get; set; } = "Biochemistry"; // Biochemistry, Hematology, Immunology
+    public string Category { get; set; } = "Biochemistry";
 
     [BsonElement("capacity")]
-    public int Capacity { get; set; } = 48; // 24, 48, 96
+    public int Capacity { get; set; } = 48;
 
     [BsonElement("status")]
     public TestBatchStatus Status { get; set; } = TestBatchStatus.Pending;

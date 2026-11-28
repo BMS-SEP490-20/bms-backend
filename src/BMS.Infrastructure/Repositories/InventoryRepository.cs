@@ -31,7 +31,6 @@ public sealed class InventoryRepository : IInventoryRepository
         var filter = f.Ne(x => x.IsDeleted, true);
         if (!string.IsNullOrWhiteSpace(search.Search))
         {
-            // Treat input as literal text, never as a caller-supplied regular expression.
             var regex = new BsonRegularExpression(Regex.Escape(search.Search), "i");
             filter &= f.Or(f.Regex(x => x.Code, regex), f.Regex(x => x.Name, regex),
                 f.Regex(x => x.LotNumber, regex), f.Regex(x => x.Manufacturer, regex));
@@ -101,7 +100,7 @@ public sealed class InventoryRepository : IInventoryRepository
     public Task<Reagent?> UpdateAsync(Reagent item, long expectedRevision, InventoryChange change, CancellationToken ct = default)
     {
         var f = Builders<Reagent>.Filter;
-        // Legacy documents have no revision; treat them as revision zero until their first mutation.
+
         var revision = expectedRevision == 0 ? f.Or(f.Eq(x => x.Revision, 0), f.Exists("revision", false)) : f.Eq(x => x.Revision, expectedRevision);
         var update = Builders<Reagent>.Update.Set(x => x.Name, item.Name).Set(x => x.Manufacturer, item.Manufacturer)
             .Set(x => x.Quantity, item.Quantity).Set(x => x.MinimumStock, item.MinimumStock).Set(x => x.ExpiryDate, item.ExpiryDate)
@@ -115,7 +114,7 @@ public sealed class InventoryRepository : IInventoryRepository
     {
         var f = Builders<Reagent>.Filter;
         var revision = expectedRevision == 0 ? f.Or(f.Eq(x => x.Revision, 0), f.Exists("revision", false)) : f.Eq(x => x.Revision, expectedRevision);
-        // Stock must still be zero at the write boundary, not only when the confirmation was opened.
+
         var filter = f.Eq(x => x.Id, id) & f.Ne(x => x.IsDeleted, true) & f.Eq(x => x.Quantity, 0) & revision;
         var update = Builders<Reagent>.Update.Set(x => x.IsDeleted, true).Set(x => x.DeletedAt, change.At)
             .Inc(x => x.Revision, 1).Push(x => x.Changes, change);

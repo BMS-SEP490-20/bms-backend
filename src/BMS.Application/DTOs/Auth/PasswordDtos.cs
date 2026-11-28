@@ -34,7 +34,6 @@ public sealed class ResetPasswordRequest : IValidatableObject
             yield return new ValidationResult(
                 "Mật khẩu phải có chữ hoa, chữ thường và chữ số.", [nameof(NewPassword)]);
 
-        // BCrypt chỉ dùng 72 byte đầu
         if (Encoding.UTF8.GetByteCount(p) > 72)
             yield return new ValidationResult("Mật khẩu quá dài.", [nameof(NewPassword)]);
     }

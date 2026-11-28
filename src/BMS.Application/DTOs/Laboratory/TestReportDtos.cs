@@ -12,7 +12,7 @@ public class TestReportParameterDto
     public string ResultValue { get; set; } = string.Empty;
     public string Unit { get; set; } = string.Empty;
     public string ReferenceRange { get; set; } = string.Empty;
-    public string Flag { get; set; } = string.Empty; // "", "H", "L", "CRITICAL"
+    public string Flag { get; set; } = string.Empty;
     public bool IsAbnormal { get; set; }
 }
 

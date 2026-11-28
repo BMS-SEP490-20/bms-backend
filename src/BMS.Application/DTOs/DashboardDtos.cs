@@ -6,10 +6,8 @@ public class DashboardStatsDto
     public string UserName { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
-    // Common Cards / Metrics
     public List<StatCardDto> SummaryCards { get; set; } = new();
 
-    // Role-specific sections
     public PatientDashboardData? PatientData { get; set; }
     public DoctorDashboardData? DoctorData { get; set; }
     public LabUserDashboardData? LabUserData { get; set; }
@@ -23,7 +21,7 @@ public class StatCardDto
     public string Title { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
     public string Icon { get; set; } = string.Empty;
-    public string ColorVariant { get; set; } = "primary"; // primary, success, warning, danger, info
+    public string ColorVariant { get; set; } = "primary";
     public string? Subtitle { get; set; }
 }
 
@@ -65,7 +63,7 @@ public class ManagerDashboardData
 {
     public int TotalOrdersToday { get; set; }
     public decimal RevenueToday { get; set; }
-    public double AverageTatMinutes { get; set; } // Turnaround Time
+    public double AverageTatMinutes { get; set; }
     public int ActiveAlertsCount { get; set; }
     public double ColdStorageTemperature { get; set; }
 }

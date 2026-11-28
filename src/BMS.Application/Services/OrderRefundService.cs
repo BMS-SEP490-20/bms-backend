@@ -36,7 +36,7 @@ public sealed class OrderRefundService(
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(cancelled);
-        // A pending VNPay invoice must never be settled for a cancelled order.
+
         var voided = await invoices.VoidUnpaidByOrderIdAsync(cancelled.Id, ct);
         if (voided > 0)
             await AuditAsync(actor, "INVOICE_VOIDED_ON_CANCEL", "Invoice", cancelled.OrderNumber, $"{voided} unpaid invoice(s) voided", "INFO", ct);
@@ -50,7 +50,7 @@ public sealed class OrderRefundService(
         var refund = await NewRefundAsync(cancelled, RefundKind.CancelBeforeCollection, actor,
             string.IsNullOrWhiteSpace(reason) ? "Hủy đơn trước khi lấy mẫu" : reason.Trim(), ct);
         if (!await refunds.TryInsertAsync(refund, ct))
-            return await refunds.GetByOrderIdAsync(cancelled.Id, ct); // already opened (idempotent)
+            return await refunds.GetByOrderIdAsync(cancelled.Id, ct);
         await AuditAsync(actor, "REFUND_REQUESTED", "Refund", refund.RefundCode,
             $"order {cancelled.OrderNumber}; expected {refund.Amount} via {refund.Channel?.ToString() ?? "?"}; awaiting Manager approval", "WARNING", ct);
         logger.LogInformation("Refund {RefundCode} opened for cancelled order {OrderNumber}", refund.RefundCode, cancelled.OrderNumber);
@@ -82,7 +82,7 @@ public sealed class OrderRefundService(
     {
         var refund = await LoadAsync(refundId, ct);
         if (refund.Status != RefundStatus.PendingApproval) throw NotPending(refund);
-        // WHY resolve again: a cancel can race the counter payment (order marked paid, invoice written a moment later).
+
         var invoice = await invoices.GetPaidByOrderIdAsync(refund.OrderId, ct)
                       ?? throw new ConflictStateException("REFUND_INVOICE_NOT_FOUND", "Không tìm thấy hóa đơn đã thanh toán của đơn này.");
         var channel = ChannelOf(invoice.PaymentMethod);
@@ -99,7 +99,7 @@ public sealed class OrderRefundService(
         if (invoice.InsuranceDeduction > 0)
             await AuditAsync(manager, "BHYT_REVERSAL_POSTED", "Invoice", invoice.InvoiceCode,
                 $"BHYT {invoice.InsuranceDeduction} reversed for order {approved.OrderNumber} (not paid to the patient)", "INFO", ct);
-        // TODO(phat, Đợt 4): VNPay refund API call (with the IPN work); until then a VNPay refund stays ApprovedAwaitingGateway.
+
         return Map(approved);
     }
 
@@ -159,7 +159,7 @@ public sealed class OrderRefundService(
         var now = clock.GetUtcNow().UtcDateTime;
         var day = ClinicTime.LocalDate(now);
         var seq = await sequences.NextAsync($"rf:{day:yyyy-MM-dd}", ct);
-        var invoice = await invoices.GetPaidByOrderIdAsync(order.Id, ct); // snapshot for display; approval re-resolves
+        var invoice = await invoices.GetPaidByOrderIdAsync(order.Id, ct);
         return new Refund
         {
             RefundCode = $"RF-{day:yyyyMMdd}-{seq:D4}",

@@ -12,7 +12,7 @@ namespace BMS.Core.Entities;
 public class TraceNode
 {
     [BsonElement("node_type")]
-    public string NodeType { get; set; } = string.Empty; // "Patient", "Doctor", "Order", "Collection", "Specimen", "Analyzer", "Result", "Status"
+    public string NodeType { get; set; } = string.Empty;
 
     [BsonElement("title")]
     public string Title { get; set; } = string.Empty;
@@ -27,7 +27,7 @@ public class TraceNode
     public string? Badge { get; set; }
 
     [BsonElement("badge_type")]
-    public string BadgeType { get; set; } = "default"; // "patient", "doctor", "order", "warn", "err", "ok"
+    public string BadgeType { get; set; } = "default";
 
     [BsonElement("timestamp")]
     public DateTime? Timestamp { get; set; }

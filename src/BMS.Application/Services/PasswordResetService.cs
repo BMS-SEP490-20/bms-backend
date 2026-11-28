@@ -43,14 +43,12 @@ public sealed class PasswordResetService(
         var user = await users.FindByEmailAsync(identifier, ct)
                    ?? await users.FindByLoginAsync(identifier, ct);
 
-        // Không tiết lộ email/tài khoản có tồn tại hay không: mọi nhánh đều kết thúc êm như nhau (OWASP Anti-Enumeration)
         if (user is null || !user.IsActive)
         {
             logger.LogWarning("Forgot password: no active account for {Identifier} from {Ip}", identifier, client.IpAddress);
             return;
         }
 
-        // Chống spam hộp thư của người dùng (Cooldown)
         var last = await resetTokens.GetLastCreatedAtAsync(user.Id, ct);
         if (last is { } l && (now - l).TotalSeconds < _opt.CooldownSeconds)
         {
@@ -58,11 +56,10 @@ public sealed class PasswordResetService(
             return;
         }
 
-        // 1. Token ngẫu nhiên 256-bit cho Web Link; DB chỉ lưu SHA-256 hash
         var raw = GenerateRawToken();
         var expiresAt = now.AddMinutes(_opt.TokenMinutes);
 
-        await resetTokens.InvalidateAllForUserAsync(user.Id, now, ct); // link cũ vô hiệu hoá ngay khi có link mới
+        await resetTokens.InvalidateAllForUserAsync(user.Id, now, ct);
         await resetTokens.AddAsync(new PasswordResetToken
         {
             UserId = user.Id,
@@ -72,7 +69,6 @@ public sealed class PasswordResetService(
             RequestedIp = client.IpAddress
         }, ct);
 
-        // 2. Đồng thời sinh mã OTP 6 chữ số cho Mobile / OTP flow
         var otp = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
         user.PasswordResetOtp = otp;
         user.PasswordResetExpiresAt = expiresAt;
@@ -90,7 +86,6 @@ public sealed class PasswordResetService(
         var to = user.Email;
         var body = BuildEmailBody(user.FullName, link, otp, _opt.TokenMinutes);
 
-        // Gửi nền: thời gian phản hồi không phụ thuộc việc tài khoản có tồn tại hay không
         _ = Task.Run(async () =>
         {
             try
@@ -124,14 +119,12 @@ public sealed class PasswordResetService(
         if (user is null || !user.IsActive)
             throw new InvalidResetTokenException();
 
-        // Tiêu thụ token trước (atomic) -> 2 request song song chỉ 1 request thành công
         if (!await resetTokens.TryConsumeAsync(stored.Id, now, ct))
             throw new InvalidResetTokenException();
 
         await users.UpdatePasswordAsync(user.Id, hasher.Hash(newPassword), ct);
         await resetTokens.InvalidateAllForUserAsync(user.Id, now, ct);
 
-        // Đổi mật khẩu => mọi phiên đăng nhập cũ (có thể của kẻ xấu) bị thu hồi
         await refreshTokens.RevokeAllForUserAsync(user.Id, now, "password_reset", ct);
 
         logger.LogInformation("Password reset completed: user {UserId}", user.Id);

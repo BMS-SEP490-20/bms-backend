@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Billing;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-// WHY: approve/reject/exception = Manager; counter pay-out = Receptionist; list = both. Admin, Lab, Doctor, Patient 403.
+
 [Authorize]
 public class RefundsController(IOrderRefundService refunds) : ControllerBase
 {
@@ -57,7 +57,6 @@ public class RefundsController(IOrderRefundService refunds) : ControllerBase
     public async Task<IActionResult> PayOut(string id, CancellationToken ct) =>
         Ok(new { success = true, data = await refunds.PayOutAtCounterAsync(id, CurrentActor(RoleNames.Receptionist), ct) });
 
-    // WHY from the token only: audit must name the real actor (ISO 15189).
     private Actor CurrentActor(string role) => new(
         User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? string.Empty,
         User.FindFirstValue(ClaimTypes.Name), role);

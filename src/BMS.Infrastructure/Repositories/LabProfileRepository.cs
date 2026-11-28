@@ -42,7 +42,7 @@ public sealed class LabProfileRepository : ILabProfileRepository
             filter &= f.Or(f.Regex(x => x.FullName, regex), f.Regex(x => x.Qualification, regex), ProfileId(search.Search));
         }
         if (!string.IsNullOrWhiteSpace(search.RoomId)) filter &= f.Eq(x => x.AssignedRoom, search.RoomId);
-        // Filter creation timestamps by the clinic's UTC+7 calendar days, including both endpoints.
+
         if (search.CreatedFrom.HasValue) filter &= f.Gte(x => x.CreatedAt, DateTime.SpecifyKind(search.CreatedFrom.Value.Date.AddHours(-7), DateTimeKind.Utc));
         if (search.CreatedTo.HasValue) filter &= f.Lt(x => x.CreatedAt, DateTime.SpecifyKind(search.CreatedTo.Value.Date.AddDays(1).AddHours(-7), DateTimeKind.Utc));
         var total = await _profiles.CountDocumentsAsync(filter, cancellationToken: ct);
@@ -63,12 +63,10 @@ public sealed class LabProfileRepository : ILabProfileRepository
             d.GetValue("room_name", "").ToString()!)).ToList();
     }
 
-    // Canonical role 3 includes the merged laboratory staff roles.
     private static FilterDefinition<BsonDocument> EligibleAccounts()
     {
         var f = Builders<BsonDocument>.Filter;
-        // Canonical Lab is role 3; role 4 is Receptionist and must never gain a Lab profile.
-        // Prefer PascalCase fields when present, matching account deserialization precedence.
+
         var labIds = new BsonValue[] { 3, "3" };
         var active = new BsonValue[] { 1, "1", "Active", "active", "ACTIVE" };
         var role = f.In("RoleId", labIds) | (f.Eq("RoleId", BsonNull.Value) & f.In("roleId", labIds));
@@ -111,7 +109,7 @@ public sealed class LabProfileRepository : ILabProfileRepository
         try { await _profiles.InsertOneAsync(profile, cancellationToken: ct); return true; }
         catch (MongoWriteException e) when (e.WriteError.Category == ServerErrorCategory.DuplicateKey) { return false; }
     }
-    // Missing revisions are legacy version zero. Active-state and revision checks share the atomic write.
+
     private static FilterDefinition<LabUserProfile> CurrentVersion(string id, long revision)
     {
         var f = Builders<LabUserProfile>.Filter;
@@ -130,7 +128,7 @@ public sealed class LabProfileRepository : ILabProfileRepository
     public Task<bool> HasCurrentAssignmentsAsync(string id, DateTime clinicDayStartUtc, CancellationToken ct = default)
     {
         var f = Builders<BsonDocument>.Filter;
-        // Unknown/missing shift dates remain blocking until the assignment is corrected or closed.
+
         var terminal = new BsonRegularExpression("^(Cancelled|Canceled|Completed|Closed|Inactive)$", "i");
         return _assignments.Find(Identity("lab_user_id", id) & f.Not(f.Regex("status", terminal)) &
             f.Ne("is_deleted", true) & f.Ne("isDeleted", true) &

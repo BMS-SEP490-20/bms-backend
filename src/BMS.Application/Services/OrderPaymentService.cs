@@ -39,11 +39,9 @@ public sealed class OrderPaymentService(
         };
         var order = await LoadAsync(orderId, ct);
         EnsurePayable(order);
-        var fee = await ComputeAsync(order, request, ct); // validates the card/voucher before anything is written
+        var fee = await ComputeAsync(order, request, ct);
         var now = clock.GetUtcNow().UtcDateTime;
 
-        // WHY mark the order first: the conditional update is the single "who pays" decision; a second cashier
-        // (or a double click) gets 409 and no second invoice is written.
         var paid = await orders.TryMarkPaidAsync(order.Id, cashierId, now, ct)
                    ?? throw new ConflictStateException("ORDER_ALREADY_PAID", "Đơn đã được thanh toán hoặc không còn ở trạng thái chờ thanh toán.");
 
@@ -84,8 +82,7 @@ public sealed class OrderPaymentService(
         invoice.Status = InvoiceStatus.Unpaid;
         invoice.PaymentMethod = PaymentMethod.VNPay;
         await invoices.CreateAsync(invoice, ct);
-        // WHY not Paid: without a verified VNPay IPN callback (signature + amount) nothing proves the money
-        // arrived (GAP C3.3; the fake CRC "6304ABCD" QR was removed). TODO(phat, Đợt 4): VNPay IPN endpoint.
+
         logger.LogInformation("VNPay payment started for order {OrderNumber} by {ActorId}: invoice {InvoiceCode} pending",
             order.OrderNumber, actorUserId, invoice.InvoiceCode);
         return Result(order, invoice, fee, "Đã tạo yêu cầu thanh toán VNPay. Đơn chỉ chuyển sang đã thanh toán khi có xác nhận từ VNPay.");

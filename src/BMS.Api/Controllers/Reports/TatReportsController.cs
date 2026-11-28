@@ -19,7 +19,7 @@ namespace BMS.Api.Controllers.Reports;
 [Route("api/statistics/tat")]
 [Route("api/v1/tat/statistics")]
 [Route("api/tat/statistics")]
-// WHY: UC63: Admin, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.AdminOrManager)]
 public class TatReportsController : ControllerBase
 {

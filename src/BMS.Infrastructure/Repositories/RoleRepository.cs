@@ -289,7 +289,7 @@ public class RoleRepository : IRoleRepository
         role.Permissions ??= new List<string>();
         var canonical = RoleNames.FromRoleId(role.Id) ?? RoleNames.Normalize(role.RoleName);
         if (canonical is null) return;
-        // WHY: old documents carry LabHead/LabTech/Vietnamese display names; the claim must be canonical.
+
         role.RoleName = canonical;
         var existing = new HashSet<string>(role.Permissions, StringComparer.OrdinalIgnoreCase);
 
@@ -318,7 +318,7 @@ public class RoleRepository : IRoleRepository
                 Remove("APPROVE_RESULT", "UNLOCK_QC", "EDIT_PANIC_THRESHOLD");
                 break;
             case RoleNames.Doctor:
-                // Clinical approve/sign is Doctor-owned (patient publish gate); Manager keeps tech-verify only.
+
                 Ensure("EXAMINE_PATIENT", "CLINIC_EXAM", "ORDER_TEST", "CREATE_PRESCRIPTION", "VIEW_PATIENT_HISTORY", "VIEW_PATIENT_RECORDS", "VIEW_PATIENTS", "APPROVE_RESULTS", "APPROVE_RESULT", "SIGN_REPORTS");
                 break;
             case RoleNames.Receptionist:
@@ -551,4 +551,3 @@ public class RoleRepository : IRoleRepository
         _seeded = true;
     }
 }
-

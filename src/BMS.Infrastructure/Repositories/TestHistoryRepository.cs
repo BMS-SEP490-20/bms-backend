@@ -29,7 +29,7 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
     private static string Measurement(BsonDocument d)
     {
         var value = Alias(d, "measuredValue", "value_numeric");
-        // Round-trip formatting preserves the stored double without the driver's verbose BSON diagnostic representation.
+
         return value.IsDouble ? value.AsDouble.ToString("R", CultureInfo.InvariantCulture) : value.IsBsonNull ? "" : value.ToString()!;
     }
     private static readonly BsonDocument Active = new() { { "is_deleted", new BsonDocument("$ne", true) }, { "isDeleted", new BsonDocument("$ne", true) }, { "isActive", new BsonDocument("$ne", false) } };
@@ -148,7 +148,6 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
         var appointmentId = Text(d, "appointmentId", "appointment_id");
         var patientId = summary.PatientId;
 
-        // Fallback 1: linked finalized MedicalAssessment (UC50) for this encounter or patient
         if (string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(icd10Code))
         {
             var assessment = await FindLinkedAssessmentAsync(appointmentId, patientId, summary.CreatedAt, ct);
@@ -167,7 +166,6 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
             }
         }
 
-        // Fallback 2: doctor consultation summary saved on linked appointment notes (for previously approved records)
         if ((string.IsNullOrWhiteSpace(finalDiagnosis) || string.IsNullOrWhiteSpace(doctorConclusion)) && !string.IsNullOrWhiteSpace(appointmentId))
         {
             var appt = await _db.GetCollection<BsonDocument>("appointments")
@@ -269,7 +267,7 @@ public sealed class TestHistoryRepository : ITestHistoryRepository
                 if (byPatient is not null) return byPatient;
             }
         }
-        catch { /* non-fatal */ }
+        catch {  }
 
         return null;
     }

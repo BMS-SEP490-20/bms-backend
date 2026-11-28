@@ -37,7 +37,6 @@ public class TrackTestProgressService : ITrackTestProgressService
 
         var cleanId = identifier.Trim();
 
-        // 1. Try to find by TestOrder (OrderNumber or Id)
         var order = await _ordersCollection.Find(x => x.OrderNumber == cleanId || x.Id == cleanId).FirstOrDefaultAsync(ct);
 
         Sample? sample = null;
@@ -71,7 +70,6 @@ public class TrackTestProgressService : ITrackTestProgressService
         var seenSampleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenOrderIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // 1. All blood samples belonging to this patient (covers appointments + walk-in + test_orders)
         var samples = await _samplesCollection
             .Find(Builders<Sample>.Filter.In(x => x.PatientId, patientKeys))
             .SortByDescending(x => x.CreatedAt)
@@ -95,7 +93,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             list.Add(await BuildEnrichedTrackingResponseAsync(order, sample, result, isPublicQuery: false, ct));
         }
 
-        // 2. Any test orders that do not yet have a collected blood sample
         var orders = await _ordersCollection
             .Find(Builders<TestOrder>.Filter.In(x => x.PatientId, patientKeys))
             .SortByDescending(x => x.CreatedAt)
@@ -188,7 +185,7 @@ public class TrackTestProgressService : ITrackTestProgressService
                 if (p.TryGetValue("patientCode", out var pc2) && pc2.IsString && !string.IsNullOrWhiteSpace(pc2.AsString)) keys.Add(pc2.AsString);
             }
         }
-        catch { /* non-fatal */ }
+        catch {  }
 
         return keys.ToList();
     }
@@ -206,7 +203,6 @@ public class TrackTestProgressService : ITrackTestProgressService
 
         try
         {
-            // Legacy docs use sample_id / result_code; canonical uses sampleId / resultCode.
             var raw = _database.GetCollection<BsonDocument>("test_results");
             var f = Builders<BsonDocument>.Filter;
             var idValues = new BsonArray();
@@ -229,7 +225,6 @@ public class TrackTestProgressService : ITrackTestProgressService
 
             if (docs.Count == 0)
             {
-                // Fallback typed query (camelCase-only collections)
                 var typed = await _resultsCollection
                     .Find(Builders<TestResult>.Filter.In(x => x.SampleId, keys))
                     .SortByDescending(x => x.CreatedAt)
@@ -238,7 +233,6 @@ public class TrackTestProgressService : ITrackTestProgressService
                 return PreferApprovedResult(typed);
             }
 
-            // Prefer approved/signed then map via typed collection by ResultCode / _id
             BsonDocument? best = docs.FirstOrDefault(d =>
             {
                 var status = d.GetValue("status", "").ToString() ?? "";
@@ -269,7 +263,6 @@ public class TrackTestProgressService : ITrackTestProgressService
 
             if (entity != null)
             {
-                // Ensure canonical fields are populated even when stored only as snake_case on legacy docs
                 if (string.IsNullOrWhiteSpace(entity.ResultCode) && !string.IsNullOrWhiteSpace(codeStr))
                     entity.ResultCode = codeStr;
                 if (string.IsNullOrWhiteSpace(entity.ResultCode) && id.StartsWith("TRE-", StringComparison.OrdinalIgnoreCase))
@@ -287,7 +280,6 @@ public class TrackTestProgressService : ITrackTestProgressService
                 return entity;
             }
 
-            // Last resort: synthesize minimal result preserving real DB actor and signature fields
             return new TestResult
             {
                 Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString() : id,
@@ -331,7 +323,6 @@ public class TrackTestProgressService : ITrackTestProgressService
         int? resolvedAge = order?.PatientAge ?? sample?.PatientAge;
         string? resolvedPackageName = sample?.TestPackageName;
 
-        // Enrich real patient demographics (real age from DOB instead of hardcoded 30)
         if (!string.IsNullOrWhiteSpace(patientId))
         {
             try
@@ -362,10 +353,9 @@ public class TrackTestProgressService : ITrackTestProgressService
                     }
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
 
-        // Enrich package name from result.PackageId or appointment.packageId when missing on sample
         if (string.IsNullOrWhiteSpace(resolvedPackageName))
         {
             var pkgKey = result?.PackageId;
@@ -384,7 +374,7 @@ public class TrackTestProgressService : ITrackTestProgressService
                         resolvedPackageName = GetDocString(apptDoc, "packageName", "package_name");
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
             }
 
             if (string.IsNullOrWhiteSpace(resolvedPackageName) && !string.IsNullOrWhiteSpace(pkgKey))
@@ -435,7 +425,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             return !string.IsNullOrWhiteSpace(hit.OperatorName) ? hit.OperatorName : hit.ChangedBy;
         }
 
-        // Gather linked clinical identifiers (appointmentId / orderId) to resolve ordering doctor on legacy samples
         var linkedIds = new[] { order?.AppointmentId, sample?.TestOrderId, order?.Id, result?.AppointmentId }
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .Select(v => v!.Trim())
@@ -469,7 +458,7 @@ public class TrackTestProgressService : ITrackTestProgressService
                     appointmentDoctorCandidate = GetDocString(apptDoc, "doctorName", "doctor_name", "doctorId", "doctor_id", "createdBy", "created_by");
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
 
             if (string.IsNullOrWhiteSpace(order?.DoctorName) && string.IsNullOrWhiteSpace(order?.DoctorId) && string.IsNullOrWhiteSpace(appointmentDoctorCandidate))
             {
@@ -487,7 +476,7 @@ public class TrackTestProgressService : ITrackTestProgressService
                         assessmentDoctorCandidate = GetDocString(maDoc, "doctor_name", "doctorName", "doctor_id", "doctorId");
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
 
                 try
                 {
@@ -503,7 +492,7 @@ public class TrackTestProgressService : ITrackTestProgressService
                         commentAuthorCandidate = GetDocString(cmtDoc, "author_name", "authorName", "author_id", "authorId");
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
 
                 try
                 {
@@ -517,11 +506,10 @@ public class TrackTestProgressService : ITrackTestProgressService
                         paymentCashierCandidate = GetDocString(payDoc, "cashier_name", "cashierName", "cashier_id", "cashierId");
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
             }
         }
 
-        // Step 1: Ordering physician / intake staff
         var step1 = await PickFirstResolvedAsync(
             order?.DoctorName,
             order?.DoctorId,
@@ -530,7 +518,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             commentAuthorCandidate,
             paymentCashierCandidate);
 
-        // Step 2: Phlebotomist / specimen collector
         var step2 = await PickFirstResolvedAsync(
             sample?.CollectorName,
             sample?.CollectedBy,
@@ -538,7 +525,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             sample?.HandoverBy,
             sample?.HandoverById);
 
-        // Step 3: LIS receiving technician (or rejecting technician)
         var isRejected = sample?.Status == SampleStatus.Rejected || !string.IsNullOrEmpty(sample?.RejectionReason);
         var step3 = await PickFirstResolvedAsync(
             isRejected ? sample?.RejectedBy : null,
@@ -548,7 +534,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             sample?.AssignedTechnicianId,
             result?.EnteredByUserId);
 
-        // Step 4: Analyzer / lab technician entering results
         var step4 = await PickFirstResolvedAsync(
             result?.EnteredByUserId,
             sample?.AssignedTechnicianName,
@@ -556,7 +541,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             HistoryActor("Processing", "Testing", "Completed"),
             step3);
 
-        // Step 5: Approving / reviewing specialist doctor
         var step5 = await PickFirstResolvedAsync(
             result?.ApprovedByDoctorId,
             result?.ReviewedBy,
@@ -564,7 +548,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             order?.DoctorId,
             step1);
 
-        // Step 6: Digital signature / release authority (actual signing doctor from DB)
         var step6 = await PickFirstResolvedAsync(
             result?.ApprovedByDoctorId,
             result?.ReviewedBy,
@@ -604,10 +587,9 @@ public class TrackTestProgressService : ITrackTestProgressService
                     if (!string.IsNullOrWhiteSpace(resolved)) break;
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
 
-        // If not found in accounts/employees, only keep raw string if it is already a human name (not an opaque ID/code)
         if (string.IsNullOrWhiteSpace(resolved))
         {
             bool looksLikeOpaqueId = ObjectId.TryParse(key, out _)
@@ -646,7 +628,7 @@ public class TrackTestProgressService : ITrackTestProgressService
                     if (!string.IsNullOrWhiteSpace(name)) return name;
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
         return null;
     }
@@ -683,7 +665,6 @@ public class TrackTestProgressService : ITrackTestProgressService
         string? resolvedPackageName,
         ResolvedStepHandlers handlers)
     {
-        // Prefer human ORD-/barcode over raw sample GUID so BN list/export never shows opaque IDs.
         var orderNumber = !string.IsNullOrWhiteSpace(order?.OrderNumber)
             ? order!.OrderNumber
             : (!string.IsNullOrWhiteSpace(sample?.Barcode)
@@ -719,7 +700,6 @@ public class TrackTestProgressService : ITrackTestProgressService
 
         var steps = new List<TrackingStepDto>();
 
-        // Step 1: REGISTERED
         steps.Add(new TrackingStepDto
         {
             StepNumber = 1,
@@ -733,7 +713,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             Department = "Phòng Khám Lâm Sàng"
         });
 
-        // Step 2: SAMPLE_COLLECTED
         bool step2Done = (sample != null && sample.CollectedAt != default) || (order != null && TestOrderStatusRules.IsSampleCollectedOrLater(order.Status));
         steps.Add(new TrackingStepDto
         {
@@ -748,7 +727,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             Department = "Phòng Lấy Mẫu Bệnh Phẩm"
         });
 
-        // Step 3: LAB_RECEIVED
         bool step3Done = false;
         var step3Status = TrackingStepStatus.Pending;
         string step3Text = "Chờ nhập Lab";
@@ -792,7 +770,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             Notes = step3Notes
         });
 
-        // Step 4: ANALYZING
         bool step4Done = false;
         var step4Status = TrackingStepStatus.Pending;
         string step4Text = "Chờ phân tích";
@@ -830,7 +807,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             Notes = step4Notes
         });
 
-        // Step 5: MEDICAL_REVIEW — CHỈ hoàn thành khi Bác sĩ đã thực sự thẩm định/ký duyệt kết quả (không bật sớm khi Lab mới nhập xong)
         bool isApprovedResult = result != null &&
             !result.IsSuperseded &&
             (string.Equals(result.Status, "Approved", StringComparison.OrdinalIgnoreCase) ||
@@ -860,7 +836,6 @@ public class TrackTestProgressService : ITrackTestProgressService
             Department = "Hội Đồng Thẩm Định Y Khoa"
         });
 
-        // Step 6: COMPLETED
         bool step6Done = step5Done;
         var step6Status = step6Done ? TrackingStepStatus.Completed : (step4Done ? TrackingStepStatus.InProgress : TrackingStepStatus.Pending);
 

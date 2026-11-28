@@ -15,8 +15,8 @@ namespace BMS.Application.DTOs.AuditLogs
         [Required]
         public string Action { get; set; } = null!;
 
-        public string Category { get; set; } = "OPERATIONAL"; // SECURITY, ACCESS, OPERATIONAL, DATA_CHANGE
-        public string Severity { get; set; } = "INFO"; // INFO, WARNING, CRITICAL, ERROR
+        public string Category { get; set; } = "OPERATIONAL";
+        public string Severity { get; set; } = "INFO";
         public string? IpAddress { get; set; }
         public string? TargetEntity { get; set; }
         public string? EntityId { get; set; }
@@ -48,4 +48,3 @@ namespace BMS.Application.DTOs.AuditLogs
             new(Category, Severity, Status, Action, SearchTerm, FromDate, ToDate, PageNumber, PageSize);
     }
 }
-

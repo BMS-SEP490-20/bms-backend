@@ -65,7 +65,7 @@ public sealed class PaymentRecordService(IPaymentRepository repo, ILogger<Paymen
     {
         if (string.IsNullOrWhiteSpace(request.Status) || !AllowedStatuses.Contains(request.Status.Trim()))
             throw new DomainValidationException("PAYMENT_STATUS_INVALID", "Status must be Pending, Success or Failed.");
-        // Atomic $set instead of read-modify-replace.
+
         return repo.UpdateStatusAsync(id, request.Status.Trim(), request.TransactionCode, request.TxnRef, ct);
     }
 
@@ -75,8 +75,6 @@ public sealed class PaymentRecordService(IPaymentRepository repo, ILogger<Paymen
         if (string.IsNullOrWhiteSpace(request.PatientId))
             throw new DomainValidationException("PAYMENT_PATIENT_REQUIRED", "PatientId is required.");
 
-        // Calculate item amounts and subtotal
-        // TODO(Đợt 3): unit prices come from the client; they should be looked up from test packages server-side.
         var items = new List<ReceiptItemDto>();
         decimal subTotal = 0;
         foreach (var item in request.Items ?? [])
@@ -106,7 +104,6 @@ public sealed class PaymentRecordService(IPaymentRepository repo, ILogger<Paymen
         var now = DateTime.UtcNow;
         var receiptNumber = $"REC-{now:yyyyMMdd}-{RandomNumberGenerator.GetString(ReceiptAlphabet, 6)}";
 
-        // Persist payment transaction record
         await repo.CreateAsync(new Payment
         {
             PaymentId = Guid.NewGuid(),

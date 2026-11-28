@@ -16,7 +16,7 @@ public class ProcessPaymentRequestDto
     public string? PatientId { get; set; }
 
     [Required]
-    public string PaymentMethod { get; set; } = "VNPay"; // VNPay, MoMo, BankingQR, Reception, Cash
+    public string PaymentMethod { get; set; } = "VNPay";
 
     public string? DiscountCode { get; set; }
 

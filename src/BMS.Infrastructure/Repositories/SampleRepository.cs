@@ -27,7 +27,6 @@ public class SampleRepository : ISampleRepository
 
     public async Task<List<Sample>> ListPendingCheckInAsync(CancellationToken ct = default)
     {
-        // Collected / InTransit awaiting lab reception.
         return await _collection
             .Find(x => x.StatusString == "Collected"
                        || x.StatusString == "InTransit"

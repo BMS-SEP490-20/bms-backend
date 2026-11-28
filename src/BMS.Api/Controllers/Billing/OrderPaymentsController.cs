@@ -13,7 +13,7 @@ namespace BMS.Api.Controllers.Billing;
 /// </summary>
 [ApiController]
 [Route("api/billing/orders")]
-// WHY: counter payment only Receptionist (QĐ10); Patient pays own order online via VNPay only (QĐ15); Manager 403.
+
 [Authorize]
 public class OrderPaymentsController(IOrderPaymentService payments) : ControllerBase
 {

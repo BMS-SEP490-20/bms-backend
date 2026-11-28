@@ -19,7 +19,7 @@ public sealed class SampleTimelineRepository : ISampleTimelineRepository
             new(Builders<BsonDocument>.IndexKeys.Ascending("patient_id").Descending("collected_at").Ascending("_id")),
             new(Builders<BsonDocument>.IndexKeys.Ascending("status").Descending("collected_at").Ascending("_id"))
         ]);
-        // Preserve the existing unique barcode index; recreating it as nonunique would fail at startup.
+
         using (var indexes = Samples.Indexes.List())
             if (!indexes.ToList().Any(i => i["key"].AsBsonDocument.Equals(new BsonDocument("barcode", 1))))
                 Samples.Indexes.CreateOne(new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("barcode")));
@@ -43,7 +43,6 @@ public sealed class SampleTimelineRepository : ISampleTimelineRepository
 
     public async Task<List<string>> OwnPatientIdsAsync(string accountId, CancellationToken ct = default)
     {
-        // Only an explicit account link grants access. Unverified family relations are not an authorization source.
         var docs = await _db.GetCollection<BsonDocument>("patients").Find(Active & Identity("AccountId", accountId))
             .Project(new BsonDocument("_id", 1)).ToListAsync(ct);
         return docs.Select(x => Text(x, "_id")).Where(x => x.Length > 0).ToList();
@@ -70,7 +69,7 @@ public sealed class SampleTimelineRepository : ISampleTimelineRepository
         var f = Builders<BsonDocument>.Filter;
         var projection = new BsonDocument(SummaryProjection) { { "status_history", 1 }, { "created_at", 1 }, { "in_transit_at", 1 },
             { "received_at", 1 }, { "processed_at", 1 }, { "completed_at", 1 }, { "rejected_at", 1 }, { "appointment_id", 1 } };
-        // IDs and barcodes are exact. A shared RFID tag must never silently select an arbitrary patient's sample.
+
         var exactId = await Samples.Find(Scope(patientIds) & Identity("_id", code)).Project(projection).FirstOrDefaultAsync(ct);
         var d = exactId is null ? await Samples.Find(Scope(patientIds) & f.Eq("barcode", code)).Project(projection).Limit(2).ToListAsync(ct) : [exactId];
         if (d.Count == 0) return null;

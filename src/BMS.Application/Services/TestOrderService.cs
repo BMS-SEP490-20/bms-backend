@@ -92,8 +92,6 @@ public sealed partial class TestOrderService(
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(doctorUserId)) throw new ForbiddenAccessException();
 
-        // 1. ICD-10 first: a missing (non-draft) or malformed code must reject the order before anything is looked up
-        //    or saved. Quy trình Đợt 3A Q4: a draft may be saved without ICD-10; it is required on submit.
         var icd = request.SaveAsDraft
             ? NormalizeIcd10Codes(request.Icd10Codes, request.Icd10Code, required: false)
             : NormalizeIcd10(request);
@@ -105,7 +103,6 @@ public sealed partial class TestOrderService(
         var patient = await patients.GetByIdOrCodeAsync(request.PatientId.Trim(), ct)
                       ?? throw new ResourceNotFoundException("PATIENT_NOT_FOUND", "Không tìm thấy bệnh nhân.");
 
-        // 2. Prices only from the server catalog (one query, no N+1). Unknown code → error, never a default price.
         var codes = request.Items.Select(i => (i.TestCode ?? string.Empty).Trim().ToUpperInvariant())
             .Where(c => c.Length > 0).Distinct().ToList();
         if (codes.Count == 0)
@@ -167,9 +164,6 @@ public sealed partial class TestOrderService(
         };
         await orders.InsertAsync(order, ct);
 
-        // Sau khi BS phát hành y lệnh (PaidPendingSample): tạo ống PendingCollection theo từng loại ống
-        // để Lab tiếp nhận / in barcode — gắn TestOrderId = order.Id (không dùng appointment).
-        // Đồng thời tự động chuyển trạng thái lịch hẹn đang khám (InProgress) sang Completed để giải phóng bàn khám.
         if (!request.SaveAsDraft)
         {
             if (appointments != null)
@@ -233,10 +227,6 @@ public sealed partial class TestOrderService(
                 }
                 catch (Exception ex) { logger.LogWarning(ex, "Failed to send test order notifications"); }
             }
-
-            // NOTE: Không tự sinh blood_samples / barcode SMP-... ngay khi Bác sĩ tạo y lệnh.
-            // Kỹ thuật viên Lab phải vào Bước 1 (Tiếp Nhận Chỉ Định & Barcode) xác nhận tiếp nhận y lệnh
-            // thì hệ thống mới sinh mã Barcode SMP-YYYYMMDD-XXXX và đẩy mẫu sang Bước 2 (Hàng Đợi & Lấy Mẫu).
         }
 
         logger.LogInformation("Test order {OrderNumber} created by doctor {DoctorId} for {Patient} ({Priority}, {Status}, {Count} tests)",
@@ -250,7 +240,7 @@ public sealed partial class TestOrderService(
     {
         if (!Enum.TryParse<TestOrderStatus>(request.Status?.Trim(), true, out var target) || !Enum.IsDefined(target))
             throw new DomainValidationException("ORDER_STATUS_INVALID", "Trạng thái đơn không hợp lệ.");
-        // QĐ10: users may only cancel; payment, sampling and results move the order automatically.
+
         if (target != TestOrderStatus.Cancelled)
             throw new ForbiddenAccessException("Chỉ được hủy đơn; các trạng thái khác do hệ thống tự cập nhật.");
 
@@ -259,7 +249,6 @@ public sealed partial class TestOrderService(
         TestOrderStatus[] from;
         if (actorIsManager)
         {
-            // Quy trình Đợt 3A Q5: the Manager's exception cancel needs a written reason (audited).
             if (note == null || note.Length < MinCancelReasonLength)
                 throw new DomainValidationException("CANCEL_REASON_REQUIRED",
                     $"Quản lý hủy đơn phải ghi lý do (tối thiểu {MinCancelReasonLength} ký tự).");
@@ -279,7 +268,6 @@ public sealed partial class TestOrderService(
         var updated = await orders.TryTransitionAsync(order.Id, from, TestOrderStatus.Cancelled, actorUserId, now, note, ct);
         if (updated == null)
         {
-            // Lost a race (e.g. sample collected meanwhile): report the state that blocked us.
             var current = await orders.GetByIdAsync(order.Id, ct);
             ThrowIfNotCancellable(current?.Status ?? order.Status, actorIsManager);
             throw new ConflictStateException("ORDER_STATE_CHANGED", "Đơn vừa được cập nhật, vui lòng tải lại.");
@@ -297,8 +285,6 @@ public sealed partial class TestOrderService(
         logger.LogInformation("Test order {OrderNumber} cancelled by {ActorId} ({Role}) from {From}", updated.OrderNumber, actorUserId,
             role, order.Status);
 
-        // Quy trình Đợt 3A Q3. WHY tubes as well as the status: the status read before the cancel may be stale; a
-        // written specimen is the proof that the sample was collected.
         var collected = TestOrderStatusRules.IsSampleCollectedOrLater(order.Status)
                         || (await specimens.GetByOrderAsync(updated.OrderNumber, ct)).Count > 0;
         var refund = await refunds.OnOrderCancelledAsync(updated, collected, new Actor(actorUserId, actorName, role), note, ct);
@@ -339,7 +325,6 @@ public sealed partial class TestOrderService(
         if (order.Status != TestOrderStatus.Draft)
             throw new ConflictStateException("ORDER_NOT_DRAFT", "Đơn không còn ở trạng thái nháp.");
 
-        // Quy trình Đợt 3A Q4: ICD-10 is mandatory from submit on, i.e. before the fee can be calculated.
         var icd = NormalizeIcd10Codes(order.Icd10Codes.Concat(request.Icd10Codes ?? []), request.Icd10Code, required: true);
         var deferred = order.Priority == SamplePriority.Stat;
         var now = clock.GetUtcNow().UtcDateTime;
