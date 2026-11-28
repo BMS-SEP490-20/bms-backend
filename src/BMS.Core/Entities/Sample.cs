@@ -124,7 +124,7 @@ public class Sample : ISupportInitialize
     public string? PackageCode { get; set; }
 
     [BsonElement("sample_type")]
-    public string SampleType { get; set; } = "Blood"; // Blood, Serum, Plasma, Urine
+    public string SampleType { get; set; } = "Blood";
 
     [BsonElement("tube_color")]
     [BsonIgnoreIfNull]

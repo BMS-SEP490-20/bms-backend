@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.QCs
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
-// WHY: UC74: Lab writes; Manager view. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
     public class QcFlagController : ControllerBase
     {

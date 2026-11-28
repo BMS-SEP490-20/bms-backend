@@ -76,7 +76,6 @@ public class RoleService : IRoleService
     {
         var normalizedCode = dto.RoleCode.Trim().ToUpperInvariant();
 
-        // Check duplicate code
         var existing = await _roleRepository.GetByCodeAsync(normalizedCode, ct);
         if (existing != null)
         {
@@ -135,13 +134,11 @@ public class RoleService : IRoleService
             return (false, "Role not found.");
         }
 
-        // Rule BR-ROLE-01: Lock system roles
         if (role.IsSystemRole)
         {
             return (false, "Core system roles (Admin, Doctor, etc.) cannot be deleted per business rule BR-ROLE-01.");
         }
 
-        // Rule BR-ROLE-02: Prevent deletion if users are assigned
         var userCount = await _userRepository.CountUsersByRoleIdAsync(ResolveNumericOrCodeRoleKey(role), ct);
         if (userCount > 0)
         {

@@ -88,8 +88,7 @@ public sealed class TestOrderRepository(IMongoDatabase database) : ITestOrderRep
             Builders<TestOrder>.Update.Set(o => o.Status, TestOrderStatus.PaidPendingSample).Set(o => o.PaidAt, nowUtc)
                 .Set(o => o.UpdatedAt, nowUtc).Set(o => o.StatusChangedBy, actorUserId), options, ct);
         if (paid != null) return paid;
-        // WHY a second conditional update: a STAT order may already be sampled (post-payment); only the
-        // payment timestamp changes, the clinical status stays.
+
         return await _orders.FindOneAndUpdateAsync(
             unpaid & F.Eq(o => o.PaymentDeferred, true)
                 & F.In(o => o.Status, new[] { TestOrderStatus.SampleCollected, TestOrderStatus.InAnalysis, TestOrderStatus.Completed }),

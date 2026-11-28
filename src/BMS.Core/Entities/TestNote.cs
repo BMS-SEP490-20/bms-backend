@@ -43,7 +43,7 @@ public class TestNote
     public string NoteType { get; set; } = "Technical observation";
 
     [BsonElement("visibility")]
-    public string Visibility { get; set; } = "Internal"; // "Internal" or "Report"
+    public string Visibility { get; set; } = "Internal";
 
     [BsonElement("is_internal_only")]
     public bool IsInternalOnly { get; set; } = true;

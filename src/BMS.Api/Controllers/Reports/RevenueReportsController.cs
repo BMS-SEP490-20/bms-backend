@@ -17,7 +17,7 @@ namespace BMS.Api.Controllers.Reports;
 [Route("api/[controller]")]
 [Route("api/v1/revenue")]
 [Route("api/revenue")]
-// WHY: UC78: Admin; Manager read-only (all actions are GET). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.AdminOrManager)]
 public class RevenueReportsController : ControllerBase
 {

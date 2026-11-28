@@ -227,7 +227,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Ignore format mismatch
         }
 
         try
@@ -246,7 +245,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Ignore
         }
 
         return (doctor, account);
@@ -283,7 +281,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Ignore
         }
 
         return (null, null, null, null);
@@ -319,7 +316,6 @@ public sealed class ShiftRepository : IShiftRepository
 
             foreach (var a in accounts)
             {
-                // 6-role seed (decision 30/10 point 1): 2 = Manager (ex-LabHead), 3 = Lab (ex-LabTech).
                 var roleLabel = a.RoleId is >= 1 and <= 6 && a.RoleId != 5 ? RoleNames.FromRoleId(a.RoleId)! : "Staff";
 
                 if (map.TryGetValue(a.Id, out var existing))
@@ -338,7 +334,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Non-fatal
         }
 
         return map;
@@ -378,7 +373,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Non-fatal
         }
 
         return map;
@@ -405,7 +399,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Ignore
         }
         return ids.ToList();
     }
@@ -451,7 +444,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Fallback
         }
 
         if (!result.Any(r => r.Type == "Clinic"))
@@ -541,14 +533,12 @@ public sealed class ShiftRepository : IShiftRepository
                 var id = doc.TryGetValue("_id", out var idVal) && !idVal.IsBsonNull ? idVal.ToString()?.Trim() : null;
                 if (string.IsNullOrWhiteSpace(id)) continue;
 
-                // Resolve canonical role safely: prefer explicit role string if valid, else fall back to RoleId
                 var rawRoleStr = ReadBsonStr(doc, "role", "Role");
                 var normalizedRole = RoleNames.Normalize(rawRoleStr);
                 var rawRoleId = ReadBsonInt(doc, "roleId", "RoleId", "role_id");
                 var effectiveRole = normalizedRole ?? RoleNames.FromRoleId(rawRoleId);
                 var effectiveRoleId = RoleNames.ToRoleId(effectiveRole) ?? rawRoleId ?? 0;
 
-                // Strictly exclude System Admin (1) and Patient (5) from shift rostering
                 if (string.IsNullOrWhiteSpace(effectiveRole)
                     || effectiveRoleId is 1 or 5
                     || effectiveRoleId < 2
@@ -602,7 +592,6 @@ public sealed class ShiftRepository : IShiftRepository
         }
         catch
         {
-            // Ignore
         }
 
         return result.Values
@@ -610,5 +599,4 @@ public sealed class ShiftRepository : IShiftRepository
             .ThenBy(s => s.FullName)
             .ToList();
     }
-
 }

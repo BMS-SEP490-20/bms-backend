@@ -1,4 +1,3 @@
-
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using BMS.Core.Entities;
@@ -28,7 +27,6 @@ public sealed class TestCriterionRepository :
     private readonly MongoDbContext _context;
     private readonly ILogger<TestCriterionRepository> _logger;
 
-    // Collection tương thích với entity của nhánh ManageServicePackages.
     private readonly IMongoCollection<TestCriterion> _legacyCriteria;
 
     private static readonly ConcurrentDictionary<string, TestCriterionEntity>
@@ -152,7 +150,6 @@ public sealed class TestCriterionRepository :
         var found = await FindCriterionByCodeCoreAsync(upperCode, ct);
         if (found != null) return found;
 
-        // Ensure core WHO/ISO 15189 criteria (including HCT, MCV, K, NA) are seeded on first miss.
         if (!_seeded)
         {
             await EnsureDefaultCriteriaSeededAsync(ct);
@@ -180,7 +177,6 @@ public sealed class TestCriterionRepository :
                 var canonical = matches.FirstOrDefault(c => c.IsActive) ?? matches.FirstOrDefault();
                 if (canonical != null) return canonical;
 
-                // Fallback to legacy snake_case / string-_id documents (e.g. { _id: "CRT-HCT", code: "HCT" }).
                 if (_context.Database != null)
                 {
                     var rawCol = _context.Database.GetCollection<BsonDocument>("test_criteria");
@@ -298,7 +294,6 @@ public sealed class TestCriterionRepository :
         var entity = await GetByIdAsync(id, ct);
         if (entity == null) return;
 
-        // Soft deactivation: preserves medical audit trail per ISO 15189
         entity.IsActive = false;
         entity.UpdatedAt = DateTime.UtcNow;
 

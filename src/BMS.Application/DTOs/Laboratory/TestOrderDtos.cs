@@ -68,7 +68,7 @@ public class CreateTestOrderRequestDto
     /// <summary>Single-code shortcut; merged with <see cref="Icd10Codes"/>.</summary>
     public string? Icd10Code { get; set; }
 
-    public string Priority { get; set; } = "Routine"; // Routine, Urgent, STAT
+    public string Priority { get; set; } = "Routine";
 
     [Required]
     [MinLength(5, ErrorMessage = "Clinical indication or reason for test is required.")]

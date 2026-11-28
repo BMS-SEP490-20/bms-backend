@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Laboratory
     [Route("TestOrder/[controller]")]
     [Route("api/TestOrder/[controller]")]
     [ApiController]
-// WHY: UC46/UC49: enter Lab; view Lab, Doctor, Manager; approve Manager only (decision 1). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
     public class TestResultController : ControllerBase
     {
@@ -129,7 +129,7 @@ namespace BMS.Api.Controllers.Laboratory
         /// <param name="dto">Approval payload containing approver info and digital stamp.</param>
         /// <param name="ct">Request cancellation token.</param>
         /// <returns>HTTP response containing approval status and updated result.</returns>
-        // Chỉ Bác sĩ lâm sàng có thẩm quyền ký duyệt cuối cùng để công bố kết quả cho bệnh nhân.
+
         [Authorize(Roles = RoleNames.Doctor)]
         [HttpPost("{id}/approve")]
         [HttpPut("{id}/approve")]
@@ -147,7 +147,6 @@ namespace BMS.Api.Controllers.Laboratory
                 });
             }
 
-            // WHY (BR-APP-02): the signature must name the signed-in Doctor/Manager, not whoever the body claims.
             dto.ApproverId = User.FindFirst("sub")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
             dto.ApproverName = User.FindFirst("name")?.Value ?? dto.ApproverId;
             var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? RoleNames.Doctor;

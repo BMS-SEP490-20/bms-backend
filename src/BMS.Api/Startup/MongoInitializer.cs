@@ -27,8 +27,7 @@ public sealed partial class MongoInitializer(
         try
         {
             await CreateIndexesAsync(ct);
-            // WHY: one-time, idempotent data fix for the 6-role model (DOT2 follow-up 5); runs in every
-            // environment because production data also holds RoleId 9 accounts.
+
             await roleMigration.MigrateLegacyPatientRoleIdAsync(ct);
             await flowIndexes.EnsureAsync(ct);
             if (env.IsDevelopment())
@@ -39,7 +38,6 @@ public sealed partial class MongoInitializer(
         }
         catch (Exception ex)
         {
-            // Không chặn app khởi động nếu Mongo tạm thời chưa sẵn sàng
             logger.LogError(ex, "MongoInitializer failed");
         }
     }
@@ -67,12 +65,11 @@ public sealed partial class MongoInitializer(
                 new CreateIndexOptions { Name = "ix_family" }),
             new CreateIndexModel<RefreshToken>(Builders<RefreshToken>.IndexKeys.Ascending(t => t.UserId),
                 new CreateIndexOptions { Name = "ix_user" }),
-            // TTL: tự xoá token hết hạn sau 7 ngày (giữ lại để phát hiện reuse)
+
             new CreateIndexModel<RefreshToken>(Builders<RefreshToken>.IndexKeys.Ascending(t => t.ExpiresAt),
                 new CreateIndexOptions { Name = "ttl_expires", ExpireAfter = TimeSpan.FromDays(7) })
         ], ct);
 
-        // Token đặt lại mật khẩu: tra theo hash, TTL tự xoá sau khi hết hạn 1 ngày
         var resets = db.GetCollection<PasswordResetToken>(names.PasswordResetTokens);
         await resets.Indexes.CreateManyAsync(
         [
@@ -84,11 +81,10 @@ public sealed partial class MongoInitializer(
                 new CreateIndexOptions { Name = "ttl_reset_expires", ExpireAfter = TimeSpan.FromDays(1) })
         ], ct);
 
-        // Gói dịch vụ (collection tự được tạo khi tạo index nếu chưa có)
         var packages = db.GetCollection<ServicePackage>(names.ServicePackages);
         await packages.Indexes.CreateManyAsync(
         [
-            // Mã gói duy nhất trong các gói CHƯA xoá -> xoá mềm xong vẫn dùng lại được mã
+
             new CreateIndexModel<ServicePackage>(Builders<ServicePackage>.IndexKeys.Ascending(p => p.Code),
                 new CreateIndexOptions<ServicePackage>
                 {

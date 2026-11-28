@@ -70,7 +70,6 @@ namespace BMS.Infrastructure.Repositories
             if (IsSet(q.Action)) filter &= f.Eq(a => a.Action, q.Action);
             if (!string.IsNullOrWhiteSpace(q.SearchTerm))
             {
-                // Escape user input so it is matched literally, never as a regex supplied by the caller.
                 var regex = new BsonRegularExpression(Regex.Escape(q.SearchTerm.Trim()), "i");
                 filter &= f.Or(f.Regex(a => a.UserName, regex), f.Regex(a => a.Action, regex),
                     f.Regex(a => a.Details, regex), f.Regex(a => a.TargetEntity, regex));

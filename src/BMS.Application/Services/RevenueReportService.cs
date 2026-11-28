@@ -22,7 +22,6 @@ public class RevenueReportService : IRevenueReportService
     private readonly IMongoDatabase? _database;
     private readonly ILogger<RevenueReportService> _logger;
 
-    // Real MongoDB data only — no hardcoded 90-day Random(42) mock transactions
     private readonly ConcurrentDictionary<string, RevenueTransaction> _transactions = new();
 
     public RevenueReportService(ILogger<RevenueReportService> logger, IMongoDatabase? database = null)
@@ -234,7 +233,6 @@ public class RevenueReportService : IRevenueReportService
         int totalOrders = currentTxns.Count;
         decimal aov = totalOrders > 0 ? Math.Round(net / totalOrders, 0) : 0m;
 
-        // Calculate growth rate vs previous period of same duration
         var duration = toDate - fromDate;
         var prevFrom = fromDate - duration;
         var prevTo = fromDate;
@@ -275,7 +273,6 @@ public class RevenueReportService : IRevenueReportService
 
         if (duration <= 35)
         {
-            // Group by Day
             var groups = txns
                 .GroupBy(t => t.CreatedAt.Date)
                 .ToDictionary(g => g.Key, g => g.ToList());
@@ -308,7 +305,6 @@ public class RevenueReportService : IRevenueReportService
         }
         else
         {
-            // Group by Month
             var groups = txns
                 .GroupBy(t => new { t.CreatedAt.Year, t.CreatedAt.Month })
                 .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Month);
@@ -332,7 +328,7 @@ public class RevenueReportService : IRevenueReportService
     private static List<RevenueByCategoryDto> CalculateByCategory(List<RevenueTransaction> txns)
     {
         decimal totalNet = txns.Sum(t => t.NetAmount);
-        if (totalNet == 0) totalNet = 1; // avoid div by zero
+        if (totalNet == 0) totalNet = 1;
 
         var groups = txns
             .GroupBy(t => t.Category)
@@ -461,16 +457,15 @@ public class RevenueReportService : IRevenueReportService
 
         var rnd = new Random(42);
 
-        // Seed 90 days of transactions for comprehensive trend analysis
         for (int i = 0; i < 90; i++)
         {
             var date = now.AddDays(-89 + i);
-            int ordersPerDay = rnd.Next(8, 20); // 8-20 transactions per day
+            int ordersPerDay = rnd.Next(8, 20);
 
             for (int j = 0; j < ordersPerDay; j++)
             {
                 var category = categories[rnd.Next(categories.Length)];
-                var isHome = rnd.NextDouble() < 0.25; // 25% home collection
+                var isHome = rnd.NextDouble() < 0.25;
                 var method = methods[rnd.Next(methods.Length)];
                 var doc = doctors[rnd.Next(doctors.Length)];
                 var dept = depts[rnd.Next(depts.Length)];

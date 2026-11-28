@@ -12,7 +12,7 @@ public sealed class MedicalNoteRepository : IMedicalNoteRepository
     public MedicalNoteRepository(IMongoDatabase database)
     {
         _notes = database.GetCollection<MedicalNote>("medical_notes");
-        // Supports record-scoped history with a deterministic order when timestamps match.
+
         _notes.Indexes.CreateOne(new CreateIndexModel<MedicalNote>(
             Builders<MedicalNote>.IndexKeys.Ascending(x => x.RecordId)
                 .Descending(x => x.CreatedAt).Descending(x => x.Id)));
@@ -27,7 +27,6 @@ public sealed class MedicalNoteRepository : IMedicalNoteRepository
         }
         catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
-            // The unique _id makes a retried submission safe after an ambiguous network failure.
             return await _notes.Find(x => x.Id == note.Id).FirstAsync(ct);
         }
     }

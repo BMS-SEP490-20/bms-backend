@@ -56,7 +56,6 @@ public class User : ISupportInitialize
     [BsonElement("FullName")]
     public string FullName { get; set; } = string.Empty;
 
-    // Thông tin bệnh nhân mở rộng
     [BsonElement("patientCode")]
     public string? PatientCode { get; set; }
 
@@ -75,7 +74,6 @@ public class User : ISupportInitialize
     [BsonElement("bloodType")]
     public string? BloodType { get; set; }
 
-    // Thông tin nhân sự cán bộ y tế (Đề án 06 Bộ Y tế & ISO 15189 Phòng Xét Nghiệm Máu)
     [BsonElement("employeeCode")]
     public string? EmployeeCode { get; set; }
 
@@ -106,7 +104,6 @@ public class User : ISupportInitialize
     [BsonElement("digitalSignatureCode")]
     public string? DigitalSignatureCode { get; set; }
 
-    // Vai trò
     [BsonElement("RoleId")]
     [BsonIgnoreIfNull]
     public int? RoleId { get; set; } = (int)UserRole.Patient;
@@ -119,16 +116,13 @@ public class User : ISupportInitialize
     {
         get {
         if (!RoleId.HasValue) return UserRole.Patient;
-        // WHY: accounts self-registered before Đợt 2 were stored with RoleId 9; they are patients.
-        // Safety net only: UserRoleMigration converts stored 9 → 6 at startup.
-        // TODO(phat, DOT2-followup-5): remove the RoleId 9 branch once schema_migrations shows the migration ran in every environment.
+
         if (RoleId.Value == LegacyPatientRoleId) return UserRole.Patient;
         return Enum.IsDefined(typeof(UserRole), RoleId.Value) ? (UserRole)RoleId.Value : UserRole.Patient;
     }
         set => RoleId = (int)value;
     }
 
-    // Xác thực tài khoản (đồng bộ giữa Password và PasswordHash)
     [BsonElement("Password")]
     public string Password
     {
@@ -167,14 +161,12 @@ public class User : ISupportInitialize
     [BsonElement("medicalProfileCompleted")]
     public bool MedicalProfileCompleted { get; set; } = false;
 
-    // OTP xác thực email
     [BsonElement("verificationOtp")]
     public string? VerificationOtp { get; set; }
 
     [BsonElement("otpExpiresAt")]
     public DateTime? OtpExpiresAt { get; set; }
 
-    // OTP quên mật khẩu
     [BsonElement("passwordResetOtp")]
     public string? PasswordResetOtp { get; set; }
 
@@ -190,14 +182,12 @@ public class User : ISupportInitialize
     [BsonElement("passwordResetRequestedAt")]
     public DateTime? PasswordResetRequestedAt { get; set; }
 
-    // Chống brute-force
     [BsonElement("FailedLoginCount")]
     public int FailedLoginCount { get; set; }
 
     [BsonElement("LockoutEnd")]
     public DateTime? LockoutEnd { get; set; }
 
-    // Thông tin bổ sung & OAuth Provider
     [BsonElement("avatarUrl")]
     public string? AvatarUrl { get; set; }
 
@@ -257,7 +247,6 @@ public class User : ISupportInitialize
 
         if (ExtraElements.TryGetValue("roleId", out var r) && r.IsNumeric && r.ToInt32() > 0) RoleId = r.ToInt32();
 
-
         if (ExtraElements.TryGetValue("status", out var s) && s.IsInt32)
             Status = s.AsInt32;
 
@@ -279,5 +268,3 @@ public class User : ISupportInitialize
         ExtraElements = null;
     }
 }
-
-

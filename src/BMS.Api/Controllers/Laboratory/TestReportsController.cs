@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/reports")]
-// WHY: UC42: generate Lab (after Manager signs); view Patient (own), Doctor, Lab, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class TestReportsController : ControllerBase
 {
@@ -35,7 +35,7 @@ public class TestReportsController : ControllerBase
     public async Task<IActionResult> GetReportByOrder(string orderId)
     {
         var report = await _testReportService.GetReportByOrderIdAsync(orderId);
-        // Patient: own report only, same 404 otherwise (R14).
+
         if (report != null && !await this.MayAccessPatientAsync(report.PatientId, HttpContext.RequestAborted)) report = null;
         if (report == null)
         {

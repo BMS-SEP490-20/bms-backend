@@ -68,7 +68,6 @@ namespace BMS.Application.Services
         /// </summary>
         public async Task<bool> MarkAllAsReadAsync(string userId, CancellationToken ct = default)
         {
-            // Single UpdateMany instead of one update per notification (no N+1 writes).
             await _repo.MarkAllAsReadAsync(userId, DateTime.UtcNow, ct);
             return true;
         }
@@ -100,8 +99,7 @@ namespace BMS.Application.Services
         /// <summary>
         /// Normalizes role aliases into system standard role identifiers.
         /// </summary>
-        // Đợt 2: numeric IDs and legacy names map through the shared 6-role constants (1 Admin, 2 Manager,
-        // 3 Lab, 4 Doctor, 5 Receptionist, 6 Patient). Unknown audiences are kept as-is (e.g. a custom group).
+
         private static string NormalizeRoleName(string? role)
         {
             if (string.IsNullOrWhiteSpace(role)) return RoleNames.Patient;

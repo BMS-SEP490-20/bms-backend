@@ -37,8 +37,6 @@ namespace BMS.Application.Services
         /// <inheritdoc />
         public async Task<LabRoomDto> CreateAsync(CreateLabRoomDto dto, CancellationToken ct = default)
         {
-            // Ids are generated from the current max sequence; a concurrent insert of the same id hits the
-            // unique _id index, so we retry with a fresh sequence instead of loading every room into memory.
             for (var attempt = 0; attempt < MaxIdAttempts; attempt++)
             {
                 var room = new LabRoom
@@ -75,7 +73,6 @@ namespace BMS.Application.Services
         /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken ct = default)
         {
-            // Soft delete keeps historical shift / profile references to the room valid.
             if (!await _repo.SoftDeleteAsync(id, ct)) throw new ResourceNotFoundException(NotFoundCode, NotFoundMessage);
         }
 

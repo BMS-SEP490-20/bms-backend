@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/labrooms")]
 [Route("api/laboratory/rooms")]
 [Route("api/v1/laboratory/rooms")]
-// WHY: UC34: Manager, Admin. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Route("api/facilities/rooms")]
 [Authorize(Roles = RoleSets.AllStaff)]
 public class LabRoomsController : ControllerBase

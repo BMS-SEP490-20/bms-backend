@@ -20,7 +20,7 @@ namespace BMS.Api.Controllers.Billing;
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
-// WHY: UC55: payments only by Receptionist; Patient may pay own order online (VNPay only, server-computed amount, decision 15). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class PaymentsController : ControllerBase
 {
@@ -103,12 +103,10 @@ public class PaymentsController : ControllerBase
 
         if (User.IsInRole(RoleNames.Patient))
         {
-            // WHY (decision 15, TIEU-CHI R13): a patient may only pay their own invoice online via VNPay;
-            // cash/POS stays with Lễ tân. The amount is always taken from the stored invoice by the service.
             if (!string.Equals(request.PaymentMethod?.Trim(), "SePay", StringComparison.OrdinalIgnoreCase))
                 return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Bệnh nhân chỉ được thanh toán chuyển khoản qua SePay." });
             if (!await PatientOwnsInvoiceAsync(request.InvoiceId, ct)) return InvoiceNotFound();
-            request.PatientId = null; // never trust a client-supplied patient on the patient channel
+            request.PatientId = null;
         }
 
         try
@@ -131,10 +129,8 @@ public class PaymentsController : ControllerBase
         }
         catch (ArgumentException)
         {
-            // Fixed message: exception text may echo internal identifiers (no ex.Message leaks).
             return BadRequest(new { success = false, message = "Yêu cầu thanh toán không hợp lệ." });
         }
-        // Unexpected errors are handled by GlobalExceptionHandler (no exception details leaked to the client).
     }
 
     /// <summary>Same 404 for "missing" and "not yours", so a patient cannot probe other invoices.</summary>
@@ -170,10 +166,6 @@ public class PaymentsController : ControllerBase
             data = list
         });
     }
-
-    // ===================== Generate Receipt (I3-019) — payment records =====================
-    // Đợt 2 ruling: counter payments and receipts (create, status, receipt) are Lễ tân only; Admin never touches
-    // payments; Manager may only read the payment list/detail (matrix UC54 "QL xem").
 
     /// <summary>
     /// Creates a new payment transaction record.

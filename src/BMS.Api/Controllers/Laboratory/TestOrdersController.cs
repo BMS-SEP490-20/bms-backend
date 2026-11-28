@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-// WHY: UC32: create Doctor; list Doctor, Lab, Receptionist, Manager; status Doctor (cancel own) / Manager (exceptions). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class TestOrdersController(ITestOrderService testOrderService) : ControllerBase
 {
@@ -98,7 +98,6 @@ public class TestOrdersController(ITestOrderService testOrderService) : Controll
         return Ok(new { success = true, message = $"Đơn {updated.OrderNumber}: {updated.Status}.", data = updated });
     }
 
-    // WHY from the token only: GAP C3.4 / steering (c) — the acting user is never taken from the request body.
     private string CurrentUserId() =>
         User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? string.Empty;
 }

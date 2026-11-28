@@ -10,8 +10,6 @@ namespace BMS.Application.Services;
 /// <summary>Builds UC71 from recorded evidence; never treats RFID scans or analysis completion as result approval.</summary>
 public sealed class SampleTimelineService(ISampleTimelineRepository repository) : ISampleTimelineService
 {
-    // WHY: matrix row UC71 — Lab, Manager, Doctor see the full chain; Admin is excluded (decision 10).
-    // Ordinal comparison matches [Authorize(Roles)], so the service and the attribute agree on every role name.
     private static readonly HashSet<string> StaffRoles = new(StringComparer.Ordinal)
         { RoleNames.Manager, RoleNames.Lab, RoleNames.Doctor };
     private static readonly Dictionary<string, string> Titles = new(StringComparer.OrdinalIgnoreCase)
@@ -40,8 +38,7 @@ public sealed class SampleTimelineService(ISampleTimelineRepository repository) 
     {
         if (string.IsNullOrWhiteSpace(viewer.AccountId)) throw new ForbiddenAccessException();
         if (StaffRoles.Contains(viewer.Role)) return null;
-        // Defense in depth: the controller no longer admits Patient (matrix UC71), but if a caller does,
-        // scope stays limited to the account's own patient records.
+
         if (!viewer.Role.Equals(RoleNames.Patient, StringComparison.Ordinal)) throw new ForbiddenAccessException();
         return await repository.OwnPatientIdsAsync(viewer.AccountId, ct);
     }
@@ -74,7 +71,7 @@ public sealed class SampleTimelineService(ISampleTimelineRepository repository) 
         var scope = await Scope(viewer, ct);
         var record = await repository.GetAsync(code.Trim(), scope, ct);
         if (record is null) return null;
-        // Manual history entries cannot attest that reports passed signature/approval checks.
+
         var events = record.Events.Select(e => e.Code.Equals("ResultAvailable", StringComparison.OrdinalIgnoreCase) || e.Code.Equals("ResultEntered", StringComparison.OrdinalIgnoreCase)
             ? e with { Code = "Unverified:" + e.Code, Title = "Sự kiện lịch sử chưa đối chiếu báo cáo" } : e).ToList();
         var analysisComplete = record.Sample.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) || record.Sample.Status.Equals("Stored", StringComparison.OrdinalIgnoreCase);
@@ -84,13 +81,11 @@ public sealed class SampleTimelineService(ISampleTimelineRepository repository) 
                 events.Add(new("result:entered:" + i, "ResultEntered", Titles["ResultEntered"], entered, "test_results.entered_at"));
         if (ready)
         {
-            // A missing approval timestamp is unknown, even when a signed approved report exists.
             var at = record.Results.All(r => r.ApprovedAt.HasValue) ? record.Results.Max(r => r.ApprovedAt) : null;
             events.Add(new("result:available", "ResultAvailable", Titles["ResultAvailable"], at, "test_results.approval"));
         }
         if (scope is not null)
         {
-            // Patient responses contain only standardized progress, never free-text notes or staff/device metadata.
             events = events.Where(e => Titles.ContainsKey(e.Code) && !e.Code.Equals("Stored", StringComparison.OrdinalIgnoreCase) && !e.Code.Equals("Disposed", StringComparison.OrdinalIgnoreCase))
                 .Select(e => e with
                 {
@@ -103,7 +98,6 @@ public sealed class SampleTimelineService(ISampleTimelineRepository repository) 
         }
         if (viewer.Role.Equals("Receptionist", StringComparison.OrdinalIgnoreCase))
         {
-            // Reception staff need logistics milestones, not clinical free text embedded by another module.
             events = events.Select(e => e with { Notes = null, Title = Titles.GetValueOrDefault(e.Code, "Sự kiện đã ghi nhận") }).ToList();
         }
         events = events.Select(e => e with { Title = Titles.GetValueOrDefault(e.Code, string.IsNullOrWhiteSpace(e.Title) ? "Sự kiện đã ghi nhận" : e.Title) })

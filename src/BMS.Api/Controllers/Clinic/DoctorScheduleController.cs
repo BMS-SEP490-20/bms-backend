@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Clinic;
 [Route("api/v1/schedules")]
 [Route("api/schedules")]
 [Produces("application/json")]
-// WHY: UC16: Admin, Manager, Doctor, Receptionist. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.DoctorScheduleViewers)]
 public class DoctorScheduleController : ControllerBase
 {

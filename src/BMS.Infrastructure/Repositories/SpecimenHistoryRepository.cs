@@ -175,8 +175,6 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                     .Limit(pageSize)
                     .ToListAsync(ct);
 
-                // Primary source of truth: live blood_samples in MongoDB, overlaid with any persisted
-                // specimen_histories overrides (storage assignment & manual tracking events) by Barcode.
                 if (_context.Database != null)
                 {
                     try
@@ -246,7 +244,6 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
             }
         }
 
-        // In-memory fallback
         var query = _memoryStore.Values.Where(x => x.IsActive);
 
         if (!string.IsNullOrWhiteSpace(keyword))
@@ -486,7 +483,6 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
         existing.Storage = storageInfo;
         existing.UpdatedAt = DateTime.UtcNow;
 
-        // Auto append storage update event to timeline
         existing.Timeline.Add(new SpecimenTimelineEvent
         {
             EventId = Guid.NewGuid().ToString("N"),
@@ -513,7 +509,6 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
         var now = DateTime.UtcNow;
         return new List<SpecimenHistoryRecord>
         {
-            // MẪU 1: Ống Tím EDTA - Tổng phân tích tế bào máu CBC (Đã hoàn tất xét nghiệm & Lưu tủ mát)
             new()
             {
                 Id = "672501010000000000000001",
@@ -666,7 +661,6 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                 ]
             },
 
-            // MẪU 2: Ống Vàng Serum Gel Clot - Sinh Hóa Máu (Đang phân tích máy)
             new()
             {
                 Id = "672501010000000000000002",
@@ -777,7 +771,6 @@ public sealed class SpecimenHistoryRepository : ISpecimenHistoryRepository
                 ]
             },
 
-            // MẪU 3: Ống Xanh Dương Sodium Citrate - Đông Máu Cấp Cứu STAT (Cấp cứu 1 giờ)
             new()
             {
                 Id = "672501010000000000000003",

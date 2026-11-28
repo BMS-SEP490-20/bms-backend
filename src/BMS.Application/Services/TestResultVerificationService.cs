@@ -92,7 +92,6 @@ public class TestResultVerificationService : ITestResultVerificationService
                     if (string.IsNullOrWhiteSpace(specimenId) || !seenSpecimens.Add(specimenId))
                         continue;
 
-                    // Skip if already verified in verification store
                     var existingVerif = await _repository.GetBySpecimenIdAsync(specimenId);
                     if (existingVerif != null &&
                         (existingVerif.Status.Equals("Verified", StringComparison.OrdinalIgnoreCase) ||
@@ -125,7 +124,6 @@ public class TestResultVerificationService : ITestResultVerificationService
             }
         }
 
-        // Merge non-duplicate persisted verification records; only expose legacy mock sample when DB is unavailable.
         var repoPending = await _repository.GetPendingQueueAsync();
         foreach (var v in repoPending)
         {
@@ -217,7 +215,6 @@ public class TestResultVerificationService : ITestResultVerificationService
             return MapToDto(storedVerification);
         }
 
-        // Preserve legacy fallback only when running without real DB match
         if (_database == null)
         {
             var entity = new TestResultVerification
@@ -275,7 +272,6 @@ public class TestResultVerificationService : ITestResultVerificationService
         var normalizedVerifier = string.IsNullOrWhiteSpace(verifierName) ? "Trưởng Khoa Xét Nghiệm" : verifierName.Trim();
         var verifyTime = DateTime.UtcNow;
 
-        // 1. Lock verification protocol entity (no automatic SHA-256 digital signature assignment)
         entity.Status = "Verified";
         entity.VerifierComment = request.VerifierComment;
         entity.VerifiedBy = normalizedVerifier;
@@ -285,13 +281,10 @@ public class TestResultVerificationService : ITestResultVerificationService
 
         await _repository.UpsertVerificationAsync(entity);
 
-        // 3. Technical verification only — does NOT publish to patient portal.
-        // Main clinical gate: Doctor must still approve (DoctorApproved + APPROVED + clinical signature).
         if (_database != null)
         {
             try
             {
-                // 3a. Mark test_results as TechnicianVerified / waiting_doctor_review (editable by Doctor).
                 var testResultsCol = _database.GetCollection<BsonDocument>("test_results");
                 var rf = Builders<BsonDocument>.Filter;
                 var resultFilter = rf.Or(
@@ -349,7 +342,6 @@ public class TestResultVerificationService : ITestResultVerificationService
                     await testResultsCol.InsertOneAsync(newResultDoc);
                 }
 
-                // 3b. Sample stays Completed after Lab entry; do not reopen patient portal.
                 var samplesCol = _database.GetCollection<BsonDocument>("blood_samples");
                 var sf = Builders<BsonDocument>.Filter;
                 var sampleFilter = sf.Or(
@@ -364,7 +356,6 @@ public class TestResultVerificationService : ITestResultVerificationService
                     .Set("UpdatedAt", verifyTime);
                 await samplesCol.UpdateManyAsync(sampleFilter, sampleUpdate);
 
-                // 3c. Notify Doctor only — Patient learns results after Doctor clinical approve.
                 var notifCol = _database.GetCollection<BsonDocument>("notifications");
                 var docNotif = new BsonDocument
                 {
@@ -540,7 +531,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                 }
             }
         }
-        catch { /* non-fatal */ }
+        catch {  }
 
         try
         {
@@ -558,7 +549,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                 }
             }
         }
-        catch { /* non-fatal */ }
+        catch {  }
 
         foreach (var colName in new[] { "service_packages", "test_packages" })
         {
@@ -575,7 +566,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                     }
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
 
         try
@@ -589,7 +580,7 @@ public class TestResultVerificationService : ITestResultVerificationService
                     cache.OrderCodeByApptId.TryAdd(aid, code);
             }
         }
-        catch { /* non-fatal */ }
+        catch {  }
 
         return cache;
     }

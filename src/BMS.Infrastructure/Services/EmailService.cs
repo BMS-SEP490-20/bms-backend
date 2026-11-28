@@ -30,7 +30,7 @@ public class EmailService : IEmailService
     public EmailService(ILogger<EmailService> logger, IConfiguration configuration)
     {
         _logger = logger;
-        // Single source of truth: Email:* section (with legacy fallback to EmailSettings:* for backward compatibility)
+
         var emailSection = configuration.GetSection("Email");
         var legacySection = configuration.GetSection(EmailSettings.SectionName);
 
@@ -60,7 +60,6 @@ public class EmailService : IEmailService
             var htmlBody = BuildMedicalEmailTemplate(toEmail, otpCode, purposeDescription, expiryMinutes);
             var plainTextBody = BuildMedicalPlainTextTemplate(toEmail, otpCode, purposeDescription, expiryMinutes);
 
-            // If credentials are configured, execute live SMTP delivery
             if (!string.IsNullOrEmpty(_emailSettings.SenderEmail) &&
                 !string.IsNullOrEmpty(_emailSettings.AppPassword))
             {
@@ -68,7 +67,7 @@ public class EmailService : IEmailService
                 {
                     Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.AppPassword),
                     EnableSsl = _emailSettings.EnableSsl,
-                    Timeout = 30000 // 30-second delivery timeout
+                    Timeout = 30000
                 };
 
                 var senderDisplayName = !string.IsNullOrWhiteSpace(_emailSettings.SenderName)
@@ -87,13 +86,11 @@ public class EmailService : IEmailService
 
                 mail.To.Add(toEmail);
 
-                // Anti-spam optimization: Dual Plain-Text and HTML AlternateViews prevent Gmail spam classification
                 var plainView = AlternateView.CreateAlternateViewFromString(plainTextBody, System.Text.Encoding.UTF8, "text/plain");
                 var htmlView = AlternateView.CreateAlternateViewFromString(htmlBody, System.Text.Encoding.UTF8, "text/html");
                 mail.AlternateViews.Add(plainView);
                 mail.AlternateViews.Add(htmlView);
 
-                // Anti-spam headers
                 mail.Headers.Add("X-Priority", "3");
                 mail.Headers.Add("Auto-Submitted", "auto-generated");
                 mail.Headers.Add("Precedence", "bulk");
@@ -114,7 +111,6 @@ public class EmailService : IEmailService
                 return true;
             }
 
-            // Fallback for development if credentials are empty
             _logger.LogWarning(
                 "[BMS Email Service] EmailSettings missing credentials. Simulated dispatch to {Email}. OTP: {OtpCode}",
                 toEmail,
@@ -131,13 +127,12 @@ public class EmailService : IEmailService
                 smtpEx.StatusCode,
                 smtpEx.Message);
 
-            // Log fallback code in developer console so user is never blocked while debugging
             _logger.LogInformation(
                 "[BMS Email Fallback] Generated OTP for {Email} was {OtpCode}",
                 toEmail,
                 otpCode);
 
-            return true; // Return true after fallback logging to permit development continuity
+            return true;
         }
         catch (Exception ex)
         {
@@ -170,7 +165,7 @@ public class EmailService : IEmailService
                 {
                     Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.AppPassword),
                     EnableSsl = _emailSettings.EnableSsl,
-                    Timeout = 30000 // 30-second delivery timeout
+                    Timeout = 30000
                 };
 
                 using var mail = new MailMessage
@@ -193,7 +188,7 @@ public class EmailService : IEmailService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[BMS Email Warning] Failed to deliver appointment email to {Email}. Using fallback simulation.", toEmail);
-            return true; // Non-blocking delivery
+            return true;
         }
     }
 
@@ -232,7 +227,7 @@ public class EmailService : IEmailService
                 {
                     Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.AppPassword),
                     EnableSsl = _emailSettings.EnableSsl,
-                    Timeout = 30000 // 30-second delivery timeout
+                    Timeout = 30000
                 };
 
                 string subjectPrefix = isCriticalPanicValue ? "[CẢNH BÁO NGUY HIỂM] " : "[BMS Health] ";
@@ -490,7 +485,7 @@ public class EmailService : IEmailService
                 <div class="content">
                     <p style="font-size: 15px; color: #334155;">Kính chào quý khách <strong>{{patientName}}</strong>,</p>
                     <p style="font-size: 14px; color: #475569; line-height: 1.6;">Lịch hẹn của bạn đã được tiếp nhận và xác nhận thành công trên hệ thống BMS. Vui lòng kiểm tra thông tin chi tiết dưới đây:</p>
-                    
+
                     <div class="card">
                         <div class="row"><span class="key">Mã lịch hẹn:</span><span class="val code">{{appointmentCode}}</span></div>
                         <div class="row"><span class="key">Gói dịch vụ:</span><span class="val">{{packageName}}</span></div>
@@ -591,7 +586,7 @@ public class EmailService : IEmailService
                 <div class="content">
                     <p style="font-size: 15px; color: #334155; margin-top: 0;">Kính gửi quý khách <strong>{{patientName}}</strong>,</p>
                     <p style="font-size: 14px; color: #475569; line-height: 1.6;">{{message}}</p>
-                    
+
                     {{paramsHtml}}
                     {{recHtml}}
 

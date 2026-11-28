@@ -28,7 +28,6 @@ public class SampleOriginTraceRepository : ISampleOriginTraceRepository
             }
             catch
             {
-                // Fallback
             }
         }
     }
@@ -46,7 +45,6 @@ public class SampleOriginTraceRepository : ISampleOriginTraceRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -75,7 +73,6 @@ public class SampleOriginTraceRepository : ISampleOriginTraceRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -101,7 +98,6 @@ public class SampleOriginTraceRepository : ISampleOriginTraceRepository
             }
             catch
             {
-                // Fallback
             }
         }
 

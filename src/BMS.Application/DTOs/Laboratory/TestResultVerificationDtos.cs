@@ -10,8 +10,8 @@ namespace BMS.Application.DTOs.Laboratory;
 public class VerificationCheckItemDto
 {
     public string CheckName { get; set; } = string.Empty;
-    public string Status { get; set; } = "OK"; // "OK", "Flag", "None", "Confirmed"
-    public string StatusType { get; set; } = "ok"; // "ok", "warn", "err"
+    public string Status { get; set; } = "OK";
+    public string StatusType { get; set; } = "ok";
     public string Details { get; set; } = string.Empty;
 }
 

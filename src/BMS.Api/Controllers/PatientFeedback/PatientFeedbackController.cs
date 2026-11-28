@@ -19,7 +19,7 @@ namespace BMS.Api.Controllers.PatientFeedback
     /// </summary>
     [Route("TestOrder/feedback")]
     [ApiController]
-// WHY: UC79: Patient manages own; Manager lists, analyses and responds. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
     public class PatientFeedbackController : ControllerBase
     {
@@ -190,7 +190,6 @@ namespace BMS.Api.Controllers.PatientFeedback
 
             try
             {
-                // WHY (R14): the author is the logged-in patient; a client-supplied PatientId is ignored.
                 dto.PatientId = User.AccountId();
                 var created = await _service.CreateAsync(dto, ct);
                 return StatusCode(201, new

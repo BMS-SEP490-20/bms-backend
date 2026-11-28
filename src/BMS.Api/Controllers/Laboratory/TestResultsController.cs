@@ -83,7 +83,6 @@ public class TestResultsController : ControllerBase
 
         try
         {
-            // OWASP ASVS: If Patient role, enforce scoping to own records only
             if (User.IsInRole(RoleNames.Patient))
             {
                 if (!string.IsNullOrWhiteSpace(patientId) && !await this.MayAccessPatientAsync(patientId.Trim(), HttpContext.RequestAborted))
@@ -102,7 +101,6 @@ public class TestResultsController : ControllerBase
             {
                 var trimmed = queryKey.Trim();
 
-                // 1. Direct result match (exact)
                 var filter = Builders<BsonDocument>.Filter.Or(
                     Builders<BsonDocument>.Filter.Eq("_id", trimmed),
                     Builders<BsonDocument>.Filter.Eq("testResultId", trimmed),
@@ -116,7 +114,6 @@ public class TestResultsController : ControllerBase
 
                 var doc = await _resultsCol.Find(filter).FirstOrDefaultAsync();
 
-                // 1b. Partial / suffix match on TRE result codes (e.g. D020E4 → TRE-…D020E4)
                 if (doc == null && trimmed.Length >= 4)
                 {
                     var escaped = System.Text.RegularExpressions.Regex.Escape(trimmed);
@@ -129,7 +126,6 @@ public class TestResultsController : ControllerBase
                     )).SortByDescending(d => d["_id"]).FirstOrDefaultAsync();
                 }
 
-                // 2. Barcode match via blood_samples
                 if (doc == null && _samplesCol != null)
                 {
                     var sampleDoc = await _samplesCol.Find(Builders<BsonDocument>.Filter.Or(
@@ -156,7 +152,6 @@ public class TestResultsController : ControllerBase
                     }
                 }
 
-                // 3. Match via patients by code/name/phone
                 if (doc == null && _patientsCol != null)
                 {
                     var patDoc = await _patientsCol.Find(Builders<BsonDocument>.Filter.Or(
@@ -187,7 +182,6 @@ public class TestResultsController : ControllerBase
                             return Forbid();
                         }
 
-                        // ISO 15189: Unapproved results are not displayed to patients as official releases
                         if (!IsResultApproved(doc))
                         {
                             return StatusCode(StatusCodes.Status403Forbidden, new
@@ -207,7 +201,6 @@ public class TestResultsController : ControllerBase
                 return NotFound(new { success = false, message = $"Không tìm thấy kết quả xét nghiệm phù hợp cho '{trimmed}'." });
             }
 
-            // If patientId is explicitly provided
             if (!string.IsNullOrWhiteSpace(patientId))
             {
                 var patFilter = Builders<BsonDocument>.Filter.Or(
@@ -217,7 +210,6 @@ public class TestResultsController : ControllerBase
 
                 var patResults = await _resultsCol.Find(patFilter).Limit(50).ToListAsync();
 
-                // For patients, only released results
                 if (User.IsInRole(RoleNames.Patient))
                 {
                     patResults = patResults.Where(IsResultApproved).ToList();
@@ -233,7 +225,6 @@ public class TestResultsController : ControllerBase
                 return Ok(new { success = true, total = list.Count, data = list });
             }
 
-            // If no specific filter (Clinical Staff only)
             if (User.IsInRole(RoleNames.Patient))
             {
                 return BadRequest(new { success = false, message = "Vui lòng cung cấp mã xét nghiệm hoặc mã bệnh nhân." });
@@ -293,16 +284,13 @@ public class TestResultsController : ControllerBase
 
             var docPatientId = doc.Contains("patient_id") ? doc["patient_id"].AsString : (doc.Contains("patientId") ? doc["patientId"].AsString : "");
 
-            // OWASP ASVS Anti-IDOR Check
             if (User?.IsInRole(RoleNames.Patient) == true)
             {
                 if (!await this.MayAccessPatientAsync(docPatientId, HttpContext?.RequestAborted ?? CancellationToken.None))
                 {
-                    // Patient A requests Patient B's result -> 403 Forbidden
                     return Forbid();
                 }
 
-                // ISO 15189: Unapproved results must NOT be released to patient as official results
                 if (!IsResultApproved(doc))
                 {
                     return StatusCode(StatusCodes.Status403Forbidden, new
@@ -314,7 +302,6 @@ public class TestResultsController : ControllerBase
                 }
             }
 
-            // ISO 27789: Audit Trail
             await LogAuditTrailAsync("LOOKUP_BIOCHEMICAL_RESULT", id, docPatientId, $"Xem chi tiết kết quả xét nghiệm sinh hóa {id}");
 
             var detailed = await BuildDetailedResultAsync(doc, testId);
@@ -367,7 +354,6 @@ public class TestResultsController : ControllerBase
         var now = DateTime.UtcNow;
         var newResultId = $"RES-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
 
-        // Mark original as rerun requested & superseded while keeping its values and intervals intact
         var updateOriginal = Builders<BsonDocument>.Update
             .Set("rerun_requested", true)
             .Set("is_superseded", true)
@@ -375,7 +361,6 @@ public class TestResultsController : ControllerBase
             .Set("rerun_reason", request.Reason);
         await _resultsCol.UpdateOneAsync(Builders<BsonDocument>.Filter.Eq("_id", doc["_id"].AsString), updateOriginal);
 
-        // Build new analysis run document
         var newItems = new BsonArray();
         if (request.Parameters != null && request.Parameters.Count > 0)
         {
@@ -435,7 +420,6 @@ public class TestResultsController : ControllerBase
 
         await _resultsCol.InsertOneAsync(newDoc);
 
-        // Audit Trail
         await LogAuditTrailAsync("RERUN_BIOCHEMICAL_TEST", newResultId, patientIdVal, $"Tạo Analysis Run {newRun} từ kết quả {id}. Lý do: {request.Reason}");
 
         return Ok(new
@@ -479,7 +463,6 @@ public class TestResultsController : ControllerBase
             return NotFound(new { success = false, message = $"Không tìm thấy kết quả xét nghiệm '{id}'." });
         }
 
-        // Immutability check
         if (IsResultApproved(doc))
         {
             return StatusCode(StatusCodes.Status409Conflict, new
@@ -561,7 +544,6 @@ public class TestResultsController : ControllerBase
 
         var parameters = new List<object>();
 
-        // 1. Try reading items embedded in the result doc (TestResultService schema)
         if (doc.Contains("items") && doc["items"].IsBsonArray && doc["items"].AsBsonArray.Count > 0)
         {
             foreach (var itemVal in doc["items"].AsBsonArray)
@@ -599,7 +581,6 @@ public class TestResultsController : ControllerBase
 
         if (parameters.Count == 0 && _paramsCol != null)
         {
-            // 2. Query test_parameters collection
             var paramDocs = await _paramsCol.Find(Builders<BsonDocument>.Filter.Or(
                 Builders<BsonDocument>.Filter.Eq("result_id", resultId),
                 Builders<BsonDocument>.Filter.Eq("resultId", resultId)
@@ -640,7 +621,6 @@ public class TestResultsController : ControllerBase
             }
         }
 
-        // Enrich sample info
         string barcode = sampleId;
         string tubeColor = "Purple";
         string sampleType = "Blood";
@@ -666,7 +646,6 @@ public class TestResultsController : ControllerBase
             }
         }
 
-        // Enrich patient info
         string patientName = string.IsNullOrWhiteSpace(patientId) ? "Bệnh nhân" : ("Bệnh nhân " + patientId);
         string patientGender = "Nam";
         string patientDob = "";
@@ -695,7 +674,6 @@ public class TestResultsController : ControllerBase
             }
         }
 
-        // Enrich package info (prefer Admin service_packages, fallback to test_packages)
         string packageName = "Xét nghiệm sinh hóa / huyết học";
         if (!string.IsNullOrWhiteSpace(packageId))
         {
@@ -734,7 +712,6 @@ public class TestResultsController : ControllerBase
             }
         }
 
-        // Extract primary / requested parameter for top-level direct mapping (ISO 15189 / UC75 format)
         dynamic? targetParam = null;
         if (!string.IsNullOrWhiteSpace(requestedTestId))
         {
@@ -816,7 +793,7 @@ public class TestResultsController : ControllerBase
                     }
                 }
             }
-            catch { /* non-fatal */ }
+            catch {  }
         }
         if (!string.IsNullOrWhiteSpace(doctorConclusion)) conclusionNotes = doctorConclusion;
         var status = ReadString(doc, "status");
@@ -874,7 +851,6 @@ public class TestResultsController : ControllerBase
                 ? null
                 : ReadString(doc, "report_pdf_url", "reportPdfUrl"),
 
-            // Primary single-parameter fields
             testId = targetParam != null ? (targetParam as dynamic).testId : (requestedTestId ?? ""),
             value = targetParam != null ? (targetParam as dynamic).value : 0,
             unit = targetParam != null ? (targetParam as dynamic).unit : "",
@@ -1008,7 +984,6 @@ public class TestResultsController : ControllerBase
         if (string.IsNullOrWhiteSpace(packageName) && !string.IsNullOrWhiteSpace(samplePkgName))
             packageName = samplePkgName;
 
-        // Summarize parameter counts & abnormal/PANIC flags for list triage
         var resultIdStr = d["_id"].AsString;
         int totalParameters = 0;
         int abnormalCount = 0;
@@ -1105,14 +1080,14 @@ public class TestResultsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value 
-                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+            var userId = User.FindFirst("sub")?.Value
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? "ANONYMOUS";
-            var userName = User.FindFirst("name")?.Value 
-                ?? User.FindFirst(ClaimTypes.Name)?.Value 
+            var userName = User.FindFirst("name")?.Value
+                ?? User.FindFirst(ClaimTypes.Name)?.Value
                 ?? userId;
-            var role = User.FindFirst("role")?.Value 
-                ?? User.FindFirst(ClaimTypes.Role)?.Value 
+            var role = User.FindFirst("role")?.Value
+                ?? User.FindFirst(ClaimTypes.Role)?.Value
                 ?? "Unknown";
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
 
@@ -1157,7 +1132,7 @@ public class TestResultsController : ControllerBase
                 await auditCol.InsertOneAsync(auditDoc);
             }
         }
-        catch { /* Never block operational flow on audit logging */ }
+        catch {  }
     }
 
     /// <summary>
@@ -1170,7 +1145,7 @@ public class TestResultsController : ControllerBase
         try
         {
             var result = await _patientResultExportService.GetPatientResultDetailAsync(orderId);
-            // Patient: own order only; same 404 for "not yours" and "missing" (R14).
+
             if (result != null && !await this.MayAccessPatientAsync(result.PatientId, HttpContext.RequestAborted)) result = null;
             if (result == null)
             {

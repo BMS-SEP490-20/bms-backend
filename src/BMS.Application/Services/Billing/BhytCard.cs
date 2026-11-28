@@ -17,7 +17,7 @@ public static class BhytCard
     /// Group codes seeded into the configurable catalog <c>bhyt_group_codes</c> on first start (Quy trình ruling
     /// Đợt 3A Q1: the codes present in its source). Admin or Manager adds or deactivates codes afterwards.
     /// </summary>
-    /// <remarks>TODO(phat, open point C2): confirm the full official list; until then a card whose group is not in
+    /// <remarks>A card whose group is not in
     /// the catalog is rejected with MSG-ERR-FIN-01 (never priced with a guessed benefit).</remarks>
     public static readonly IReadOnlyList<string> SeedGroupCodes = ["QN", "CA", "CY", "DK", "CN", "HT", "LH", "DN"];
 

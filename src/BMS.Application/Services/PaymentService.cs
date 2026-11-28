@@ -141,7 +141,6 @@ public class PaymentService(IInvoiceRepository invoiceRepo, ITestOrderRepository
     {
         var key = invoiceIdOrCode.Trim();
 
-        // 1. Check via repository (MongoDB collection 'invoices')
         var found = await invoiceRepo.GetByIdAsync(key, ct);
         if (found != null) return found;
 

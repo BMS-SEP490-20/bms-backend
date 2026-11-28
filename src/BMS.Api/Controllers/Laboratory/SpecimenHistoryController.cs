@@ -20,7 +20,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/laboratory/specimens")]
 [Route("api/specimens")]
 [Produces("application/json")]
-// WHY: UC70: view Lab, Manager, Doctor; events/storage Lab. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class SpecimenHistoryController : ControllerBase
 {
@@ -87,9 +87,6 @@ public class SpecimenHistoryController : ControllerBase
                     "MSG-ERR-SPECIMEN-NOT-FOUND"));
             }
 
-            // OWASP ASVS Access Control & IDOR check:
-            // Clinical Staff (Lab, Manager, Doctor) have access to clinical specimens.
-            // Patient role is restricted strictly to their own specimen history.
             var role = User.FindFirstValue("role") ?? User.FindFirstValue(ClaimTypes.Role);
             if (string.Equals(role, RoleNames.Patient, StringComparison.OrdinalIgnoreCase))
             {

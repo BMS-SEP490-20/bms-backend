@@ -31,8 +31,6 @@ public class TestPackageService : ITestPackageService
 
         var dtos = packages.Select(p => MapToDto(p, criteriaMap)).ToList();
 
-        // Load categories from the full active set (independent of current filters)
-        // so the frontend always has a complete filter list.
         var allActive = string.IsNullOrWhiteSpace(category) && string.IsNullOrWhiteSpace(search)
             ? packages
             : await _repository.GetActivePackagesAsync(null, null, cancellationToken);

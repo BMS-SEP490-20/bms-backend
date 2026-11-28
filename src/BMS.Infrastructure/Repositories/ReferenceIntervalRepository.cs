@@ -38,13 +38,11 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
 
         var defaultIntervals = GetStandardSeedIntervals();
 
-        // 1. Seed in-memory store
         foreach (var interval in defaultIntervals)
         {
             _memoryIntervals.TryAdd(interval.Id, interval);
         }
 
-        // 2. Seed MongoDB if collection exists
         if (_context.ReferenceIntervals != null)
         {
             try
@@ -153,7 +151,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
             }
         }
 
-        // In-memory fallback
         var query = _memoryIntervals.Values.Where(x => !x.IsDeleted);
 
         if (!string.IsNullOrWhiteSpace(criterionCode))
@@ -395,7 +392,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
         var now = DateTime.UtcNow;
         return new List<ReferenceIntervalEntity>
         {
-            // --- GLUCOSE ---
             new()
             {
                 Id = "672401010000000000000001",
@@ -420,7 +416,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- HEMOGLOBIN (HGB) ---
             new()
             {
                 Id = "672401010000000000000003",
@@ -445,7 +440,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- CREATININE (CRE) ---
             new()
             {
                 Id = "672401010000000000000007",
@@ -470,7 +464,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- PLATELETS (PLT) ---
             new()
             {
                 Id = "672401010000000000000009",
@@ -495,7 +488,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- ALT (GPT) ---
             new()
             {
                 Id = "672401010000000000000010",
@@ -520,7 +512,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- AST (GOT) ---
             new()
             {
                 Id = "672401010000000000000012",
@@ -545,7 +536,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- POTASSIUM (K+) ---
             new()
             {
                 Id = "672401010000000000000014",
@@ -570,7 +560,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- SODIUM (NA+) ---
             new()
             {
                 Id = "672401010000000000000015",
@@ -595,7 +584,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- TOTAL CHOLESTEROL ---
             new()
             {
                 Id = "672401010000000000000016",
@@ -620,7 +608,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- TRIGLYCERIDES ---
             new()
             {
                 Id = "672401010000000000000017",
@@ -645,7 +632,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- UREA (BUN) ---
             new()
             {
                 Id = "672401010000000000000018",
@@ -670,7 +656,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- RED BLOOD CELLS (RBC) ---
             new()
             {
                 Id = "672401010000000000000019",
@@ -695,7 +680,6 @@ public sealed class ReferenceIntervalRepository : IReferenceIntervalRepository
                 UpdatedAt = now
             },
 
-            // --- WHITE BLOOD CELLS (WBC) ---
             new()
             {
                 Id = "672401010000000000000020",

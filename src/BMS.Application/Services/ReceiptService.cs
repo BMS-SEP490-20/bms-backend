@@ -33,7 +33,6 @@ public class ReceiptService : IReceiptService
         var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, ct)
             ?? throw new KeyNotFoundException($"Không tìm thấy hóa đơn với mã '{invoiceId}'.");
 
-        // Strict clinical billing invariant: Only invoices with status Paid can be printed as receipts.
         if (invoice.Status != InvoiceStatus.Paid)
         {
             throw new InvalidOperationException(
@@ -41,7 +40,6 @@ public class ReceiptService : IReceiptService
                 "Vui lòng hoàn tất thanh toán trước khi in biên lai.");
         }
 
-        // Atomically increment print count to prevent double-charging and track duplicates.
         var updatedInvoice = await _invoiceRepository.IncrementPrintCountAsync(invoice.Id, cashierId, cashierName, ct)
             ?? invoice;
 
@@ -166,7 +164,7 @@ public class ReceiptService : IReceiptService
 
         if (invoice.Status == InvoiceStatus.Paid)
         {
-            return invoice; // Already paid
+            return invoice;
         }
         if (invoice.Status is InvoiceStatus.Voided or InvoiceStatus.Refunded or InvoiceStatus.PartiallyRefunded)
         {

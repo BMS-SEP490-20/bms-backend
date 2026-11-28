@@ -104,12 +104,10 @@ public class MongoDbContext
 
         try
         {
-            // 1. TTL Index: MongoDB automatically reclaims documents once UTC time reaches ExpiresAt
             var ttlIndexKeys = Builders<OtpTokenEntity>.IndexKeys.Ascending(x => x.ExpiresAt);
             var ttlIndexOptions = new CreateIndexOptions { ExpireAfter = TimeSpan.Zero, Name = "TTL_ExpiresAt" };
             OtpTokens.Indexes.CreateOne(new CreateIndexModel<OtpTokenEntity>(ttlIndexKeys, ttlIndexOptions));
 
-            // 2. Compound Index on Recipient and Purpose for high-throughput lookup performance
             var recipientIndexKeys = Builders<OtpTokenEntity>.IndexKeys
                 .Ascending(x => x.Recipient)
                 .Ascending(x => x.Purpose);

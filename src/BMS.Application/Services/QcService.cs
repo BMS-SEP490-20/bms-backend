@@ -21,7 +21,6 @@ public class QcService : IQcService
     private readonly IMongoDatabase? _database;
     private readonly ILogger<QcService> _logger;
 
-    // Concurrent in-memory stores for thread-safe operations & zero-downtime offline tests
     private static readonly ConcurrentDictionary<string, QcLot> _lots = new(
         InitializeSeedLots().ToDictionary(l => l.Id, l => l)
     );
@@ -235,13 +234,10 @@ public class QcService : IQcService
         var runList = _runsByLot.GetOrAdd(dto.LotId, _ => new List<QcRun>());
         int nextRunNumber = runList.Count > 0 ? runList.Max(r => r.RunNumber) + 1 : 1;
 
-        // Calculate Z-Score: Z = (x - mu) / sigma
         double zScore = Math.Round((dto.MeasuredValue - lot.TargetMean) / lot.TargetStandardDeviation, 2);
 
-        // Fetch recent run history for multi-rule evaluation
         var recentRuns = runList.OrderBy(r => r.RunNumber).ToList();
 
-        // Run Westgard Multi-Rule Evaluation
         var (status, violatedRules, isLocked, message) = EvaluateWestgardRules(zScore, recentRuns);
 
         var run = new QcRun
@@ -363,7 +359,7 @@ public class QcService : IQcService
         targetRun.CorrectiveAction = dto.CorrectiveAction.Trim();
         targetRun.ResolvedAt = DateTime.UtcNow;
         targetRun.ResolvedBy = dto.OperatorName.Trim();
-        targetRun.IsLocked = false; // Unlock analyzer batch
+        targetRun.IsLocked = false;
         await PersistRunToMongoAsync(targetRun, ct);
 
         _logger.LogInformation("Đã ký duyệt khắc phục sự cố QC {RunId} bởi {Operator}: {Action}.",
@@ -470,10 +466,8 @@ public class QcService : IQcService
     {
         var violatedRules = new List<string>();
 
-        // Rule 1: Within +/- 2s — still check multi-run systematic rules (4_1s and 10_x)
         if (Math.Abs(zScore) <= 2.0)
         {
-            // Check 4_1s (4 consecutive observations exceeding 1s on same side)
             var last3Sub2 = previousRuns.TakeLast(3).Select(r => r.ZScore).ToList();
             if (last3Sub2.Count == 3)
             {
@@ -487,7 +481,6 @@ public class QcService : IQcService
                 }
             }
 
-            // Check 10_x drift (10 consecutive on same side of mean)
             var last9 = previousRuns.TakeLast(9).Select(r => r.ZScore).ToList();
             if (last9.Count == 9)
             {
@@ -504,10 +497,8 @@ public class QcService : IQcService
             return (WestgardStatus.PASS, violatedRules, false, "Kết quả IQC đạt chuẩn (Trong dải +/- 2s). Máy sẵn sàng phân tích mẫu bệnh nhân.");
         }
 
-        // Current Z-score exceeds +/- 2s!
         violatedRules.Add("1_2s");
 
-        // Rule 2: 1_3s check (Random error)
         if (Math.Abs(zScore) > 3.0)
         {
             violatedRules.Add("1_3s");
@@ -515,7 +506,6 @@ public class QcService : IQcService
                 $"Vi phạm quy tắc 1_3s: Độ lệch {zScore:F2}s vượt ngưỡng 3 độ lệch chuẩn (Lỗi ngẫu nhiên nghiêm trọng / Random Error)!");
         }
 
-        // Rule 3: 2_2s check (Systematic error)
         if (previousRuns.Count > 0)
         {
             var prev = previousRuns.Last();
@@ -529,7 +519,6 @@ public class QcService : IQcService
             }
         }
 
-        // Rule 4: R_4s check (Range >= 4s between consecutive observations)
         if (previousRuns.Count > 0)
         {
             var prev = previousRuns.Last();
@@ -542,7 +531,6 @@ public class QcService : IQcService
             }
         }
 
-        // Rule 5: 4_1s check (4 consecutive observations exceeding 1s on same side)
         var last3 = previousRuns.TakeLast(3).Select(r => r.ZScore).ToList();
         if (last3.Count == 3)
         {
@@ -556,7 +544,6 @@ public class QcService : IQcService
             }
         }
 
-        // If no compound rejection rule was triggered, it remains a 1_2s warning
         return (WestgardStatus.WARNING_1_2S, violatedRules, false,
             $"Cảnh báo quy tắc 1_2s: Kết quả đo lệch {zScore:F2}s (vượt dải 2s). Cần giám sát chặt chẽ các lượt chạy tiếp theo.");
     }
@@ -654,7 +641,6 @@ public class QcService : IQcService
         var now = DateTime.UtcNow;
         var runs = new List<QcRun>();
 
-        // 12 historical runs for Glucose (Mean: 5.5, SD: 0.25)
         double[] gluValues = { 5.52, 5.48, 5.55, 5.42, 5.61, 5.50, 5.46, 5.58, 5.53, 5.47, 5.52, 5.51 };
         for (int i = 0; i < gluValues.Length; i++)
         {
@@ -676,7 +662,6 @@ public class QcService : IQcService
             });
         }
 
-        // 6 runs for Creatinine (Mean: 250.0, SD: 12.0)
         double[] creaValues = { 248.0, 252.0, 255.0, 246.0, 276.0, 251.0 };
         for (int i = 0; i < creaValues.Length; i++)
         {

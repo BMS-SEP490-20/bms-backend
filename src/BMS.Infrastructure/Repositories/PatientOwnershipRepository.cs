@@ -18,7 +18,7 @@ public sealed class PatientOwnershipRepository(IMongoDatabase database) : IPatie
     public async Task<bool> IsOwnPatientAsync(string accountId, string patientId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(patientId)) return false;
-        // WHY: several modules (notifications, payments) key records by the account ID directly.
+
         if (string.Equals(accountId, patientId, StringComparison.Ordinal)) return true;
 
         var f = Builders<BsonDocument>.Filter;

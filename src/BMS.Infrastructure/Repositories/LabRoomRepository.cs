@@ -122,7 +122,7 @@ public sealed class LabRoomRepository : ILabRoomRepository
                     list.Add(label);
             }
         }
-        catch { /* non-fatal enrichment */ }
+        catch {  }
 
         return map.ToDictionary(kv => kv.Key, kv => string.Join(", ", kv.Value), StringComparer.OrdinalIgnoreCase);
     }
@@ -135,7 +135,6 @@ public sealed class LabRoomRepository : ILabRoomRepository
         var doctorItems = doctorDocs.Select(MapDoctorRoom).ToList();
         var roomStaffMap = await LoadRoomStaffMapAsync(ct);
 
-        // Merge without duplicates (prefer lab_rooms if same ID)
         var labIds = new HashSet<string>(labItems.Select(x => x.RoomId), StringComparer.OrdinalIgnoreCase);
         var combined = new List<LabRoom>(labItems.Count + doctorItems.Count);
         combined.AddRange(doctorItems.Where(d => !labIds.Contains(d.RoomId)));
@@ -179,7 +178,6 @@ public sealed class LabRoomRepository : ILabRoomRepository
     /// <inheritdoc />
     public async Task<int> GetMaxRoomSequenceAsync(CancellationToken ct = default)
     {
-        // Ids are zero-padded (R001), so lexical order equals numeric order within the same width.
         var filter = Builders<LabRoom>.Filter.Regex(r => r.RoomId, new BsonRegularExpression($"^{RoomIdPrefix}\\d+$"));
         var last = await _rooms.Find(filter).SortByDescending(r => r.RoomId).Limit(1)
             .Project(r => r.RoomId).FirstOrDefaultAsync(ct);

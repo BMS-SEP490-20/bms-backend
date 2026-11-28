@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.Laboratory;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-// WHY: UC52: Lab, Doctor add; Manager view. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class TestNotesController : ControllerBase
 {
@@ -100,7 +100,6 @@ public class TestNotesController : ControllerBase
 
         try
         {
-            // Extract authenticated user info from claims
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ??
                          User.FindFirstValue("sub") ??
                          User.FindFirstValue("uid");

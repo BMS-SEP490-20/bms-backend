@@ -22,7 +22,7 @@ public sealed class QueueRepository(IMongoDatabase database) : IQueueRepository
             {
                 Name = "ux_queue_date_ticket",
                 Unique = true,
-                // WHY partial: legacy tickets have no queueDate and may repeat numbers across days.
+
                 PartialFilterExpression = Builders<QueueTicket>.Filter.Exists(t => t.QueueDate)
             });
         yield return new CreateIndexModel<QueueTicket>(

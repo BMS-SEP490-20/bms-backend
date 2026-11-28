@@ -4,9 +4,6 @@ using System.ComponentModel.DataAnnotations;
 
 namespace BMS.Application.DTOs.Billing;
 
-// Generate Receipt (I3-019) DTOs, moved out of the legacy payment_service.Models namespace.
-// PatientId is a string: BMS patient ids are Mongo ids, not Guids as in the old payment microservice.
-
 /// <summary>
 /// Itemized breakdown line for a test package or laboratory service in a receipt.
 /// </summary>

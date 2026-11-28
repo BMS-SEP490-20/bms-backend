@@ -41,7 +41,6 @@ public class MedicalRecordService : IMedicalRecordService
         string? currentUserRole,
         CancellationToken ct = default)
     {
-        // Security scoping (BR-IAM-02): Patient can only view their own records
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(patientId, currentUserId, StringComparison.OrdinalIgnoreCase))
         {
@@ -72,7 +71,6 @@ public class MedicalRecordService : IMedicalRecordService
         var record = await _repository.GetByIdAsync(id, ct);
         if (record == null) return null;
 
-        // Security scoping (BR-IAM-02)
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(record.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
         {
@@ -145,7 +143,6 @@ public class MedicalRecordService : IMedicalRecordService
             throw new InvalidOperationException("MSG-ERR-EMR-01: Không tìm thấy hồ sơ bệnh án cần cập nhật.");
         }
 
-        // 24-hour legal lock invariant
         if (DateTime.UtcNow - record.CreatedAt > TimeSpan.FromHours(24))
         {
             _logger.LogWarning("Update rejected: Record {Code} is older than 24 hours (Created at {CreatedAt})",

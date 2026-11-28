@@ -9,7 +9,6 @@ namespace BMS.Application.Interfaces
 {
     public interface IAppointmentService
     {
-        // UC21: Book Appointment & Slot Management
         Task<BookAppointmentResponse> BookAsync(
             BookAppointmentRequest request,
             string currentUserId,
@@ -27,7 +26,6 @@ namespace BMS.Application.Interfaces
 
         Task<BookAppointmentResponse?> GetByIdAsync(string appointmentId, CancellationToken ct = default);
 
-        // UC13: Manage Appointments (CRUD & Overview)
         Task<PagedResult<AppointmentReadDto>> GetFilteredAsync(
             AppointmentFilterRequest filter,
             string? currentUserId,

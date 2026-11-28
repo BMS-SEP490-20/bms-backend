@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.Notifications
     /// </summary>
     [Route("TestOrder/[controller]")]
     [ApiController]
-// WHY: UC59: every role reads own; create is system-side (Admin until a server writer exists). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
     public class NotificationController : ControllerBase
     {
@@ -37,7 +37,6 @@ namespace BMS.Api.Controllers.Notifications
         [HttpGet("user/{userId}")]
         public async Task<IActionResult> GetByUser(string userId, [FromQuery] string? role, CancellationToken ct)
         {
-    // WHY (R14): own inbox only; userId in the URL must be the token account.
     if (!this.IsSelf(userId)) return Forbid();
             var data = await _service.GetNotificationsForUserAsync(userId, role, ct);
             return Ok(new
@@ -57,7 +56,6 @@ namespace BMS.Api.Controllers.Notifications
         [HttpGet("role/{role}")]
         public async Task<IActionResult> GetByRole(string role, CancellationToken ct)
         {
-    // WHY: a caller may only read the audience feed of their own role.
     if (!User.IsInRole(BMS.Core.Constants.RoleNames.Normalize(role) ?? string.Empty)) return Forbid();
             var data = await _service.GetNotificationsByRoleAsync(role, ct);
             return Ok(new
@@ -105,7 +103,6 @@ namespace BMS.Api.Controllers.Notifications
         [HttpPut("user/{userId}/read-all")]
         public async Task<IActionResult> MarkAllAsRead(string userId, CancellationToken ct)
         {
-    // WHY (R14): own inbox only; userId in the URL must be the token account.
     if (!this.IsSelf(userId)) return Forbid();
             var success = await _service.MarkAllAsReadAsync(userId, ct);
             return Ok(new { message = "All notifications marked as read.", success });

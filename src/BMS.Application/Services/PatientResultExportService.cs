@@ -46,7 +46,6 @@ public class PatientResultExportService : IPatientResultExportService
     {
         if (string.IsNullOrWhiteSpace(orderId)) return null;
 
-        // 1. Try to find existing official diagnostic report
         var report = await _reportRepository.GetByOrderIdAsync(orderId);
         if (report == null)
         {
@@ -58,7 +57,6 @@ public class PatientResultExportService : IPatientResultExportService
             }
         }
 
-        // 2. Try to find test order
         var order = await _orderRepository.GetByOrderNumberAsync(orderId);
         if (order == null)
         {
@@ -70,19 +68,16 @@ public class PatientResultExportService : IPatientResultExportService
             }
         }
 
-        // If official approved report exists, build from report
         if (report != null)
         {
             return MapReportToPatientDto(report);
         }
 
-        // 3. Direct lookup from MongoDB test_results (enforces DoctorApproved gate — NEVER fabricate measurements from unapproved orders or demo mocks)
         if (_database != null)
         {
             var fromMongo = await TryLoadFromMongoTestResultAsync(orderId);
             if (fromMongo != null) return fromMongo;
 
-            // Also try matching via order's OrderNumber / Id if caller passed one of them
             if (order != null)
             {
                 var byOrderId = await TryLoadFromMongoTestResultAsync(order.Id);
@@ -416,14 +411,12 @@ public class PatientResultExportService : IPatientResultExportService
     {
         var list = new List<PatientTestResultDetailDto>();
 
-        // Query reports by patient ID
         var reports = await _reportRepository.GetByPatientIdAsync(patientId);
         foreach (var r in reports)
         {
             list.Add(MapReportToPatientDto(r));
         }
 
-        // Also check in-memory dbContext
         lock (_dbContext.TestReports)
         {
             foreach (var r in _dbContext.TestReports.Where(r => r.PatientId.Equals(patientId, StringComparison.OrdinalIgnoreCase)))
@@ -435,7 +428,6 @@ public class PatientResultExportService : IPatientResultExportService
             }
         }
 
-        // Also load approved diagnostic results directly from MongoDB test_results
         if (_database != null && !string.IsNullOrWhiteSpace(patientId))
         {
             try
@@ -462,7 +454,6 @@ public class PatientResultExportService : IPatientResultExportService
             catch { }
         }
 
-        // Return only real approved patient results (never inject hardcoded mock/demo records)
         return list;
     }
 
@@ -656,7 +647,6 @@ public class PatientResultExportService : IPatientResultExportService
             var approvedByDoctorId = Str(doc, "approvedByDoctorId", "approved_by_doctor_id");
             var digitalSignature = Str(doc, "digitalSignature", "digital_signature");
 
-            // Load linked blood sample for real barcode, collection time, technician, sample type & package code
             BsonDocument? sampleDoc = null;
             if (!string.IsNullOrWhiteSpace(sampleId))
             {
@@ -689,7 +679,6 @@ public class PatientResultExportService : IPatientResultExportService
                 if (techAcc != null) performedBy = Str(techAcc, "fullName", "FullName", "username");
             }
 
-            // Patient metadata
             var patientName = patientId;
             var dobAgeSex = string.Empty;
             if (!string.IsNullOrWhiteSpace(patientId))
@@ -718,7 +707,6 @@ public class PatientResultExportService : IPatientResultExportService
                 }
             }
 
-            // Package name & category (prefer service_packages)
             var packageName = packageId;
             var categoryName = "Xét Nghiệm Lâm Sàng";
             if (!string.IsNullOrWhiteSpace(packageId))
@@ -742,7 +730,6 @@ public class PatientResultExportService : IPatientResultExportService
             }
             if (string.IsNullOrWhiteSpace(packageName)) packageName = "Xét Nghiệm Huyết Học & Sinh Hóa Lâm Sàng";
 
-            // Parameters
             var parameters = new List<PatientResultParameterDto>();
             var itemsVal = doc.GetValue("items", BsonNull.Value);
             var itemDocs = itemsVal.IsBsonArray && itemsVal.AsBsonArray.Count > 0
@@ -766,7 +753,7 @@ public class PatientResultExportService : IPatientResultExportService
                     _ => "N"
                 };
                 var isAbn = normFlag != "N";
-                // Compute real Delta vs previous approved test result of the same patient if available
+
                 string deltaPrev = "—";
                 if (!string.IsNullOrWhiteSpace(patientId) && double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var currNum))
                 {
@@ -811,7 +798,6 @@ public class PatientResultExportService : IPatientResultExportService
                 });
             }
 
-            // Doctor's final diagnosis (test_results -> medical_assessments -> appointment notes)
             var icd10Code = Str(doc, "icd10Code", "icd10_code");
             var finalDiagnosis = Str(doc, "finalDiagnosis", "final_diagnosis");
             var doctorConclusion = Str(doc, "doctorConclusion", "doctor_conclusion");
@@ -955,4 +941,3 @@ public class PatientResultExportService : IPatientResultExportService
         return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
     }
 }
-

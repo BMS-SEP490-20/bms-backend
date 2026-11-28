@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Billing;
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-// WHY: Receptionist prints at counter; Manager inspects & reprints receipts from /invoices reconciliation.
+
 [Authorize(Roles = RoleSets.ReceptionOrManager)]
 public class ReceiptsController(IReceiptService receiptService) : ControllerBase
 {
@@ -25,11 +25,11 @@ public class ReceiptsController(IReceiptService receiptService) : ControllerBase
     [HttpGet("{invoiceId}/print-data")]
     public async Task<IActionResult> GetPrintData(string invoiceId, CancellationToken ct = default)
     {
-        var cashierId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-            ?? User.FindFirst("sub")?.Value 
+        var cashierId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
             ?? "CASHIER-SYS";
-        var cashierName = User.FindFirst(ClaimTypes.Name)?.Value 
-            ?? User.Identity?.Name 
+        var cashierName = User.FindFirst(ClaimTypes.Name)?.Value
+            ?? User.Identity?.Name
             ?? "Thu ngân BMS";
 
         try

@@ -41,8 +41,8 @@ public class IotAlertDto
 /// </summary>
 public class IotAlertQueryParameters
 {
-    public string? Status { get; set; } // "Active", "Acknowledged", "Resolved", "All"
-    public string? Severity { get; set; } // "Warning", "Critical", "Danger_Emergency", "All"
+    public string? Status { get; set; }
+    public string? Severity { get; set; }
     public string? DeviceId { get; set; }
     public string? SensorType { get; set; }
     public DateTime? FromDate { get; set; }
@@ -61,7 +61,7 @@ public class IotAlertSummaryDto
     public int AcknowledgedCount { get; set; }
     public int ResolvedTodayCount { get; set; }
     public double AverageResolutionMinutes { get; set; }
-    public string SystemHealthStatus { get; set; } = "NORMAL"; // "NORMAL", "WARNING", "CRITICAL"
+    public string SystemHealthStatus { get; set; } = "NORMAL";
 }
 
 /// <summary>

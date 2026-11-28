@@ -32,8 +32,7 @@ public sealed class FlowIndexInitializer(IMongoDatabase database, ILogger<FlowIn
             .Indexes.CreateManyAsync(IotSensorLogRepository.LogIndexes(), ct));
         await TryAsync(IotSensorLogRepository.DailySummariesCollectionName, () => database.GetCollection<IotDailySummary>(IotSensorLogRepository.DailySummariesCollectionName)
             .Indexes.CreateManyAsync(IotSensorLogRepository.DailySummaryIndexes(), ct));
-        // Reference data the fee formula needs (Quy trình Đợt 3A Q1): insert-if-missing, so codes an Admin/Manager
-        // deactivated stay deactivated after a restart.
+
         var inserted = await new BillingSettingsRepository(database)
             .SeedBhytGroupCodesAsync(BMS.Application.Services.Billing.BhytCard.SeedGroupCodes, DateTime.UtcNow, ct);
         if (inserted > 0) logger.LogInformation("Seeded {Count} BHYT group codes", inserted);

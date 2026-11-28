@@ -40,14 +40,12 @@ public class ReceiptPrintItemDto
 /// </summary>
 public class ReceiptPrintDataDto
 {
-    // Clinic Information
     public string ClinicName { get; set; } = "HỆ THỐNG PHÒNG KHÁM XÉT NGHIỆM BMS";
     public string ClinicAddress { get; set; } = "Khu Công nghệ cao, TP. Thủ Đức, TP. Hồ Chí Minh";
     public string ClinicHotline { get; set; } = "1900 6868 - (028) 3822 5588";
     public string ClinicTaxCode { get; set; } = "0314567890";
     public string ClinicWebsite { get; set; } = "https://bms.med.vn";
 
-    // Receipt Metadata
     public string ReceiptNumber { get; set; } = string.Empty;
     public string InvoiceId { get; set; } = string.Empty;
     public string InvoiceCode { get; set; } = string.Empty;
@@ -58,16 +56,13 @@ public class ReceiptPrintDataDto
     public bool IsReprint => PrintCount > 1;
     public string? ReprintWarning => IsReprint ? $"[BẢN IN LẠI LẦN THỨ {PrintCount}] - KHÔNG CÓ GIÁ TRỊ THANH TOÁN KÉP" : null;
 
-    // Patient Information
     public string PatientId { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
     public string? PatientPhone { get; set; }
     public string? AppointmentId { get; set; }
 
-    // Line items
     public List<ReceiptPrintItemDto> Items { get; set; } = [];
 
-    // Financial calculations
     public decimal SubTotal { get; set; }
     public decimal DiscountAmount { get; set; }
     public decimal TotalAmount { get; set; }
@@ -76,7 +71,6 @@ public class ReceiptPrintDataDto
     public string? TransactionReference { get; set; }
     public DateTime? PaidAt { get; set; }
 
-    // Verification
     public string VerificationUrl { get; set; } = string.Empty;
     public string VerificationQrPayload { get; set; } = string.Empty;
 }

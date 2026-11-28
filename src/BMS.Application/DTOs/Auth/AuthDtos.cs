@@ -10,7 +10,7 @@ public sealed class LoginRequest
     public string UsernameOrEmail { get; init; } = default!;
 
     [Required(ErrorMessage = "Vui lòng nhập mật khẩu.")]
-    [StringLength(128, MinimumLength = 1)] // giới hạn trên chống DoS khi hash (BCrypt chỉ dùng 72 byte đầu)
+    [StringLength(128, MinimumLength = 1)]
     public string Password { get; init; } = default!;
 }
 

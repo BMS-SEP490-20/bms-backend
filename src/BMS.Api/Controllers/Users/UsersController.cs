@@ -20,7 +20,7 @@ namespace BMS.Api.Controllers.Users;
 [Route("api/v1/users")]
 [Route("api/users")]
 [Produces("application/json")]
-// WHY: UC14: Admin; UC08/09 /me and PUT own profile any role (ownership checked in action). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class UsersController : ControllerBase
 {
@@ -185,13 +185,12 @@ public class UsersController : ControllerBase
         {
             return BadRequest(new { success = false, message = "Username and FullName are required." });
         }
-        // WHY (TIEU-CHI R9, SMK-ADM-03): only the six seeded role IDs may be assigned.
+
         if (RoleNames.FromRoleId(request.RoleId) is null)
         {
             return BadRequest(new { success = false, message = "RoleId phải từ 1 đến 6." });
         }
 
-        // Check if username or email already exists
         var existing = await AccountsCollection.Find(
             Builders<BsonDocument>.Filter.Or(
                 Builders<BsonDocument>.Filter.Eq("username", request.Username.Trim()),
@@ -272,8 +271,6 @@ public class UsersController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserAccountDto request, CancellationToken ct = default)
     {
-        // WHY (matrix UC09 own / UC14 Admin): any role may edit its own profile; only Admin edits other accounts,
-        // Manager & non-Admin roles have ZERO privileges over Admin (or other) accounts, and only Admin may change role or active status.
         var isAdmin = User.IsInRole(RoleNames.Admin);
         if (!isAdmin && !this.IsSelf(id))
             return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Bạn không có quyền thao tác trên tài khoản khác hoặc tài khoản Quản trị viên hệ thống (Admin)." });
@@ -398,7 +395,6 @@ public class UsersController : ControllerBase
         }
         catch
         {
-            // Non-fatal sync
         }
     }
 
@@ -594,12 +590,10 @@ public class UsersController : ControllerBase
         var email = GetStringSafe(doc, "email", "Email");
         var fullName = GetStringSafe(doc, "fullName", "FullName");
         var phone = GetStringSafe(doc, "phoneNumber", "PhoneNumber", "phone", "Phone");
-        
+
         int roleId = GetIntSafe(doc, 1, "roleId", "RoleId");
         bool isActive = GetBoolSafe(doc, true, "isActive", "IsActive", "status", "Status");
 
-        // 6-role seed (decision 30/10 point 1). Lower-case canonical names keep the existing web contract shape.
-        // Legacy RoleId 9 (old self-registration) is a patient (RoleId 5).
         string role = (RoleNames.FromRoleId(roleId == BMS.Core.Entities.User.LegacyPatientRoleId ? (int)BMS.Core.Entities.UserRole.Patient : roleId) ?? "unknown").ToLowerInvariant();
 
         var created = GetDateSafe(doc, "CreatedAt", "createdAt");
@@ -689,4 +683,3 @@ public class AdminResetPasswordDto
 {
     public string NewPassword { get; set; } = string.Empty;
 }
-

@@ -29,7 +29,6 @@ public class TestResultVerificationRepository : ITestResultVerificationRepositor
             }
             catch
             {
-                // In-memory fallback
             }
         }
     }
@@ -47,7 +46,6 @@ public class TestResultVerificationRepository : ITestResultVerificationRepositor
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -75,7 +73,6 @@ public class TestResultVerificationRepository : ITestResultVerificationRepositor
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -101,7 +98,6 @@ public class TestResultVerificationRepository : ITestResultVerificationRepositor
             }
             catch
             {
-                // Fallback
             }
         }
 

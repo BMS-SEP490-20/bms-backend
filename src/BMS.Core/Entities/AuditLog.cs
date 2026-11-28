@@ -35,10 +35,10 @@ namespace BMS.Core.Entities
         public string Action { get; set; } = null!;
 
         /// <summary>Event category.</summary>
-        public string Category { get; set; } = "OPERATIONAL"; // SECURITY, ACCESS, OPERATIONAL, DATA_CHANGE
+        public string Category { get; set; } = "OPERATIONAL";
 
         /// <summary>Event severity.</summary>
-        public string Severity { get; set; } = "INFO"; // INFO, WARNING, CRITICAL, ERROR
+        public string Severity { get; set; } = "INFO";
 
         /// <summary>Client IP address.</summary>
         public string IpAddress { get; set; } = "127.0.0.1";
@@ -53,7 +53,7 @@ namespace BMS.Core.Entities
         public string Details { get; set; } = null!;
 
         /// <summary>Outcome of the action.</summary>
-        public string Status { get; set; } = "SUCCESS"; // SUCCESS, FAILED
+        public string Status { get; set; } = "SUCCESS";
 
         /// <summary>Client user agent, if known.</summary>
         public string? Browser { get; set; }

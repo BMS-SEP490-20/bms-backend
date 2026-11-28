@@ -21,11 +21,9 @@ public class RegisterWalkInRequest : IValidatableObject
     [Required(ErrorMessage = "Số điện thoại liên hệ không được để trống."), RegularExpression(@"^0[35789]\d{8}$", ErrorMessage = "Số điện thoại phải gồm 10 chữ số, bắt đầu bằng 03, 05, 07, 08 hoặc 09.")]
     public string Phone { get; set; } = string.Empty;
 
-    // WHY 12 only: BA:L25 — CCCD is exactly 12 digits (old 9-digit CMND no longer accepted).
     [Required(ErrorMessage = "Số CCCD / Định danh cá nhân không được để trống."), RegularExpression(@"^\d{12}$", ErrorMessage = "Số CCCD phải gồm đúng 12 chữ số theo Đề án 06 Bộ Y Tế.")]
     public string IdentityNumber { get; set; } = string.Empty;
 
-    // Empty string must become null — [EmailAddress] rejects "" and blocks optional email on walk-in.
     private string? _email;
 
     [EmailAddress(ErrorMessage = "Địa chỉ email không đúng định dạng."), MaxLength(120, ErrorMessage = "Email tối đa 120 ký tự.")]

@@ -58,7 +58,6 @@ public class DashboardService : IDashboardService
             }
             catch
             {
-                // Fallback to in-memory store if collection binding fails
             }
         }
     }
@@ -69,8 +68,6 @@ public class DashboardService : IDashboardService
     /// </summary>
     public async Task<DashboardStatsDto> GetDashboardStatsAsync(string userId, string role, CancellationToken ct = default)
     {
-        // WHY: decision 10 + DOT2 follow-up 6 — Admin must not receive patient names, samples, results or panic
-        // data, so the Admin branch returns before any clinical collection is read.
         if (string.Equals(role?.Trim(), RoleNames.Admin, StringComparison.OrdinalIgnoreCase))
             return await BuildAdminStatsAsync(ct);
 
@@ -83,7 +80,6 @@ public class DashboardService : IDashboardService
             Timestamp = DateTime.UtcNow
         };
 
-        // 1. Resolve user profile from MongoDB accounts or BmsDbContext
         string resolvedUserName = role ?? "Người dùng";
         string? resolvedPatientId = null;
 
@@ -339,7 +335,7 @@ public class DashboardService : IDashboardService
                 break;
             }
 
-            case "lab": // canonical role 3 claim (Đợt 2)
+            case "lab":
             case "laboratoryuser":
             case "labuser":
             {

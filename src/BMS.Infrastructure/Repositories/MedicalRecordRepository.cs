@@ -19,11 +19,9 @@ public class MedicalRecordRepository : IMedicalRecordRepository
     {
         _collection = database.GetCollection<MedicalRecord>("medical_records");
 
-        // Unique index on recordCode
         var indexKeys = Builders<MedicalRecord>.IndexKeys.Ascending(x => x.RecordCode);
         _collection.Indexes.CreateOne(new CreateIndexModel<MedicalRecord>(indexKeys, new CreateIndexOptions { Unique = true }));
 
-        // PatientId lookup index
         var patientIndex = Builders<MedicalRecord>.IndexKeys
             .Ascending(x => x.PatientId)
             .Ascending(x => x.IsDeleted);

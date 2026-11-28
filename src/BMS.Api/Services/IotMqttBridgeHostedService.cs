@@ -185,14 +185,12 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
             var clientId = $"bms-be-{Environment.MachineName}-{Guid.NewGuid().ToString("N")[..6]}";
             await SendConnectPacketAsync(stream, clientId, keepAliveSeconds: 30, _username, _password, ct);
 
-            // Read CONNACK (0x20, 0x02, flags, returnCode)
             var connAckHeader = await ReadExactAsync(stream, 4, ct);
             if (connAckHeader[0] != 0x20 || connAckHeader[3] != 0x00)
             {
                 throw new IOException($"MQTT Broker rejected CONNECT with return code {connAckHeader[3]}.");
             }
 
-            // Subscribe to telemetry and status topics for all BMS IoT devices
             var telemetryFilter = $"{_topicPrefix}/+/telemetry";
             var statusFilter = $"{_topicPrefix}/+/status";
             await SendSubscribePacketAsync(stream, packetId: 1, [telemetryFilter, statusFilter], ct);
@@ -207,7 +205,6 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
             ActiveUseTls = _useTls;
             await PublishDeviceConfigAsync(stream, writeLock, _defaultDeviceId, ct);
 
-            // Run concurrent keep-alive pinger while reader awaits packets on Stream (supports both SslStream & NetworkStream)
             using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var pingTask = RunKeepAlivePingLoopAsync(stream, writeLock, pingCts.Token);
 
@@ -245,7 +242,6 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
             await writeLock.WaitAsync(ct);
             try
             {
-                // MQTT PINGREQ (0xC0, 0x00)
                 await stream.WriteAsync(new byte[] { 0xC0, 0x00 }, ct);
                 await stream.FlushAsync(ct);
             }
@@ -269,7 +265,6 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         int packetType = (firstByte >> 4) & 0x0F;
         int flags = firstByte & 0x0F;
 
-        // PacketType 3 = PUBLISH
         if (packetType == 3 && payloadBuffer.Length >= 2)
         {
             int topicLen = (payloadBuffer[0] << 8) | payloadBuffer[1];
@@ -313,14 +308,12 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
             return true;
         }
 
-        // 1. Direct pre-shared key check (constant-time)
         if (!string.IsNullOrWhiteSpace(dto.DeviceKey) &&
             ConstantTimeEquals(dto.DeviceKey.Trim(), _deviceApiKey))
         {
             return true;
         }
 
-        // 2. Optional HMAC-SHA256 signature verification
         if (!string.IsNullOrWhiteSpace(dto.Signature))
         {
             var tempStr = dto.Temperature.HasValue ? dto.Temperature.Value.ToString("F2", CultureInfo.InvariantCulture) : "";
@@ -499,7 +492,6 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         }
         catch
         {
-            // Non-fatal during startup
         }
     }
 
@@ -530,7 +522,6 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         }
         catch
         {
-            // Non-fatal: will retry on next telemetry tick
         }
     }
 
@@ -547,13 +538,13 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         bool hasUser = !string.IsNullOrEmpty(username);
         bool hasPass = hasUser && !string.IsNullOrEmpty(password);
 
-        byte connectFlags = 0x02; // CleanSession = 1
+        byte connectFlags = 0x02;
         if (hasUser) connectFlags |= 0x80;
         if (hasPass) connectFlags |= 0x40;
 
         using var body = new MemoryStream();
         WriteMqttString(body, "MQTT");
-        body.WriteByte(0x04); // Protocol Level 4 (MQTT 3.1.1)
+        body.WriteByte(0x04);
         body.WriteByte(connectFlags);
         body.WriteByte((byte)(keepAliveSeconds >> 8));
         body.WriteByte((byte)(keepAliveSeconds & 0xFF));
@@ -563,7 +554,7 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
 
         byte[] bodyBytes = body.ToArray();
         using var packet = new MemoryStream();
-        packet.WriteByte(0x10); // CONNECT
+        packet.WriteByte(0x10);
         WriteRemainingLength(packet, bodyBytes.Length);
         packet.Write(bodyBytes, 0, bodyBytes.Length);
 
@@ -585,12 +576,12 @@ public sealed class IotMqttBridgeHostedService : BackgroundService
         foreach (var t in topics)
         {
             WriteMqttString(body, t);
-            body.WriteByte(0x00); // QoS 0
+            body.WriteByte(0x00);
         }
 
         byte[] bodyBytes = body.ToArray();
         using var packet = new MemoryStream();
-        packet.WriteByte(0x82); // SUBSCRIBE
+        packet.WriteByte(0x82);
         WriteRemainingLength(packet, bodyBytes.Length);
         packet.Write(bodyBytes, 0, bodyBytes.Length);
 

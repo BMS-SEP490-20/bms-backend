@@ -16,7 +16,7 @@ namespace BMS.Api.Controllers.Billing;
 [Route("api/[controller]")]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-// WHY: UC54: Receptionist; Manager view; Patient view own invoices. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class InvoicesController(IReceiptService receiptService) : ControllerBase
 {

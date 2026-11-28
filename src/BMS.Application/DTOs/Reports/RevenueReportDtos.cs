@@ -10,7 +10,7 @@ public class RevenueFilterParameters
 {
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
-    public string Period { get; set; } = "monthly"; // daily | weekly | monthly | quarterly | yearly
+    public string Period { get; set; } = "monthly";
     public string? Category { get; set; }
     public string? PaymentMethod { get; set; }
     public string? ServiceType { get; set; }
@@ -27,8 +27,8 @@ public class RevenueSummaryDto
     public decimal SurchargesTotal { get; set; }
     public decimal NetRevenue { get; set; }
     public int TotalOrdersCount { get; set; }
-    public decimal AverageOrderValue { get; set; } // ARPU / AOV
-    public double GrowthRateVsPreviousPeriod { get; set; } // Percentage e.g. +14.2%
+    public decimal AverageOrderValue { get; set; }
+    public double GrowthRateVsPreviousPeriod { get; set; }
     public string FormattedGrossRevenue { get; set; } = string.Empty;
     public string FormattedNetRevenue { get; set; } = string.Empty;
 }
@@ -38,7 +38,7 @@ public class RevenueSummaryDto
 /// </summary>
 public class RevenueTrendPointDto
 {
-    public string DateLabel { get; set; } = string.Empty; // e.g. "Tháng 01", "2026-10-15"
+    public string DateLabel { get; set; } = string.Empty;
     public decimal GrossAmount { get; set; }
     public decimal NetAmount { get; set; }
     public decimal BhytAmount { get; set; }

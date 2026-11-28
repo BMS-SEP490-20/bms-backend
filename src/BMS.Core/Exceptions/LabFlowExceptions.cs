@@ -1,9 +1,5 @@
 namespace BMS.Core.Exceptions;
 
-// Exceptions for the Đợt 3 main lab flow (reception → order → fee → sampling → result).
-// GlobalExceptionHandler maps every AppException to ProblemDetails { status, title, code } — never ex.Message
-// of an infrastructure exception.
-
 /// <summary>The resource exists but is in a state that forbids the operation (TIEU-CHI C10: 409).</summary>
 public sealed class ConflictStateException(string code, string message) : AppException(409, code, message);
 

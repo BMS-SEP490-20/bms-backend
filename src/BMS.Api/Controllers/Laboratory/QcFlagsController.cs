@@ -15,7 +15,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/[controller]")]
 [Route("api/qc/flags")]
 [Route("api/v1/qc/flags")]
-// WHY: UC74: Lab; Manager view. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.LabOrManager)]
 public class QcFlagsController : ControllerBase
 {

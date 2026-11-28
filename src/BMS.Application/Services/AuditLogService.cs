@@ -44,7 +44,6 @@ namespace BMS.Application.Services
         /// </summary>
         public async Task<AuditLog> LogAsync(CreateAuditLogDto dto, CancellationToken ct = default)
         {
-            // Business rule: timestamps and unique log IDs are generated on the server for non-repudiation.
             var log = new AuditLog
             {
                 AuditId = $"AUD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
@@ -60,7 +59,7 @@ namespace BMS.Application.Services
                 EntityId = dto.EntityId,
                 Details = dto.Details,
                 Status = dto.Status,
-                // Record only what the client actually sent; never invent a user agent.
+
                 Browser = dto.Browser
             };
 

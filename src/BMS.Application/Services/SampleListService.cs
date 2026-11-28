@@ -169,7 +169,6 @@ public class SampleListService : ISampleListService
     {
         var dateShort = localDate.ToString("yyMMdd");
 
-        // Reuse existing accession root if this order already had a tube collected today (e.g. re-collecting 1 rejected tube)
         if (_samplesCol != null && !string.IsNullOrWhiteSpace(existingOrderId))
         {
             var existingBarcodes = await _samplesCol
@@ -244,7 +243,6 @@ public class SampleListService : ISampleListService
 
         try
         {
-            // Map orderKey -> set of active (non-Rejected) tube print codes already in blood_samples
             var activeTubesByOrder = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             if (_samplesCol != null)
             {
@@ -307,7 +305,6 @@ public class SampleListService : ISampleListService
                     .OrderBy(ClsiDrawOrder)
                     .ToList();
 
-                // All required tubes already have active samples -> order is fully in Step 2+
                 if (pendingTubes.Count == 0) continue;
 
                 string patientName = order.PatientName;
@@ -343,7 +340,6 @@ public class SampleListService : ISampleListService
         }
         catch
         {
-            // Fall back to empty result on DB exception
         }
 
         return result;
@@ -448,7 +444,6 @@ public class SampleListService : ISampleListService
             var targetOrderId = matchedOrder?.Id ?? apptDoc?.AppointmentCode ?? key;
             var displayOrderOrApt = matchedOrder?.OrderNumber ?? apptDoc?.AppointmentCode ?? key;
 
-            // Build tube groups from Doctor's TestOrder items and SORT BY CLSI H3-A6 ORDER OF DRAW
             var tubeSpecs = new List<(string PrintCode, int ClsiOrder, string Color, string Type, string TestCodes, string PackageName, string? FirstCode)>();
             if (matchedOrder?.Items != null && matchedOrder.Items.Count > 0)
             {
@@ -492,7 +487,6 @@ public class SampleListService : ISampleListService
                 tubeSpecs.Add((printCode, ClsiDrawOrder(printCode), TubeColorFromPrint(printCode), spec.TubeType, pkgCode ?? pkgName, pkgName, pkgCode));
             }
 
-            // Filter out tubes that already have an active (non-Rejected) sample for this order
             var specsToCreate = new List<(string PrintCode, int ClsiOrder, string Color, string Type, string TestCodes, string PackageName, string? FirstCode)>();
             if (_samplesCol != null)
             {
@@ -515,7 +509,6 @@ public class SampleListService : ISampleListService
 
             if (specsToCreate.Count == 0) continue;
 
-            // Allocate ONE common Accession Root for this patient/order draw (SMP-YYMMDD-XXXX)
             var accessionRoot = await AllocateAccessionRootAsync(localDate, targetOrderId);
             var createdTubeCodes = new List<string>();
             string firstBarcode = string.Empty;
@@ -611,7 +604,6 @@ public class SampleListService : ISampleListService
 
         foreach (var item in batch.Items)
         {
-            // Lookup Patient 2nd identifier (BirthYear, Gender, PatientCode) for ISO 15189 §7.2.6.2
             string patientCodeDisplay = item.PatientId;
             string genderVi = string.Empty;
             string birthYear = string.Empty;
@@ -633,7 +625,7 @@ public class SampleListService : ISampleListService
                         }
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
             }
 
             List<Sample> liveTubes = [];

@@ -27,7 +27,6 @@ public class QueueService(
     /// <summary>Highest number of a day (BA:L33: after Q-999 the queue is closed, never Q-1000).</summary>
     public const int MaxTicketsPerDay = 999;
 
-    // WHY 25: with N counters racing, a loser re-reads and retries; 25 rounds covers far more counters than the clinic has.
     private const int ClaimAttempts = 25;
 
     private static readonly IReadOnlyDictionary<QueueTicketStatus, QueueTicketStatus[]> AllowedFrom =
@@ -152,8 +151,7 @@ public class QueueService(
             throw new DomainValidationException("QUEUE_COUNTER_REQUIRED", "Vui lòng chọn quầy.");
         var now = clock.GetUtcNow().UtcDateTime;
         var day = ClinicTime.LocalDateKey(now);
-        // WHY the loop: two counters may pick the same candidate; the conditional update lets only one win,
-        // the loser re-reads and takes the next person.
+
         for (var attempt = 0; attempt < ClaimAttempts; attempt++)
         {
             var tickets = await repository.GetByDateAsync(day, ct);

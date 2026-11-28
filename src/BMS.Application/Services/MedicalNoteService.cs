@@ -48,7 +48,7 @@ public sealed class MedicalNoteService(
             throw new DomainValidationException("INVALID_RECORD", "Vui lòng nhập mã bệnh án hợp lệ.");
         var record = await records.GetByIdAsync(recordId.Trim(), doctorId, "Doctor", ct)
             ?? throw new MedicalNoteRecordNotFoundException();
-        // Doctor profile IDs equal account IDs; never trust an author supplied by the client.
+
         if (!string.Equals(record.DoctorId, doctorId, StringComparison.Ordinal))
             throw new ForbiddenAccessException("Chỉ bác sĩ phụ trách bệnh án mới có quyền xem và thêm ghi chú.");
         return record;

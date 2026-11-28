@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/v1/laboratory/criteria")]
 [Route("api/laboratory/criteria")]
 [Produces("application/json")]
-// WHY: UC18: view Manager, Lab, Doctor; create/edit/deactivate (incl. panic thresholds) Manager only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class TestCriteriaController : ControllerBase
 {
@@ -36,8 +36,7 @@ public class TestCriteriaController : ControllerBase
     /// Lấy danh sách xét nghiệm cho chức năng quản lý gói dịch vụ.
     /// Giữ tương thích với frontend đang gọi GET /api/test-criteria.
     /// </summary>
-    // WHY: this list feeds service-package management (UC15, Admin), so Admin may read test names here;
-    // the clinical criteria endpoints below (ranges, panic thresholds) stay Manager/Lab/Doctor.
+
     [Authorize(Roles = RoleNames.Admin + "," + RoleSets.ClinicalStaff)]
     [HttpGet("~/api/test-criteria")]
     [ProducesResponseType(
@@ -286,4 +285,3 @@ public sealed record TestCriterionDto(
     string Unit,
     string Category
 );
-

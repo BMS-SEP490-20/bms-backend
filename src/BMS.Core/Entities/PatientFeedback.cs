@@ -34,7 +34,7 @@ namespace BMS.Core.Entities
 
         public string? ServicePackageName { get; set; }
 
-        public string ServiceCategory { get; set; } = "Dịch vụ chung"; // Đón tiếp & Lễ tân, Lấy mẫu máu & Xét nghiệm, Tư vấn bác sĩ, v.v.
+        public string ServiceCategory { get; set; } = "Dịch vụ chung";
 
         [Range(1, 5)]
         public int Rating { get; set; } = 5;
@@ -43,7 +43,7 @@ namespace BMS.Core.Entities
 
         public string Comment { get; set; } = null!;
 
-        public string Status { get; set; } = "PENDING"; // PENDING, REVIEWED, RESPONDED, RESOLVED, HIDDEN
+        public string Status { get; set; } = "PENDING";
 
         public string? ManagerResponse { get; set; }
 

@@ -12,7 +12,7 @@ public sealed record TubeSpec(string Color, string TubeType, int DrawOrder, stri
 /// </summary>
 /// <remarks>WHY keyword rules: the catalog (service_packages) has no tube field yet; matching on code/name keeps
 /// Glucose → Gray (fluoride) and CBC → Purple (EDTA). The old code mapped NaF → Green, which is wrong.
-/// TODO(phat, Đợt 4): move the tube to the catalog so Manager can maintain it.</remarks>
+/// Future catalog migration can move tube definitions into database configuration.</remarks>
 public static class TubeRules
 {
     public static readonly TubeSpec BloodCulture = new("BloodCulture", "Chai cấy máu", 1, "8-10");
@@ -42,8 +42,6 @@ public static class TubeRules
         return Serum;
     }
 
-    // WHY two modes: short codes (PT, CBC, GLU) must match whole tokens so "PT" does not hit "APTT" or "SEPTIC";
-    // long keys and phrases match as substrings ("GLUCOSE" inside "GLUCOSE_FASTING").
     private static bool Matches(string key, HashSet<string> tokens, string text) =>
         key.Length > 4 || key.Contains(' ') || key.Contains('-')
             ? text.Contains(key, StringComparison.Ordinal)

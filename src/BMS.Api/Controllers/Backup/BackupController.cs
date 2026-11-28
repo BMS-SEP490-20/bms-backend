@@ -20,7 +20,7 @@ namespace BMS.Api.Controllers.Backup;
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/v1/backup")]
-// WHY: UC80: Admin only (incl. restore validate/execute). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleNames.Admin)]
 public class BackupController : ControllerBase
 {

@@ -60,7 +60,6 @@ public class IotTelemetryIngestResponseDto
     public bool ReconnectedFromOutage { get; set; }
     public string? OutageId { get; set; }
 
-    // 2-Way Threshold Synchronization fields consumed by ESP32 firmware
     public double MinTemp { get; set; } = 2.0;
     public double MaxTemp { get; set; } = 8.0;
     public double MinHumidity { get; set; } = 45.0;
@@ -120,7 +119,7 @@ public class IotConnectionStatusDto
     public string DeviceName { get; set; } = "ESP32 DHT22 Tủ Bảo Quản Máu 01";
     public string Location { get; set; } = "Blood Storage Room 01";
     public bool IsConnected { get; set; }
-    public string ConnectionState { get; set; } = "DISCONNECTED"; // "CONNECTED" | "DISCONNECTED"
+    public string ConnectionState { get; set; } = "DISCONNECTED";
     public DateTime? LastSeenAt { get; set; }
     public double? SecondsSinceLastSeen { get; set; }
     public int TimeoutThresholdSeconds { get; set; } = 15;
@@ -141,7 +140,7 @@ public class IotConnectionStatusDto
 public class IotSensorLogQueryDto
 {
     public string? DeviceId { get; set; }
-    public string? Status { get; set; } // "All", "Normal", "Violation", "Buffered"
+    public string? Status { get; set; }
     public string? OutageId { get; set; }
     public string? Search { get; set; }
     public int? Hours { get; set; } = 24;
@@ -163,7 +162,6 @@ public class IotMonitoringDashboardDto
     public double MaxHumidityThreshold { get; set; } = 75.0;
     public int IntervalSeconds { get; set; } = 5;
 
-    // Statistical KPIs
     public double? LatestTemperature { get; set; }
     public double? LatestHumidity { get; set; }
     public double MinTemperature { get; set; }
@@ -178,11 +176,10 @@ public class IotMonitoringDashboardDto
     public int BufferedLogsCount { get; set; }
     public int OutagesCount { get; set; }
 
-    // Chronological chart points (oldest -> newest)
     public List<IotSensorLogDto> ChartSeries { get; set; } = new();
-    // Outage windows for chart shading & history list
+
     public List<IotConnectionOutageDto> Outages { get; set; } = new();
-    // Paginated table items (newest -> oldest)
+
     public List<IotSensorLogDto> Logs { get; set; } = new();
     public int PageNumber { get; set; } = 1;
     public int PageSize { get; set; } = 50;
@@ -200,7 +197,6 @@ public class SimulateReconnectRequestDto
     public double BaseTemperature { get; set; } = 4.6;
     public double BaseHumidity { get; set; } = 56.0;
 }
-
 
 /// <summary>
 /// Daily rolled-up environmental summary DTO for multi-year cold-chain reporting.

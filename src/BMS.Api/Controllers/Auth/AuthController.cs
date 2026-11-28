@@ -54,10 +54,6 @@ public sealed class AuthController : ControllerBase
         });
     }
 
-    // =========================================================
-    // LOGIN - Giữ luồng JWT và refresh token của feature branch
-    // =========================================================
-
     /// <summary>Đăng nhập bằng username/email và mật khẩu.</summary>
     [HttpPost("login")]
     [AllowAnonymous]
@@ -111,10 +107,6 @@ public sealed class AuthController : ControllerBase
             });
         }
     }
-
-    // =========================================================
-    // GOOGLE OAUTH 2.0 SINGLE SIGN-ON (LOGIN & REGISTRATION)
-    // =========================================================
 
     /// <summary>Đăng nhập hoặc đăng ký tự động bằng Google OAuth 2.0 ID Token.</summary>
     [HttpPost("google")]
@@ -170,10 +162,6 @@ public sealed class AuthController : ControllerBase
         }
     }
 
-    // =========================================================
-    // REFRESH TOKEN
-    // =========================================================
-
     [HttpPost("refresh")]
     [HttpPost("refresh-token")]
     [AllowAnonymous]
@@ -225,10 +213,6 @@ public sealed class AuthController : ControllerBase
         }
     }
 
-    // =========================================================
-    // LOGOUT
-    // =========================================================
-
     [HttpPost("logout")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -253,10 +237,6 @@ public sealed class AuthController : ControllerBase
 
         return NoContent();
     }
-
-    // =========================================================
-    // REGISTER
-    // =========================================================
 
     [HttpGet("check-email")]
     [AllowAnonymous]
@@ -329,10 +309,6 @@ public sealed class AuthController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    // =========================================================
-    // VERIFY ACCOUNT OTP - Giữ API cũ của main
-    // =========================================================
-
     [HttpPost("verify-otp")]
     [AllowAnonymous]
     public async Task<IActionResult> VerifyAccountOtp(
@@ -360,10 +336,6 @@ public sealed class AuthController : ControllerBase
 
         return Ok(result);
     }
-
-    // =========================================================
-    // SEND OTP - Registration / Forgot Password
-    // =========================================================
 
     [HttpPost("otp/send")]
     [AllowAnonymous]
@@ -414,10 +386,6 @@ public sealed class AuthController : ControllerBase
         return Ok(result);
     }
 
-    // =========================================================
-    // VERIFY OTP - Forgot Password / OTP workflow
-    // =========================================================
-
     [HttpPost("otp/verify")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(VerifyOtpResponseDto), StatusCodes.Status200OK)]
@@ -445,10 +413,6 @@ public sealed class AuthController : ControllerBase
         return Ok(result);
     }
 
-    // =========================================================
-    // CURRENT USER - Đọc profile bằng JWT
-    // =========================================================
-
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType(typeof(UserInfoDto), StatusCodes.Status200OK)]
@@ -460,10 +424,6 @@ public sealed class AuthController : ControllerBase
 
         return Ok(result);
     }
-
-    // =========================================================
-    // HELPERS
-    // =========================================================
 
     private string CurrentUserId =>
         User.FindFirstValue("sub")

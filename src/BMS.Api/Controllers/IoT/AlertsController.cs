@@ -16,13 +16,12 @@ namespace BMS.Api.Controllers.IoT;
 /// Conforms to: Production Standards, ISO 15189 Quality Management & AGENTS-CODE.md.
 /// </summary>
 [ApiController]
-// "api/[controller]" was removed: it resolves to api/Alerts, which is the same route as api/alerts below
-// (routing is case-insensitive) and made every alerts request fail with AmbiguousMatchException (HTTP 500).
+
 [Route("api/iot/alerts")]
 [Route("api/v1/iot/alerts")]
 [Route("api/alerts")]
 [Route("api/v1/alerts")]
-// WHY: UC68: view/acknowledge Lab, Manager; resolve + CRITICAL report Manager; simulate Admin (dev); telemetry = device key (C13). (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class AlertsController : ControllerBase
 {
@@ -199,7 +198,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Evaluates incoming sensor telemetry against thresholds and generates instant alarms if breached.
     /// </summary>
-    [AllowAnonymous] // JWT not used: IoT devices authenticate with X-Device-Key (C13)
+    [AllowAnonymous]
     [RequireDeviceKey]
     [HttpPost("~/api/iot/telemetry/evaluate")]
     [HttpPost("~/api/v1/iot/telemetry/evaluate")]
@@ -225,8 +224,7 @@ public class AlertsController : ControllerBase
     /// <summary>
     /// Simulates a sensor excursion alarm for training drills and testing escalation alerts.
     /// </summary>
-    // "~/api/iot/alerts/simulate" is already produced by "simulate" under the api/iot/alerts prefix; declaring it
-    // twice made POST api/iot/alerts/simulate ambiguous.
+
     [Authorize(Roles = RoleSets.AdminOrManager)]
     [HttpPost("simulate")]
     public async Task<IActionResult> SimulateAlert([FromBody] SimulateAlertRequestDto request, CancellationToken ct)

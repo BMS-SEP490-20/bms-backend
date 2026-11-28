@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/medical-records")]
-// WHY: UC33: Doctor writes; Doctor, Manager (view), Patient (own) read. Admin denied. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class MedicalRecordsController : ControllerBase
 {

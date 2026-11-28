@@ -19,7 +19,6 @@ public sealed class RequireDeviceKeyAttribute : Attribute, IAuthorizationFilter
     /// <inheritdoc />
     public void OnAuthorization(AuthorizationFilterContext context)
     {
-        // A signed-in patient is not a telemetry device or an authorized operator.
         if (context.HttpContext.User?.Identity?.IsAuthenticated == true)
         {
             if (!RoleSets.AdminManagerLab.Split(',').Any(context.HttpContext.User.IsInRole))

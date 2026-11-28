@@ -18,8 +18,7 @@ public sealed class MongoSequenceGenerator(IMongoDatabase database) : ISequenceG
         var filter = Builders<BsonDocument>.Filter.Eq("_id", key);
         var update = Builders<BsonDocument>.Update.Inc("seq", 1L);
         var options = new FindOneAndUpdateOptions<BsonDocument> { IsUpsert = true, ReturnDocument = ReturnDocument.After };
-        // WHY the retry: two concurrent upserts of a not-yet-existing _id can race and one gets E11000; the
-        // document exists after that, so the retried $inc is a plain atomic increment.
+
         for (var attempt = 0; ; attempt++)
         {
             try

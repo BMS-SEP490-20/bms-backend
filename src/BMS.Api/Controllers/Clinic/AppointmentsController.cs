@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Clinic;
 /// </summary>
 [ApiController]
 [Route("api/appointments")]
-// WHY: UC21/23/24: book LT, BN (own); view LT, QL, BS, BN (own); edit/cancel LT, QL, BN (own). Admin and Lab denied. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class AppointmentsController : ControllerBase
 {
@@ -110,7 +110,6 @@ public class AppointmentsController : ControllerBase
                                 ?? User.FindFirstValue("sub")
                                 ?? "system";
 
-            // The appointment belongs to the selected patient, never to the receptionist creating it.
             var patient = await _patients.GetByIdOrCodeAsync(request.PatientId, ct);
             if (patient is null) patient = await _patients.GetByAccountIdAsync(request.PatientId, ct);
             if (patient is null) return NotFound(new { code = "PATIENT_NOT_FOUND", message = "Không tìm thấy bệnh nhân." });

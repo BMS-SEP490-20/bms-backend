@@ -31,7 +31,7 @@ public class CounterStatusDto
 {
     public string CounterName { get; set; } = string.Empty;
     public string StaffName { get; set; } = string.Empty;
-    public string Status { get; set; } = "Active"; // Active, Available, Closed
+    public string Status { get; set; } = "Active";
     public string Description { get; set; } = string.Empty;
 }
 

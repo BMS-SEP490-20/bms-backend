@@ -111,7 +111,7 @@ public class SampleCheckInService : ISampleCheckInService
                     }, ct);
                 }
             }
-            catch { /* non-blocking */ }
+            catch {  }
         }
 
         return Map(sample);

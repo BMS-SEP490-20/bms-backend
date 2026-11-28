@@ -31,7 +31,7 @@ namespace BMS.Api.Controllers.Notifications;
 [Route("api/notifications/test-results")]
 [Route("api/test-result-notifications")]
 [Produces("application/json")]
-// WHY: UC60: Doctor (and Manager) dispatch & view notifications only after doctor approval; Patient views own.
+
 [Authorize]
 public class TestResultNotificationsController : ControllerBase
 {
@@ -368,7 +368,6 @@ public class TestResultNotificationsController : ControllerBase
                 var accountsCol = db.GetCollection<BsonDocument>("accounts");
                 var packagesCol = db.GetCollection<BsonDocument>("test_packages");
 
-                // Chỉ lấy các kết quả đã được Bác sĩ phê duyệt (Approved / Published / Signed) và chưa bị thay thế
                 var approvedStatuses = new[] { "Approved", "APPROVED", "approved", "Published", "PUBLISHED", "Signed", "SIGNED" };
                 var approvedFilter = Builders<BsonDocument>.Filter.And(
                     Builders<BsonDocument>.Filter.In("status", approvedStatuses),
@@ -393,7 +392,6 @@ public class TestResultNotificationsController : ControllerBase
                     var sampleId = ReadStr(r, "sampleId", "sample_id");
                     var patientId = ReadStr(r, "patientId", "patient_id");
 
-                    // Join blood_samples để lấy barcode & gói xét nghiệm thực tế
                     BsonDocument? sDoc = null;
                     if (!string.IsNullOrWhiteSpace(sampleId))
                     {

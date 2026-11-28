@@ -19,7 +19,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [ApiController]
 [Route("api/[controller]")]
 [Route("api/tracking")]
-// WHY: UC48: lookup by code is public and PII-masked (decision 18); patient list/search need login. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class TrackTestProgressController : ControllerBase
 {
@@ -47,9 +47,6 @@ public class TrackTestProgressController : ControllerBase
             });
         }
 
-        // Check if user is authenticated staff
-        // WHY: unmasked tracking is for clinical staff and Lễ tân only (matrix UC48); Admin is excluded (decision 10)
-        // and anonymous/Patient callers always get the PII-masked public view.
         bool isStaff = User.Identity?.IsAuthenticated == true &&
                        (User.IsInRole(RoleNames.Manager) || User.IsInRole(RoleNames.Lab) ||
                         User.IsInRole(RoleNames.Doctor) || User.IsInRole(RoleNames.Receptionist));
@@ -64,7 +61,6 @@ public class TrackTestProgressController : ControllerBase
             });
         }
 
-        // If an authenticated Patient looks up their own specimen, return unmasked details.
         if (!isStaff && User.Identity?.IsAuthenticated == true && User.IsInRole(RoleNames.Patient) &&
             !string.IsNullOrWhiteSpace(result.PatientId) &&
             await this.MayAccessPatientAsync(result.PatientId, ct))
@@ -108,7 +104,7 @@ public class TrackTestProgressController : ControllerBase
     /// <summary>
     /// Searches and filters recent sample progress records across the laboratory (Clinical Staff only).
     /// </summary>
-    // Lab-wide search is staff work; a Patient uses patient/{own id} instead.
+
     [Authorize(Roles = RoleSets.ClinicalStaffOrReception)]
     [HttpGet("search")]
     public async Task<IActionResult> SearchTrackings(

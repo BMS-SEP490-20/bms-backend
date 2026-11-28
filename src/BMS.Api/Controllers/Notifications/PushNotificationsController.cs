@@ -19,7 +19,7 @@ namespace BMS.Api.Controllers.Notifications;
 [ApiController]
 [Route("api/v1/notifications")]
 [Route("api/notifications")]
-// WHY: UC58: dispatch Lab, Manager, Receptionist; tokens/inbox own; logs Admin, Manager. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class PushNotificationsController : ControllerBase
 {
@@ -131,7 +131,7 @@ public class PushNotificationsController : ControllerBase
         {
             return BadRequest(new { success = false, message = "UserId and DeviceToken are required." });
         }
-        // WHY (R14): a device token may only be registered for the caller's own account.
+
         if (!this.IsSelf(request.UserId)) return Forbid();
 
         try
@@ -160,7 +160,6 @@ public class PushNotificationsController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserNotifications(string userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
     {
-    // WHY (R14): own inbox only; userId in the URL must be the token account.
     if (!this.IsSelf(userId)) return Forbid();
         if (string.IsNullOrWhiteSpace(userId))
         {
@@ -231,7 +230,6 @@ public class PushNotificationsController : ControllerBase
     [HttpPatch("user/{userId}/read-all")]
     public async Task<IActionResult> MarkAllAsRead(string userId, CancellationToken cancellationToken = default)
     {
-    // WHY (R14): own inbox only; userId in the URL must be the token account.
     if (!this.IsSelf(userId)) return Forbid();
         if (string.IsNullOrWhiteSpace(userId))
         {

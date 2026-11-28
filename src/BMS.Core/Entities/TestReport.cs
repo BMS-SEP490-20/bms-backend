@@ -24,7 +24,7 @@ public class TestReportParameter
     public string ReferenceRange { get; set; } = string.Empty;
 
     [BsonElement("flag")]
-    public string Flag { get; set; } = string.Empty; // Normal (""), "H", "L", "CRITICAL"
+    public string Flag { get; set; } = string.Empty;
 
     [BsonElement("is_abnormal")]
     public bool IsAbnormal { get; set; }
@@ -42,10 +42,10 @@ public class TestReport
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [BsonElement("report_id")]
-    public string ReportId { get; set; } = string.Empty; // RPT-YYYYMMDD-XXXX
+    public string ReportId { get; set; } = string.Empty;
 
     [BsonElement("order_id")]
-    public string OrderId { get; set; } = string.Empty; // ORD-YYYYMMDD-XXXX
+    public string OrderId { get; set; } = string.Empty;
 
     [BsonElement("patient_id")]
     public string PatientId { get; set; } = string.Empty;

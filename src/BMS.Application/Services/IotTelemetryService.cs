@@ -50,7 +50,6 @@ public class IotTelemetryService : IIotTelemetryService
     private static bool _initialBaselineSeeded;
     private static readonly object _seedLock = new();
 
-    // Synchronized timing constants across IoT (5s send) -> Backend (30s grace timeout) -> Web Frontend (5s poll)
     private const int DefaultHardwareIntervalSeconds = 5;
     private const int MinHeartbeatTimeoutSeconds = 30;
     private const int PersistenceIntervalSeconds = 60;
@@ -78,7 +77,6 @@ public class IotTelemetryService : IIotTelemetryService
             throw new ArgumentNullException(nameof(request));
         }
 
-        // Reject invalid packets before writing logs, heartbeat state or incident alerts.
         static bool ValidHumidity(double value) => double.IsFinite(value) && value is >= 0 and <= 100;
         var nowUtc = DateTime.UtcNow;
         if (request.Humidity.HasValue && !ValidHumidity(request.Humidity.Value)
@@ -121,7 +119,6 @@ public class IotTelemetryService : IIotTelemetryService
                 && (now - hb.LastSeenAt.Value).TotalSeconds > timeoutSeconds;
             bool hasBufferedItems = request.BufferedReadings != null && request.BufferedReadings.Count > 0;
 
-            // Reconcile outage window if device was disconnected or flushed offline RAM buffer
             if (activeOutage != null || hb.ForceDisconnected || hadGapOutage || hasBufferedItems)
             {
                 reconnectedFromOutage = true;
@@ -191,7 +188,6 @@ public class IotTelemetryService : IIotTelemetryService
 
                 await _logRepository.UpsertOutageAsync(outage, ct);
 
-                // Close any other stale "Disconnected" outage records for this device so status never flickers
                 var allOutages = await _logRepository.GetOutagesAsync(deviceId, 20, ct);
                 foreach (var stale in allOutages.Where(o => o.Status == "Disconnected" && o.Id != outage.Id))
                 {
@@ -250,7 +246,6 @@ public class IotTelemetryService : IIotTelemetryService
                 hb.LastPersistedStatus = status;
             }
 
-            // Update live heartbeat state inside lock
             hb.DeviceName = deviceName;
             hb.Location = location;
             hb.LastSeenAt = now;
@@ -272,7 +267,6 @@ public class IotTelemetryService : IIotTelemetryService
         string finalStatus = hb.LastStatus;
         DateTime finalRecordedAt = hb.LastSeenAt ?? now;
 
-        // Evaluate against UC68 Alert Service for both Temperature and Humidity
         IotAlertDto? triggeredAlert = null;
         if (request.Temperature.HasValue)
         {
@@ -315,7 +309,6 @@ public class IotTelemetryService : IIotTelemetryService
             }
             catch
             {
-                // Non-fatal push
             }
         }
 
@@ -366,7 +359,6 @@ public class IotTelemetryService : IIotTelemetryService
         await hb.SyncLock.WaitAsync(ct);
         try
         {
-            // Hydrate heartbeat from latest stored log if server just restarted
             if (!hb.LastSeenAt.HasValue)
             {
                 var latestLog = await _logRepository.GetLatestLogByDeviceAsync(targetDeviceId, ct);
@@ -396,7 +388,6 @@ public class IotTelemetryService : IIotTelemetryService
 
             if (isConnected)
             {
-                // If connected, ensure no stale "Disconnected" outage remains open in MongoDB
                 if (activeOutage != null)
                 {
                     activeOutage.ReconnectedAt = now;
@@ -409,7 +400,6 @@ public class IotTelemetryService : IIotTelemetryService
             }
             else if (hb.ForceDisconnected || hb.HasReceivedLivePacket)
             {
-                // Only open a new outage record if the device was previously active in this session or explicitly disconnected
                 if (activeOutage == null)
                 {
                     DateTime disconnectedAt = hb.ForcedDisconnectAt
@@ -488,7 +478,6 @@ public class IotTelemetryService : IIotTelemetryService
         }
         catch
         {
-            // Fallback to known heartbeats
         }
 
         foreach (var hbKey in _heartbeats.Keys)
@@ -549,7 +538,6 @@ public class IotTelemetryService : IIotTelemetryService
 
         var logDtos = allMatchingLogs.Select(MapLogToDto).ToList();
 
-        // Chronological order (oldest -> newest) for SVG time-series chart rendering
         var chartSeries = logDtos
             .OrderBy(x => x.RecordedAt)
             .TakeLast(150)
@@ -661,7 +649,6 @@ public class IotTelemetryService : IIotTelemetryService
             }
             catch
             {
-                // Non-fatal push
             }
         }
         return status;
@@ -855,7 +842,6 @@ public class IotTelemetryService : IIotTelemetryService
 
     private Task EnsureSeedHistoryIfEmptyAsync(CancellationToken ct)
     {
-        // Real MongoDB telemetry only — never inject fabricated seed logs or fake OUTAGE-SEED-001 records.
         _initialBaselineSeeded = true;
         return Task.CompletedTask;
     }
@@ -882,7 +868,6 @@ public class IotTelemetryService : IIotTelemetryService
                 maxHum = tempConfig.HighAlert;
             }
 
-            // Keep physical ESP32 gateway BMS-IOT-001 on a fast 5s cadence (clamped 3s-10s) so real-time charts stay live
             intervalSec = deviceId.Equals("BMS-IOT-001", StringComparison.OrdinalIgnoreCase)
                 ? Math.Clamp(tempConfig.IntervalSeconds, 3, 10)
                 : Math.Max(5, tempConfig.IntervalSeconds);

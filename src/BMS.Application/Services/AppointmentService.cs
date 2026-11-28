@@ -127,7 +127,6 @@ namespace BMS.Application.Services
             await _repository.InsertAsync(appointment, ct);
             _logger.LogInformation("✅ Appointment booked successfully: {Code}", appointment.AppointmentCode);
 
-            // Auto-create initial unpaid billing invoice for the booked package (allows Patient & Receptionist to track payment)
             try
             {
                 var pkg = resolvedPackage;
@@ -237,7 +236,6 @@ namespace BMS.Application.Services
             var shifts = await _repository.GetShiftsByDateAsync(date, ct);
             if (shifts.Count > 0)
             {
-                // Only consider clinical doctor shifts (exclude Lab Technicians, Receptionists, Cashiers)
                 var doctorShifts = shifts.Where(s =>
                     string.IsNullOrWhiteSpace(s.EmployeeRole) ||
                     string.Equals(s.EmployeeRole, "Doctor", StringComparison.OrdinalIgnoreCase)
@@ -332,7 +330,6 @@ namespace BMS.Application.Services
             return res;
         }
 
-        // UC23: View Appointments (Filter & Paged)
         public async Task<PagedResult<AppointmentReadDto>> GetFilteredAsync(
             AppointmentFilterRequest filter,
             string? currentUserId,
@@ -427,7 +424,6 @@ namespace BMS.Application.Services
             return new PagedResult<AppointmentReadDto>(dtos, filter.Page, filter.PageSize, total);
         }
 
-        // UC13: Manage Appointments
         public async Task<IEnumerable<AppointmentReadDto>> GetAllAsync(CancellationToken ct = default)
         {
             var list = (await _repository.GetAllAsync(ct)).ToList();
@@ -576,15 +572,6 @@ namespace BMS.Application.Services
             entity.UpdatedAt = DateTime.UtcNow;
             await _repository.UpdateAsync(entity, ct);
 
-            // NOTE: Auto-creating samples on CheckedIn is intentionally REMOVED.
-            // ISO 15189 workflow requires:
-            //   Bước 1: KTV lấy mẫu & in Barcode (status = PendingCollection → Collected)
-            //   Bước 2: Quét tiếp nhận ống mẫu (status = Collected/InTransit → Received)
-            //   Bước 3: Hàng đợi mẫu bệnh phẩm (chỉ hiện khi status = Received+)
-            // Mẫu chỉ được tạo tại Bước 1 bởi KTV Lab, KHÔNG tự động sinh khi bác sĩ ra y lệnh.
-            // ⚠️ Code cũ dưới đây đã bị xoá để tránh lỗi logic nhảy cóc 2 bước.
-            // Nếu cần tạo mẫu dự kiến (tube placeholder) → thực hiện tại SampleListService với status = PendingCollection.
-
             return true;
         }
 
@@ -617,7 +604,6 @@ namespace BMS.Application.Services
                 var sType = shift.ShiftType?.Trim().ToLowerInvariant();
                 var isFullDay = sType is "fullday" or "full_day" or "full-day";
 
-                // Nếu là ca FullDay, chia thành 2 khoảng làm việc rõ ràng tránh giờ nghỉ trưa: Sáng 07:00-11:30 & Chiều 13:00-17:00
                 if (isFullDay)
                 {
                     windows.Add("07:00-11:30");
@@ -813,7 +799,7 @@ namespace BMS.Application.Services
                         dict[rawId] = pkg.PackageName;
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
             }
             return dict;
         }

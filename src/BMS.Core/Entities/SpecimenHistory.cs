@@ -134,10 +134,10 @@ public class SpecimenHistoryRecord
     public string? RfidTag { get; set; }
 
     [BsonElement("sampleType")]
-    public string SampleType { get; set; } = "Blood"; // Blood, Serum, Plasma, Urine
+    public string SampleType { get; set; } = "Blood";
 
     [BsonElement("tubeColor")]
-    public string TubeColor { get; set; } = "Tím (EDTA)"; // Tím, Vàng, Xanh dương, Xanh lá
+    public string TubeColor { get; set; } = "Tím (EDTA)";
 
     [BsonElement("anticoagulant")]
     public string Anticoagulant { get; set; } = "EDTA K2";
@@ -148,7 +148,6 @@ public class SpecimenHistoryRecord
     [BsonElement("minimumRequiredVolumeMl")]
     public double MinimumRequiredVolumeMl { get; set; } = 1.0;
 
-    // Patient Identification
     [BsonElement("patientId")]
     public string PatientId { get; set; } = string.Empty;
 
@@ -164,7 +163,6 @@ public class SpecimenHistoryRecord
     [BsonElement("patientPhone")]
     public string? PatientPhone { get; set; }
 
-    // Medical Order Association
     [BsonElement("orderId")]
     public string OrderId { get; set; } = string.Empty;
 
@@ -189,14 +187,12 @@ public class SpecimenHistoryRecord
     [BsonElement("testCriteriaCodes")]
     public List<string> TestCriteriaCodes { get; set; } = [];
 
-    // Current State & Priority
     [BsonElement("status")]
     public string Status { get; set; } = string.Empty;
 
     [BsonElement("priority")]
     public string Priority { get; set; } = string.Empty;
 
-    // Phlebotomy Collection Event Details
     [BsonElement("collectionTime")]
     public DateTime CollectionTime { get; set; } = DateTime.MinValue;
 
@@ -209,11 +205,9 @@ public class SpecimenHistoryRecord
     [BsonElement("collectionSite")]
     public string CollectionSite { get; set; } = string.Empty;
 
-    // End-to-end Chronological Event Log
     [BsonElement("timeline")]
     public List<SpecimenTimelineEvent> Timeline { get; set; } = [];
 
-    // Cold Chain & Archive Storage Info (null when specimen has not been placed in cold storage)
     [BsonElement("storage")]
     public SpecimenStorageInfo? Storage { get; set; }
 

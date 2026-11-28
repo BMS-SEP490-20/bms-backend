@@ -30,7 +30,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // In-memory fallback
             }
         }
     }
@@ -58,7 +57,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // Fallback to in-memory store
             }
         }
 
@@ -81,7 +79,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -112,7 +109,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -158,7 +154,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -178,7 +173,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -200,7 +194,6 @@ public class IotThresholdRepository : IIotThresholdRepository
             }
             catch
             {
-                // Fallback
             }
         }
 

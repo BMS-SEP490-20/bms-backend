@@ -36,7 +36,7 @@ public class CreateQcLotDto
     public string AnalyteName { get; set; } = string.Empty;
     public string InstrumentId { get; set; } = string.Empty;
     public string Manufacturer { get; set; } = "Bio-Rad Laboratories";
-    public int Level { get; set; } = 1; // 1 = Normal, 2 = High, 3 = Low
+    public int Level { get; set; } = 1;
     public double TargetMean { get; set; }
     public double TargetStandardDeviation { get; set; }
     public string Unit { get; set; } = "mmol/L";

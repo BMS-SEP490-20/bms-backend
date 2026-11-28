@@ -10,9 +10,9 @@ namespace BMS.Core.Entities;
 /// </summary>
 public static class TatBenchmarks
 {
-    public const int DefaultStatTargetMinutes = 60;     // Emergency / STAT target: <= 60 minutes
-    public const int DefaultUrgentTargetMinutes = 120;  // Urgent priority target: <= 120 minutes
-    public const int DefaultNormalTargetMinutes = 240;  // Routine / Normal target: <= 240 minutes (4 hours)
+    public const int DefaultStatTargetMinutes = 60;
+    public const int DefaultUrgentTargetMinutes = 120;
+    public const int DefaultNormalTargetMinutes = 240;
 }
 
 /// <summary>

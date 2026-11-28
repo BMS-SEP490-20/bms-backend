@@ -34,7 +34,6 @@ public sealed class ServicePackageRepository : IServicePackageRepository
             if (byId != null) return byId;
         }
 
-        // Cho phép tìm theo Code nếu id truyền vào là mã gói (vd: PKG_GEN_01)
         return await _col.Find(F.And(
                 F.Or(F.Eq(x => x.Id, trimmed), F.Eq(x => x.Code, trimmed.ToUpperInvariant())),
                 F.Eq(x => x.IsDeleted, false)))
@@ -53,7 +52,7 @@ public sealed class ServicePackageRepository : IServicePackageRepository
         if (!string.IsNullOrWhiteSpace(q.Keyword))
         {
             var kw = q.Keyword.Trim();
-            // OWASP ASVS: Escape special regex characters to prevent ReDoS and Regex/NoSQL injection
+
             var escapedKw = System.Text.RegularExpressions.Regex.Escape(kw);
             var regex = new BsonRegularExpression(escapedKw, "i");
 
@@ -102,7 +101,6 @@ public sealed class ServicePackageRepository : IServicePackageRepository
             var fb = Builders<BsonDocument>.Filter;
             var inactiveAppointmentStatuses = new[] { "Cancelled", "Completed", "Rejected", "NoShow" };
 
-            // 1. Kiểm tra trong danh sách lịch hẹn đang xử lý
             var appointments = _db.GetCollection<BsonDocument>("appointments");
             var packageMatch = fb.Or(
                 fb.Eq("packageId", id),
@@ -121,7 +119,6 @@ public sealed class ServicePackageRepository : IServicePackageRepository
                 .AnyAsync(ct);
             if (inAppointment) return true;
 
-            // 2. Kiểm tra trong danh sách đơn xét nghiệm đang hoạt động (chưa hoàn tất hoặc huỷ)
             var testOrders = _db.GetCollection<BsonDocument>("test_orders");
             var orderMatch = fb.Or(
                 fb.Eq("package_id", id),
@@ -184,7 +181,7 @@ public sealed class ServicePackageRepository : IServicePackageRepository
             "price" => q.SortDesc ? sb.Descending(x => x.Price) : sb.Ascending(x => x.Price),
             _       => q.SortDesc ? sb.Descending(x => x.CreatedAt) : sb.Ascending(x => x.CreatedAt)
         };
-        // _id làm tiêu chí phụ để phân trang ổn định khi giá trị sort bị trùng
+
         return sb.Combine(primary, sb.Ascending(x => x.Id));
     }
 }

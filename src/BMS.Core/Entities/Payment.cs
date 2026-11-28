@@ -31,12 +31,10 @@ namespace BMS.Core.Entities
         [MaxLength(200)]
         public string? TransactionCode { get; set; }
 
-        // VnPay transaction reference (vnp_TxnRef)
         /// <summary>VNPay transaction reference (vnp_TxnRef) or receipt number.</summary>
         [MaxLength(100)]
         public string? TxnRef { get; set; }
 
-        // Payment status: Pending, Success, Failed
         /// <summary>Payment status: Pending, Success, Failed.</summary>
         [MaxLength(50)]
         public string? Status { get; set; }

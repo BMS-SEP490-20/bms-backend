@@ -113,7 +113,6 @@ public class TestReportService : ITestReportService
             ? sample.CollectedAt.ToString("dd MMM yyyy · HH:mm")
             : (appt != null ? appt.AppointmentDate.ToString("dd MMM yyyy") : string.Empty);
 
-        // Referring doctor: Must be the ordering doctor from TestOrder / Appointment
         string referringDoctor = string.Empty;
         var docId = appt?.DoctorId;
         if (!string.IsNullOrEmpty(docId))
@@ -132,7 +131,6 @@ public class TestReportService : ITestReportService
 
         DateTime analysedTime = sample?.ReceivedAt ?? (sample?.CollectedAt != default && sample?.CollectedAt != null ? sample.CollectedAt : DateTime.UtcNow);
 
-        // Load real APPROVED test parameters from test_results (enforce Doctor approval gate before publishing report)
         var parameters = new List<TestReportParameter>();
         TestResult? approvedResult = null;
         if (_resultsCol != null)
@@ -181,7 +179,6 @@ public class TestReportService : ITestReportService
             catch { }
         }
 
-        // Real verification hash computed using SHA256
         using var sha256 = SHA256.Create();
         var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes($"{reportId}|{request.OrderId}|{patientId}|{DateTime.UtcNow:O}"));
         var verificationHash = Convert.ToHexString(hashBytes).ToLowerInvariant();

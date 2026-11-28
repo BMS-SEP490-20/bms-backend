@@ -21,7 +21,7 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
         var lot = request.LotNumber.Trim().ToUpperInvariant();
         if (string.IsNullOrWhiteSpace(request.Unit))
             throw new DomainValidationException("INVALID_INVENTORY", "Đơn vị tính không được để trống.");
-        // A deterministic ID prevents concurrent creates of the same normalized code/lot without migrating legacy IDs.
+
         var id = "REA-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code + "\0" + lot)));
         var item = new Reagent { Id = id, Code = code, LotNumber = lot, Unit = request.Unit.Trim(),
             Name = request.Name.Trim(), Manufacturer = request.Manufacturer.Trim(), Quantity = request.Quantity,
@@ -176,7 +176,6 @@ public sealed class InventoryService(IInventoryRepository repository, TimeProvid
 
     private static InventoryItemDto Map(Reagent item, DateTime today)
     {
-        // Printed expiry dates remain valid through that calendar day. BR-WAR-01 warns when fewer than 30 days remain.
         var expiry = item.ExpiryDate?.Date;
         var status = expiry is null ? "UNKNOWN_EXPIRY" : expiry < today ? "EXPIRED"
             : expiry < today.AddDays(30) ? "EXPIRING_SOON" : "AVAILABLE";

@@ -17,7 +17,7 @@ namespace BMS.ViewShifts.Controllers;
 [ApiController]
 [Route("api/view-shifts")]
 [Produces("application/json")]
-// WHY: UC36: all staff. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize(Roles = RoleSets.ShiftViewers)]
 public class ViewShiftsController(IShiftService shifts) : ControllerBase
 {

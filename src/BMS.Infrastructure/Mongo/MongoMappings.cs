@@ -35,7 +35,7 @@ public static class MongoMappings
             BsonClassMap.RegisterClassMap<User>(cm =>
             {
                 cm.AutoMap();
-                cm.SetIgnoreExtraElements(true); // document có thể có field thừa
+                cm.SetIgnoreExtraElements(true);
                 cm.MapIdMember(x => x.Id)
                   .SetSerializer(flexibleIdSerializer)
                   .SetIdGenerator(StringObjectIdGenerator.Instance);
@@ -45,7 +45,7 @@ public static class MongoMappings
             {
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
-                cm.MapIdMember(x => x.Id); // _id: int
+                cm.MapIdMember(x => x.Id);
                 cm.MapMember(x => x.RoleName).SetElementName("role_name");
                 cm.MapMember(x => x.Description).SetElementName("description");
                 cm.MapMember(x => x.Permissions).SetElementName("permissions");
@@ -79,7 +79,7 @@ public static class MongoMappings
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
             });
-            
+
             BsonClassMap.RegisterClassMap<ServicePackage>(cm =>
             {
                 cm.AutoMap();
@@ -87,7 +87,7 @@ public static class MongoMappings
                 cm.MapIdMember(x => x.Id)
                   .SetSerializer(flexibleIdSerializer)
                   .SetIdGenerator(StringObjectIdGenerator.Instance);
-                // Tiền lưu Decimal128 để so sánh/sắp xếp theo giá đúng và không mất độ chính xác
+
                 cm.MapMember(x => x.Price).SetSerializer(new DecimalSerializer(BsonType.Decimal128));
                 cm.MapMember(x => x.DiscountPrice)
                   .SetSerializer(new NullableSerializer<decimal>(new DecimalSerializer(BsonType.Decimal128)));
@@ -99,7 +99,7 @@ public static class MongoMappings
             {
                 cm.AutoMap();
                 cm.SetIgnoreExtraElements(true);
-                cm.MapIdMember(x => x.Id); // _id: string, vd "CRT-RBC"
+                cm.MapIdMember(x => x.Id);
                 cm.MapMember(x => x.Code).SetElementName("code");
                 cm.MapMember(x => x.Name).SetElementName("name");
                 cm.MapMember(x => x.Unit).SetElementName("unit");

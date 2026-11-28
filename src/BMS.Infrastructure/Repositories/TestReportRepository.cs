@@ -45,7 +45,6 @@ public class TestReportRepository : ITestReportRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -66,7 +65,6 @@ public class TestReportRepository : ITestReportRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -87,7 +85,6 @@ public class TestReportRepository : ITestReportRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -108,7 +105,6 @@ public class TestReportRepository : ITestReportRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -138,7 +134,6 @@ public class TestReportRepository : ITestReportRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -169,7 +164,6 @@ public class TestReportRepository : ITestReportRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 

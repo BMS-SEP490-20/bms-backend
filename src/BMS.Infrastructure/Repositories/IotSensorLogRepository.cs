@@ -41,14 +41,13 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback to in-memory BmsDbContext if MongoDB is unavailable
             }
         }
     }
 
     public static IEnumerable<CreateIndexModel<IotSensorLog>> LogIndexes() =>
     [
-        // Compound index supports fast device time-series range queries sorted by recorded_at descending
+
         new CreateIndexModel<IotSensorLog>(
             Builders<IotSensorLog>.IndexKeys.Ascending(x => x.DeviceId).Descending(x => x.RecordedAt),
             new CreateIndexOptions { Name = "ix_iot_logs_device_recorded_at", Background = true }),
@@ -84,14 +83,13 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback to in-memory store
             }
         }
 
         lock (_dbContext.IotSensorLogs)
         {
             _dbContext.IotSensorLogs.Add(log);
-            // Bound in-memory cache to prevent unbounded memory growth while keeping full history in MongoDB
+
             if (_dbContext.IotSensorLogs.Count > 2000)
             {
                 _dbContext.IotSensorLogs.RemoveRange(0, _dbContext.IotSensorLogs.Count - 2000);
@@ -120,7 +118,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback to in-memory store
             }
         }
 
@@ -192,7 +189,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback to in-memory
             }
         }
 
@@ -277,7 +273,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -316,7 +311,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -352,7 +346,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -379,7 +372,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -436,7 +428,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
 
@@ -470,7 +461,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
         return null;
@@ -493,7 +483,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Non-fatal
             }
         }
     }
@@ -512,7 +501,6 @@ public class IotSensorLogRepository : IIotSensorLogRepository
             }
             catch
             {
-                // Fallback
             }
         }
 

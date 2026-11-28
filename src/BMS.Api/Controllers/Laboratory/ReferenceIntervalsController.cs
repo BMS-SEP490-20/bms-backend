@@ -25,7 +25,7 @@ namespace BMS.Api.Controllers.Laboratory;
 [Route("api/laboratory/reference-intervals")]
 [Route("api/reference-intervals")]
 [Produces("application/json")]
-// WHY: UC57: read/evaluate Manager, Lab, Doctor; configure Manager / Lab only. (ROLE-PERMISSION-MATRIX §1, TIEU-CHI §1.2)
+
 [Authorize]
 public class ReferenceIntervalsController : ControllerBase
 {
@@ -152,11 +152,11 @@ public class ReferenceIntervalsController : ControllerBase
 
         try
         {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                                ?? User.FindFirst("sub")?.Value 
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                                ?? User.FindFirst("sub")?.Value
                                 ?? "USR-LAB-01";
-            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value 
-                                  ?? User.FindFirst("fullName")?.Value 
+            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value
+                                  ?? User.FindFirst("fullName")?.Value
                                   ?? "Kỹ thuật viên xét nghiệm";
 
             var testCode = !string.IsNullOrWhiteSpace(dto.TestId) ? dto.TestId : dto.CriterionCode;
@@ -208,11 +208,11 @@ public class ReferenceIntervalsController : ControllerBase
 
         try
         {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                                ?? User.FindFirst("sub")?.Value 
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                                ?? User.FindFirst("sub")?.Value
                                 ?? "USR-LAB-01";
-            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value 
-                                  ?? User.FindFirst("fullName")?.Value 
+            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value
+                                  ?? User.FindFirst("fullName")?.Value
                                   ?? "Kỹ thuật viên xét nghiệm";
 
             _logger.LogInformation("[ReferenceIntervals API] Updating reference interval {Id} by {User}", id, currentUserId);
@@ -252,11 +252,11 @@ public class ReferenceIntervalsController : ControllerBase
     {
         try
         {
-            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                                ?? User.FindFirst("sub")?.Value 
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                                ?? User.FindFirst("sub")?.Value
                                 ?? "USR-LAB-01";
-            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value 
-                                  ?? User.FindFirst("fullName")?.Value 
+            var currentUserName = User.FindFirst(ClaimTypes.Name)?.Value
+                                  ?? User.FindFirst("fullName")?.Value
                                   ?? "Kỹ thuật viên xét nghiệm";
 
             _logger.LogInformation("[ReferenceIntervals API] Deactivating reference interval {Id} by {User}", id, currentUserId);
@@ -303,8 +303,8 @@ public class ReferenceIntervalsController : ControllerBase
             var result = await _intervalService.EvaluateResultAsync(request, ct);
             return Ok(ApiResponse<EvaluateTestResultResponseDto>.Ok(
                 result,
-                result.IsPanic 
-                    ? "Chỉ số rơi vào khoảng PANIC nguy kịch đe dọa sinh mạng!" 
+                result.IsPanic
+                    ? "Chỉ số rơi vào khoảng PANIC nguy kịch đe dọa sinh mạng!"
                     : "Đánh giá chỉ số thành công."));
         }
         catch (AppException ex)

@@ -203,8 +203,6 @@ public sealed class PatientRepository : IPatientRepository
         }
         catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
-            // WHY masked + MSG-ERR-REC-01: a parallel registration with the same CCCD loses on the unique index
-            // (ux_patients_cccd) and must see the same business error as the sequential pre-check (INV-4).
             throw new PatientDuplicateException(
                 "MSG-ERR-REC-01",
                 $"Số CCCD {BMS.Core.Utilities.PiiMasker.Mask(patient.IdentityCardNumber)} đã có hồ sơ.");
@@ -234,7 +232,6 @@ public sealed class PatientRepository : IPatientRepository
     {
         try
         {
-            // Appointments entity uses camelCase BSON (patientId / appointmentDate), not snake_case.
             var filter = Builders<BsonDocument>.Filter.Or(
                 Builders<BsonDocument>.Filter.Eq("patientId", patientId),
                 Builders<BsonDocument>.Filter.Eq("patient_id", patientId),
@@ -263,7 +260,7 @@ public sealed class PatientRepository : IPatientRepository
 
                 var code = ReadString(doc, "appointmentCode", "appointment_code", "AppointmentCode");
                 var id = ReadString(doc, "_id") ?? string.Empty;
-                // Prefer real package fields — `notes` often stores room/check-in text, not package name.
+
                 var pkgName = ReadString(doc, "packageName", "testPackageName", "PackageName", "packageCode");
                 var start = ReadDate(doc, "startTime", "appointmentTime", "appointmentDate", "appointment_date");
                 var slot = ReadString(doc, "slotTime", "timeSlot");

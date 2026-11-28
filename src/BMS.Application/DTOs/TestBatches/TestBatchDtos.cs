@@ -8,10 +8,10 @@ namespace BMS.Application.DTOs.TestBatches;
 public class WellPlatePositionInputDto
 {
     [Required]
-    public string WellCoordinate { get; set; } = string.Empty; // e.g. "A1", "A2", "B1"
+    public string WellCoordinate { get; set; } = string.Empty;
 
     public bool IsControlSample { get; set; } = false;
-    public string? ControlLevel { get; set; } // "IQC Level 1", "IQC Level 2"
+    public string? ControlLevel { get; set; }
     public string? SampleId { get; set; }
     public string? Barcode { get; set; }
     public string? PatientName { get; set; }
@@ -36,7 +36,6 @@ public class CreateTestBatchRequest : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        // 1. Capacity validation
         var totalOccupied = Wells.Count;
         if (totalOccupied > Capacity)
         {
@@ -45,7 +44,6 @@ public class CreateTestBatchRequest : IValidatableObject
                 new[] { nameof(Wells), nameof(Capacity) });
         }
 
-        // 2. Duplicate well collision check
         var duplicateCoordinates = Wells
             .GroupBy(w => w.WellCoordinate.Trim().ToUpperInvariant())
             .Where(g => g.Count() > 1)
@@ -59,7 +57,6 @@ public class CreateTestBatchRequest : IValidatableObject
                 new[] { nameof(Wells) });
         }
 
-        // 3. ISO 15189 IQC Control Rule: Wells A1 and A2 must be reserved for Controls
         var a1 = Wells.FirstOrDefault(w => string.Equals(w.WellCoordinate, "A1", StringComparison.OrdinalIgnoreCase));
         var a2 = Wells.FirstOrDefault(w => string.Equals(w.WellCoordinate, "A2", StringComparison.OrdinalIgnoreCase));
 

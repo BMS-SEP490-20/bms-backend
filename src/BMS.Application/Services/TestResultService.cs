@@ -79,12 +79,12 @@ namespace BMS.Application.Services
                 throw new DomainValidationException("INVALID_RESULT_ACTOR", "Không thể xác thực người nhập kết quả.");
             var sample = await _samples.FindByCodeAsync(dto.SampleId.Trim(), ct)
                 ?? throw new ResourceNotFoundException("SAMPLE_NOT_FOUND", "Không tìm thấy mẫu xét nghiệm.");
-            // Testing + RerunRequested: cho nhập/nhập lại; Received/Processing: demo path; Collected chỉ khi chưa tách QC
+
             if (sample.IsDeleted || sample.Status is not (
                 SampleStatus.Collected or SampleStatus.Received or SampleStatus.Processing
                 or SampleStatus.Testing or SampleStatus.RerunRequested))
                 throw new ConflictStateException("SAMPLE_NOT_READY", "Mẫu chưa được lấy hoặc không còn cho phép nhập kết quả.");
-            // Resolve linked Appointment or UC32 TestOrder (supports both appointment-based and direct lab collection samples).
+
             Appointment? appointment = !string.IsNullOrWhiteSpace(sample.AppointmentId)
                 ? await _appointmentRepo.GetByIdAsync(sample.AppointmentId, ct)
                   ?? await _appointmentRepo.GetByCodeAsync(sample.AppointmentId, ct)
@@ -147,7 +147,6 @@ namespace BMS.Application.Services
                 && await _repo.AnySignedForOrderAsync([sample.Id, sample.Barcode], orderKeys, ct))
                 throw new ConflictStateException("RESULT_ALREADY_SIGNED", "Kết quả của ống mẫu này đã được duyệt/ký, không được nhập lại.");
 
-            // Resolve patient demographics (age & gender) for stratified Reference Interval evaluation (VII.28 / M5)
             int? patientAge = sample.PatientAge;
             string? patientGender = sample.PatientGender;
             if ((!patientAge.HasValue || string.IsNullOrWhiteSpace(patientGender)) && _patients != null && !string.IsNullOrWhiteSpace(sample.PatientId))
@@ -162,7 +161,7 @@ namespace BMS.Application.Services
                             patientAge = Math.Max(0, DateTime.UtcNow.Year - pat.DateOfBirth.Value.Year);
                     }
                 }
-                catch { /* non-fatal */ }
+                catch {  }
             }
 
             var items = await ValidatedItemsAsync(dto.Parameters, patientAge, patientGender, ct);
@@ -170,7 +169,6 @@ namespace BMS.Application.Services
             var panic = panicItems.Count > 0;
             var now = DateTime.UtcNow;
 
-            // M6: Preserve Analysis Run History — increment AnalysisRun/Version & supersede prior runs of this sample
             var priorRuns = await _repo.GetBySampleKeysAsync([sample.Id, sample.Barcode], ct);
             var latestPrior = priorRuns.FirstOrDefault();
             var nextRun = latestPrior != null ? Math.Max(1, priorRuns.Max(r => r.AnalysisRun)) + 1 : 1;
@@ -204,7 +202,6 @@ namespace BMS.Application.Services
                     throw new DomainValidationException("INSUFFICIENT_REAGENT_STOCK", $"Tồn kho lô {selectedLot.Code} ({selectedLot.LotNumber}) không đủ: còn {selectedLot.Quantity} {selectedLot.Unit}, cần {dto.Quantity} {selectedLot.Unit}.");
             }
 
-            // Server-generated, collision-resistant id (was "TRE" + Random 6 digits).
             var resultId = $"TRE-{now:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
             var entity = new TestResult
             {
@@ -239,7 +236,6 @@ namespace BMS.Application.Services
             }
             await _repo.AddAsync(entity, ct);
 
-            // Auto-consume reagent stock (BR-LAB-05 / UC56) when ReagentCode and Quantity > 0 are provided
             if (_inventory != null && selectedLot != null && dto.Quantity > 0)
             {
                 try
@@ -287,14 +283,12 @@ namespace BMS.Application.Services
                 }
             }
 
-            // Cập nhật trạng thái mẫu sang Completed + gán CompletedAt (phục vụ thống kê TAT thực tế)
             sample.Status = SampleStatus.Completed;
             sample.StatusString = SampleStatus.Completed.ToString();
             sample.CompletedAt = now;
             sample.UpdatedAt = now;
             await _samples.UpdateAsync(sample, ct);
 
-            // M5: Phát cảnh báo khẩn Critical Value (SLA 15 phút) cho Bác sĩ & Trưởng phòng Lab nếu có giá trị nguy kịch
             if (panic)
             {
                 try
@@ -365,13 +359,12 @@ namespace BMS.Application.Services
                 ReviewedBy: dto.ReviewedBy,
                 ReviewedAt: dto.ReviewedAt ?? DateTime.UtcNow,
                 Status: dto.Status,
-                // Parameters replace the previous set in the same atomic write (was delete + re-insert rows).
+
                 Items: measurements, IsPanic: panic);
 
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
                 throw await NotUpdatedAsync(entity.Id, "Không tìm thấy kết quả xét nghiệm để cập nhật.", ct);
 
-            // Notify the patient when the result moves into "waiting_review" (former email side effect).
             if (oldStatus != WaitingReviewStatus && dto.Status == WaitingReviewStatus)
                 await NotifyWaitingReviewAsync(entity, ct);
         }
@@ -379,7 +372,6 @@ namespace BMS.Application.Services
         /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken ct = default)
         {
-            // Soft delete: results are medical records and stay available for audit / timeline.
             var entity = await _repo.GetByIdAsync(id, ct)
                 ?? throw new ResourceNotFoundException(NotFoundCode, "Không tìm thấy kết quả xét nghiệm để xóa.");
             ThrowIfSigned(entity);
@@ -406,10 +398,8 @@ namespace BMS.Application.Services
         {
             var entity = await _repo.GetByIdAsync(id, ct)
                 ?? throw new ResourceNotFoundException(NotFoundCode, $"Test result '{id}' was not found.");
-            ThrowIfSigned(entity); // clinical seal is final; re-approving would overwrite the signer
+            ThrowIfSigned(entity);
 
-            // GATE (main flow step 4→5): only Doctor clinical approve publishes to patient portal.
-            // Requires existing Lab-entered result; Manager tech-verify is optional and does not publish.
             if (string.IsNullOrWhiteSpace(dto.ApproverId))
                 throw new DomainValidationException("MSG-ERR-DOC-APPROVE-01", "Thiếu định danh bác sĩ phê duyệt (ApproverId).");
 
@@ -447,7 +437,6 @@ namespace BMS.Application.Services
             if (!await _repo.UpdateFieldsAsync(entity.Id, changes, ct))
                 throw await NotUpdatedAsync(entity.Id, $"Test result '{id}' was not found.", ct);
 
-            // Partial Release safety (M7): chỉ chuyển lịch hẹn sang Completed khi không còn kết quả nào khác của lịch hẹn đang chờ duyệt
             if (!string.IsNullOrWhiteSpace(entity.AppointmentId))
             {
                 try
@@ -502,7 +491,6 @@ namespace BMS.Application.Services
                 throw new ConflictStateException("RESULT_SIGNED_READ_ONLY", "Kết quả đã được ký duyệt, chỉ được xem, không được sửa hay xóa.");
         }
 
-        // The repository refuses writes to signed rows atomically; tell "signed meanwhile" apart from "not found".
         private async Task<AppException> NotUpdatedAsync(string id, string notFoundMessage, CancellationToken ct)
         {
             var current = await _repo.GetByIdAsync(id, ct);
@@ -520,7 +508,6 @@ namespace BMS.Application.Services
                 return;
             }
 
-            // Lab finished entry → notify Doctor to thẩm định (main flow step 3→4). Patient does not get values yet.
             await _notificationRepo.AddAsync(new Notification
             {
                 NotificationId = $"NOT{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
@@ -592,7 +579,6 @@ namespace BMS.Application.Services
                 if (criterion is null || !criterion.IsActive || criterion.IsDeleted || string.IsNullOrWhiteSpace(p.Value))
                     throw new DomainValidationException("INVALID_RESULT_CRITERION", $"Chỉ tiêu '{lookupCode}' không tồn tại, đã ngừng dùng hoặc thiếu giá trị.");
 
-                // Try demographic Reference Interval (VII.28)
                 ReferenceIntervalEntity? matchedInterval = null;
                 if (_referenceIntervals != null)
                 {
@@ -601,7 +587,7 @@ namespace BMS.Application.Services
                         var intervals = await _referenceIntervals.GetByCriterionCodeAsync(criterion.CriterionCode, activeOnly: true, ct);
                         matchedInterval = SelectDemographicInterval(intervals, patientAge, normGender);
                     }
-                    catch { /* fallback to criterion defaults */ }
+                    catch {  }
                 }
 
                 var normalMin = matchedInterval?.NormalMin ?? criterion.NormalMin;

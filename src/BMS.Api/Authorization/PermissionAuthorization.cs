@@ -26,8 +26,6 @@ public sealed class PermissionHandler : AuthorizationHandler<PermissionRequireme
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
-        // WHY (TIEU-CHI R6): never succeed for anonymous callers. The old handler let unauthenticated
-        // "demo" requests and every staff/Manager/Admin role through, which made [HasPermission] a no-op.
         if (context.User.Identity?.IsAuthenticated != true)
             return Task.CompletedTask;
 
@@ -59,7 +57,6 @@ public sealed class PermissionPolicyProvider(IOptions<AuthorizationOptions> opti
     {
         if (policyName.StartsWith(PermissionPolicy.Prefix, StringComparison.Ordinal))
         {
-            // RequireAuthenticatedUser => anonymous callers get 401 (challenge), not 403.
             return new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .AddRequirements(new PermissionRequirement(policyName[PermissionPolicy.Prefix.Length..]))
@@ -68,4 +65,3 @@ public sealed class PermissionPolicyProvider(IOptions<AuthorizationOptions> opti
         return await base.GetPolicyAsync(policyName);
     }
 }
-

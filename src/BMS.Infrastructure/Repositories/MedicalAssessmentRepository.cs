@@ -55,7 +55,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -78,7 +77,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back to in-memory store
             }
         }
 
@@ -99,7 +97,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back
             }
         }
 
@@ -122,7 +119,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back
             }
         }
 
@@ -148,7 +144,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back
             }
         }
 
@@ -172,7 +167,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
         int limit = 20,
         CancellationToken ct = default)
     {
-        // Try MongoDB first
         if (_collection != null)
         {
             try
@@ -229,11 +223,9 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back to memory
             }
         }
 
-        // In-memory fallback
         lock (_dbContext.MedicalAssessments)
         {
             var query = _dbContext.MedicalAssessments.Where(x => !x.IsDeleted).AsQueryable();
@@ -296,7 +288,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back
             }
         }
 
@@ -339,7 +330,6 @@ public class MedicalAssessmentRepository : IMedicalAssessmentRepository
             }
             catch
             {
-                // Fall back
             }
         }
 

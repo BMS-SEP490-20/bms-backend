@@ -4,7 +4,6 @@ namespace BMS.Infrastructure.Data;
 
 public class BmsDbContext
 {
-    // Thread-safe in-memory collections for fast startup & testing
     public List<User> Users { get; } = new();
     public List<Sample> Samples { get; } = new();
     public List<AppointmentNotification> AppointmentNotifications { get; } = new();
@@ -30,7 +29,6 @@ public class BmsDbContext
 
     private void SeedInitialData()
     {
-        // Seed default users for testing role dashboards
         Users.AddRange(new[]
         {
             new User
@@ -158,19 +156,14 @@ public class BmsDbContext
             }
         });
 
-        // Không seed mẫu lab giả — hàng đợi chỉ lấy từ Mongo blood_samples (E2E sạch)
         var now = DateTime.UtcNow;
 
-        // Phlebotomy collection lists are dynamically persisted to MongoDB or loaded at runtime
-
-        // Seed default IoT thresholds (UC67)
         IotThresholds.AddRange(new[]
         {
             new IotDeviceThreshold { DeviceId = "BMS-IOT-001", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Nhiệt độ)", Location = "Blood Storage Room 01", SensorType = "Temperature", Unit = "°C", LowAlert = 2.0, HighAlert = 8.0, IntervalSeconds = 5, Status = "Active" },
             new IotDeviceThreshold { DeviceId = "BMS-IOT-001-HUM", DeviceName = "ESP32 DHT22 Tủ Bảo Quản Máu 01 (Độ ẩm)", Location = "Blood Storage Room 01", SensorType = "Humidity", Unit = "%", LowAlert = 45.0, HighAlert = 75.0, IntervalSeconds = 5, Status = "Active" },
         });
 
-        // Seed default IoT alert recipients (UC67)
         IotAlertRecipients.AddRange(new[]
         {
             new IotAlertRecipient { FullName = "Trần Minh Tuấn", Role = "Manager", Email = "tuan.tran@bms.health", Phone = "+84 901 234 567", Channels = new() { "Push", "Email" } },
@@ -178,7 +171,6 @@ public class BmsDbContext
             new IotAlertRecipient { FullName = "Phạm Thu Dung", Role = "Lab lead", Email = "dung.pham@bms.health", Phone = "+84 903 456 789", Channels = new() { "Push", "Email" } }
         });
 
-        // Seed initial technical test verification checklist (UC72)
         TestVerifications.Add(new TestResultVerification
         {
             Id = "VERIF-261006-0089",
@@ -202,7 +194,6 @@ public class BmsDbContext
             }
         });
 
-        // Seed initial sample origin trace and custody chain (UC77)
                 MedicalAssessments.Add(new MedicalAssessment
         {
             Id = "ASM-261021-0001",
@@ -289,7 +280,6 @@ public class BmsDbContext
 
     public static string HashPassword(string password)
     {
-        // Simple salt-hash for demonstrative internal store; can be swapped with BCrypt
         using var sha = System.Security.Cryptography.SHA256.Create();
         var bytes = System.Text.Encoding.UTF8.GetBytes(password + "_BMS_SALT_2026");
         var hash = sha.ComputeHash(bytes);

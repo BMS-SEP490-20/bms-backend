@@ -57,10 +57,8 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             throw new DomainValidationException("INVALID_PATIENT_ID", "Mã bệnh nhân (PatientId) không hợp lệ.");
         }
 
-        // 1. Calculate BMI and category
         var (bmi, bmiCategory) = CalculateBmi(dto.Vitals.HeightCm, dto.Vitals.WeightKg);
 
-        // 2. Validate patient existence and resolve details
         var patientName = dto.PatientName;
         var patientCode = dto.PatientCode;
         var patientDob = dto.PatientDob;
@@ -127,7 +125,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             }
         }
 
-        // Reject if patient does not exist in any store
         if (!patientFound)
         {
             throw new DomainValidationException("PATIENT_NOT_FOUND", $"Không tìm thấy hồ sơ bệnh nhân với mã '{dto.PatientId}'.");
@@ -135,19 +132,15 @@ public class MedicalAssessmentService : IMedicalAssessmentService
 
         patientName ??= $"Bệnh nhân {dto.PatientId}";
 
-        // 3. Resolve doctor details (Anti-spoofing: strictly bound to authenticated user)
         var doctorId = currentUserId;
         var doctorName = currentUserName ?? "Bác sĩ điều trị";
 
-        // 4. Resolve Order / Encounter association
-        var orderId = !string.IsNullOrWhiteSpace(dto.OrderId) 
-            ? dto.OrderId.Trim() 
+        var orderId = !string.IsNullOrWhiteSpace(dto.OrderId)
+            ? dto.OrderId.Trim()
             : (!string.IsNullOrWhiteSpace(dto.EncounterId) ? dto.EncounterId.Trim() : null);
 
-        // 5. Generate next assessment code
         var assessmentCode = await _repository.GenerateNextAssessmentCodeAsync(DateTime.UtcNow, ct);
 
-        // 6. Create Entity
         var assessment = new MedicalAssessment
         {
             AssessmentCode = assessmentCode,
@@ -204,7 +197,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
 
         await _repository.CreateAsync(assessment, ct);
 
-        // ISO 27789 Audit Trail for creation
         if (_db != null)
         {
             try
@@ -245,7 +237,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         var assessment = await _repository.GetByIdAsync(id, ct);
         if (assessment == null) return null;
 
-        // Security scoping (BR-IAM-02 / OWASP ASVS IDOR prevention): Patient can only view their own assessments
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(assessment.PatientId, currentUserId, StringComparison.OrdinalIgnoreCase))
         {
@@ -262,7 +253,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         string? currentUserRole,
         CancellationToken ct = default)
     {
-        // Security scoping (BR-IAM-02 / OWASP ASVS IDOR prevention)
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(patientId, currentUserId, StringComparison.OrdinalIgnoreCase))
         {
@@ -303,7 +293,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             }
         }
 
-        // Add default current walk-in encounter if list is empty
         if (encounters.Count == 0)
         {
             encounters.Add(new PatientEncounterDto
@@ -327,7 +316,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
         string? currentUserRole,
         CancellationToken ct = default)
     {
-        // Patient role constraint
         var targetPatientId = filter.PatientId;
         if (string.Equals(currentUserRole, "Patient", StringComparison.OrdinalIgnoreCase))
         {
@@ -369,7 +357,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
             throw new InvalidOperationException("MSG-ERR-EMR-03: ÄÃ¡nh giÃ¡ y khoa Ä‘Ã£ hoÃ n táº¥t (Finalized), khÃ´ng thá»ƒ chá»‰nh sá»­a.");
         }
 
-        // 24-hour legal lock invariant
         if (DateTime.UtcNow - assessment.CreatedAt > TimeSpan.FromHours(24))
         {
             _logger.LogWarning("Update rejected: Assessment {Code} is locked (>24 hours old)", assessment.AssessmentCode);
@@ -408,7 +395,6 @@ public class MedicalAssessmentService : IMedicalAssessmentService
 
         await _repository.UpdateAsync(assessment, ct);
 
-        // ISO 27789 Audit Trail for update
         if (_db != null)
         {
             try

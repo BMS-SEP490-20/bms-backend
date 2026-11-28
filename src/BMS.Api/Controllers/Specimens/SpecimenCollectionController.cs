@@ -14,7 +14,7 @@ namespace BMS.Api.Controllers.Specimens;
 /// </summary>
 [ApiController]
 [Route("api/specimens")]
-// WHY: collection is Lab only (ROLE-PERMISSION-MATRIX §1.5; Nurse merged into Receptionist does not sample).
+
 [Authorize(Roles = RoleNames.Lab)]
 public class SpecimenCollectionController(ISpecimenCollectionService collection) : ControllerBase
 {

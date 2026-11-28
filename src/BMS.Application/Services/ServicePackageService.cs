@@ -52,7 +52,7 @@ public sealed class ServicePackageService : IServicePackageService
     public async Task<ServicePackageDto> GetByIdAsync(string id, bool includeInactive, CancellationToken ct = default)
     {
         var p = await _packages.GetByIdAsync(id, ct);
-        // Gói đang ẩn coi như không tồn tại với người không có quyền quản lý (chống IDOR / rò rỉ dữ liệu)
+
         if (p is null || (!includeInactive && !p.IsActive))
             throw new ServicePackageNotFoundException();
         return ToDto(p, canManage: includeInactive);
@@ -64,7 +64,6 @@ public sealed class ServicePackageService : IServicePackageService
         if (await _packages.CodeExistsAsync(code, ct))
             throw new ServicePackageCodeAlreadyExistsException(code);
 
-        // Kiểm tra các Test được liên kết phải tồn tại và đang được phép sử dụng (UC15.2 / PKG-04)
         await ValidateTestsAsync(request.Tests, ct);
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -72,14 +71,13 @@ public sealed class ServicePackageService : IServicePackageService
         {
             Code = code,
             CreatedAt = now,
-            CreatedBy = userId // Backend lấy từ JWT Claims, client không thể giả mạo
+            CreatedBy = userId
         };
         Apply(entity, request);
 
         await _packages.InsertAsync(entity, ct);
         _logger.LogInformation("Service package created: {Id} ({Code}) by {UserId}", entity.Id, entity.Code, userId);
 
-        // Ghi nhận Audit Trail (ISO 27789)
         if (_auditLogs != null)
         {
             try
@@ -100,7 +98,7 @@ public sealed class ServicePackageService : IServicePackageService
                     Details = $"Created service package {entity.Code} ('{entity.Name}') with price {entity.Price:N0} VND."
                 }, ct);
             }
-            catch { /* Skip audit failure in non-blocking manner */ }
+            catch {  }
         }
 
         return ToDto(entity, canManage: true);
@@ -110,7 +108,6 @@ public sealed class ServicePackageService : IServicePackageService
     {
         var entity = await _packages.GetByIdAsync(id, ct) ?? throw new ServicePackageNotFoundException();
 
-        // Kiểm tra các Test được liên kết phải tồn tại và đang được phép sử dụng (UC15.3)
         await ValidateTestsAsync(request.Tests, ct);
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -120,14 +117,13 @@ public sealed class ServicePackageService : IServicePackageService
 
         Apply(entity, request);
         entity.UpdatedAt = now;
-        entity.UpdatedBy = userId; // Ghi nhận người cập nhật từ JWT context
+        entity.UpdatedBy = userId;
 
         if (!await _packages.ReplaceAsync(entity, ct))
             throw new ServicePackageNotFoundException();
 
         _logger.LogInformation("Service package updated: {Id} by {UserId}", entity.Id, userId);
 
-        // Ghi nhận Audit Trail kèm so sánh giá trị cũ và mới (ISO 27789 / UC15.3)
         if (_auditLogs != null)
         {
             try
@@ -158,7 +154,7 @@ public sealed class ServicePackageService : IServicePackageService
                         : $"Updated service package {entity.Code}."
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
 
         return ToDto(entity, canManage: true);
@@ -168,18 +164,16 @@ public sealed class ServicePackageService : IServicePackageService
     {
         var existing = await _packages.GetByIdAsync(id, ct) ?? throw new ServicePackageNotFoundException();
 
-        // Kiểm tra gói dịch vụ có đang được sử dụng trong các lịch hẹn/đơn xét nghiệm đang hoạt động
         if (await _packages.HasActiveDependenciesAsync(existing.Id, existing.Code, ct))
             throw new ServicePackageInUseException(existing.Code, "Gói dịch vụ đang được sử dụng trong lịch hẹn khám/xét nghiệm đang hoạt động.");
 
         var now = _clock.GetUtcNow().UtcDateTime;
-        // Soft delete: bảo toàn tính toàn vẹn và lịch sử nghiệp vụ (ISO 27789 / OWASP ASVS)
+
         var ok = await _packages.SoftDeleteAsync(existing.Id, now, userId, ct);
         if (!ok) throw new ServicePackageNotFoundException();
 
         _logger.LogInformation("Service package deleted: {Id} ({Code}) by {UserId}", existing.Id, existing.Code, userId);
 
-        // Ghi nhận Audit Trail khi xóa (UC15.5)
         if (_auditLogs != null)
         {
             try
@@ -200,11 +194,9 @@ public sealed class ServicePackageService : IServicePackageService
                     Details = $"Soft-deleted package {existing.Code} ('{existing.Name}'). Status set to INACTIVE. DeletedBy: {userId}"
                 }, ct);
             }
-            catch { /* Skip audit failure */ }
+            catch {  }
         }
     }
-
-    // ---------------------------------------------------------------------
 
     private async Task ValidateTestsAsync(List<ServicePackageTestDto>? tests, CancellationToken ct)
     {
@@ -253,7 +245,7 @@ public sealed class ServicePackageService : IServicePackageService
 
         var query = new ServicePackageQuery(
             Keyword: string.IsNullOrWhiteSpace(keyword) ? null : keyword.Trim(),
-            IsActive: includeInactive ? r.IsActive : true, // người không có quyền quản lý luôn chỉ thấy gói đang hoạt động
+            IsActive: includeInactive ? r.IsActive : true,
             MinPrice: minPrice,
             MaxPrice: maxPrice,
             SortBy: sortBy,
@@ -308,7 +300,7 @@ public sealed class ServicePackageService : IServicePackageService
         p.Tests.Select(t => new ServicePackageTestInfo(t.Code, t.Name, t.SampleType, t.Price, t.ClinicalMeaning)).ToList(),
         p.IsActive, p.CreatedAt, p.UpdatedAt, p.Category, p.PreparationNotes,
         p.TargetAudience, p.Tat, p.SampleTube, p.SampleVolumeMl, p.Highlights,
-        // Dữ liệu nội bộ chỉ trả về khi người dùng có quyền quản trị (OWASP Data Protection)
+
         CostPrice: canManage ? p.CostPrice : null,
         InternalNotes: canManage ? p.InternalNotes : null,
         CreatedBy: canManage ? p.CreatedBy : null,

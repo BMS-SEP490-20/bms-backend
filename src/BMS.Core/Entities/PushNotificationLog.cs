@@ -36,10 +36,10 @@ public class PushNotificationLog
     public string Message { get; set; } = string.Empty;
 
     [BsonElement("channel")]
-    public string Channel { get; set; } = "ALL"; // PUSH_FCM, IN_APP_WEB, SMS, EMAIL, ALL
+    public string Channel { get; set; } = "ALL";
 
     [BsonElement("priority")]
-    public string Priority { get; set; } = "NORMAL"; // NORMAL, HIGH, CRITICAL_PANIC
+    public string Priority { get; set; } = "NORMAL";
 
     [BsonElement("action_url")]
     public string? ActionUrl { get; set; }
@@ -48,7 +48,7 @@ public class PushNotificationLog
     public Dictionary<string, string> Metadata { get; set; } = new();
 
     [BsonElement("status")]
-    public string Status { get; set; } = "PENDING"; // PENDING, DELIVERED, FAILED, READ
+    public string Status { get; set; } = "PENDING";
 
     [BsonElement("retry_count")]
     public int RetryCount { get; set; } = 0;
@@ -83,7 +83,7 @@ public class DeviceTokenRegistration
     public string DeviceToken { get; set; } = string.Empty;
 
     [BsonElement("platform")]
-    public string Platform { get; set; } = "Android"; // Android, iOS, Web
+    public string Platform { get; set; } = "Android";
 
     [BsonElement("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

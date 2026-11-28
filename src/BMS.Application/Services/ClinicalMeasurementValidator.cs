@@ -18,7 +18,6 @@ public static class ClinicalMeasurementValidator
 
     private static readonly Dictionary<string, MeasurementRule> Rules = new(StringComparer.OrdinalIgnoreCase)
     {
-        // --- Huyết học (CBC-01) ---
         ["RBC"] = new(0.5, 12.0, false, "T/L"),
         ["HGB"] = new(15.0, 260.0, false, "g/L"),
         ["HCT"] = new(5.0, 85.0, false, "%"),
@@ -34,7 +33,6 @@ public static class ClinicalMeasurementValidator
         ["BASO_PCT"] = new(0.0, 100.0, true, "%"),
         ["PLT"] = new(1.0, 3000.0, false, "G/L"),
 
-        // --- Sinh hóa gan – thận – đường huyết (BIOCHEM-01, PKG-DIAB-01, PKG-LIVER-01, PKG-GEN-01) ---
         ["GLU"] = new(0.5, 60.0, false, "mmol/L"),
         ["GLUCOSE"] = new(0.5, 60.0, false, "mmol/L"),
         ["HBA1C"] = new(2.0, 25.0, false, "%"),
@@ -53,26 +51,22 @@ public static class ClinicalMeasurementValidator
         ["CRP_HS"] = new(0.0, 500.0, true, "mg/L"),
         ["CRP"] = new(0.0, 500.0, true, "mg/L"),
 
-        // --- Mỡ máu (LIPID-01) ---
         ["CHOL"] = new(0.5, 30.0, false, "mmol/L"),
         ["CHOL_T"] = new(0.5, 30.0, false, "mmol/L"),
         ["TRIG"] = new(0.1, 60.0, false, "mmol/L"),
         ["HDL_C"] = new(0.1, 6.0, false, "mmol/L"),
         ["LDL_C"] = new(0.1, 20.0, false, "mmol/L"),
 
-        // --- Điện giải ---
         ["NA"] = new(90.0, 200.0, false, "mmol/L"),
         ["K"] = new(1.0, 12.0, false, "mmol/L"),
         ["CL"] = new(60.0, 150.0, false, "mmol/L"),
         ["CA_ION"] = new(0.3, 3.5, false, "mmol/L"),
 
-        // --- Đông máu (COAG-01) ---
         ["PT_SEC"] = new(5.0, 150.0, false, "s"),
         ["PT_INR"] = new(0.5, 15.0, false, "INR"),
         ["APTT"] = new(10.0, 200.0, false, "s"),
         ["FIBRIN"] = new(0.3, 15.0, false, "g/L"),
 
-        // --- Viêm gan (HEPA-01) ---
         ["HBS_AB"] = new(0.0, 50000.0, true, "mIU/mL"),
     };
 
@@ -150,7 +144,6 @@ public static class ClinicalMeasurementValidator
                 numericByCode[item.CriterionCode.Trim().ToUpperInvariant()] = num;
         }
 
-        // 1. WBC Differential percentages must not exceed 100.5%
         var wbcPresent = WbcDiffCodes.Where(c => numericByCode.ContainsKey(c)).ToList();
         if (wbcPresent.Count >= 2)
         {
@@ -161,7 +154,6 @@ public static class ClinicalMeasurementValidator
                     $"Tổng tỷ lệ các dòng bạch cầu ({string.Join(" + ", wbcPresent)}) = {sum:0.#}% vượt quá 100%. Vui lòng kiểm tra lại.");
         }
 
-        // 2. Direct Bilirubin cannot exceed Total Bilirubin
         if (numericByCode.TryGetValue("BILI_D", out var biliD) && numericByCode.TryGetValue("BILI_T", out var biliT) && biliD > biliT)
         {
             throw new DomainValidationException(
@@ -169,7 +161,6 @@ public static class ClinicalMeasurementValidator
                 $"Bilirubin trực tiếp (BILI_D = {biliD}) không thể lớn hơn Bilirubin toàn phần (BILI_T = {biliT}).");
         }
 
-        // 3. Albumin cannot exceed Total Protein
         if (numericByCode.TryGetValue("ALB", out var alb) && numericByCode.TryGetValue("TP", out var tp) && alb > tp)
         {
             throw new DomainValidationException(

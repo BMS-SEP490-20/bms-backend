@@ -23,7 +23,6 @@ public class BackupRepository : IBackupRepository
     private readonly MongoDbContext _context;
     private readonly ILogger<BackupRepository> _logger;
 
-    // Resilient in-memory storage fallback
     private static readonly ConcurrentDictionary<string, BackupRecord> _inMemoryBackups = new();
     private static readonly ConcurrentDictionary<string, RestoreAuditLog> _inMemoryRestores = new();
     private static readonly object _initLock = new();
@@ -55,7 +54,7 @@ public class BackupRepository : IBackupRepository
                     Status = BackupStatus.Completed,
                     FilePath = "App_Data/Backups/BKP-261020-0001.json.gz",
                     FileName = "BKP-261020-0001.json.gz",
-                    FileSizeBytes = 1843200, // 1.8 MB
+                    FileSizeBytes = 1843200,
                     ChecksumSha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                     TotalRecords = 286,
                     CollectionBreakdown = new Dictionary<string, int>
@@ -84,7 +83,7 @@ public class BackupRepository : IBackupRepository
                     Status = BackupStatus.Completed,
                     FilePath = "App_Data/Backups/BKP-261019-0002.json.gz",
                     FileName = "BKP-261019-0002.json.gz",
-                    FileSizeBytes = 4718592, // 4.5 MB
+                    FileSizeBytes = 4718592,
                     ChecksumSha256 = "87556d98c2134e12e1261d76326127164b3c202022927263524a8726e6371819",
                     TotalRecords = 824,
                     CollectionBreakdown = new Dictionary<string, int>
@@ -437,7 +436,6 @@ public class BackupRepository : IBackupRepository
                 int imported = 0;
                 if (overwrite)
                 {
-                    // Full snapshot overwrite: Clear existing documents to restore true point-in-time state
                     await col.DeleteManyAsync(Builders<BsonDocument>.Filter.Empty, ct);
                     if (docs.Count > 0)
                     {

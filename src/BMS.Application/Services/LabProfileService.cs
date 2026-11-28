@@ -80,7 +80,7 @@ public sealed class LabProfileService(ILabProfileRepository repository, TimeProv
         if (current.Revision != input.ExpectedRevision) throw Stale();
         var now = clock.GetUtcNow().UtcDateTime;
         var clinicDayStart = DateTime.SpecifyKind(now.AddHours(7).Date.AddHours(-7), DateTimeKind.Utc);
-        // This dependency read is not a cross-collection transaction; assignment writers must coordinate separately.
+
         if (await repository.HasCurrentAssignmentsAsync(current.Id, clinicDayStart, ct))
             throw new LabProfileConflictException("Nhân viên còn phân công Lab trong ngày/tương lai hoặc chưa rõ ngày. Hãy xử lý phân công trước khi xóa.");
         var audit = new LabProfileAudit("Delete", actor.Id, actor.Name, now, input.Reason.Trim(),
